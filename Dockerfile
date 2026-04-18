@@ -23,5 +23,6 @@ COPY job_search_seen.json ./job_search_seen.json
 COPY job_search_applied.json ./job_search_applied.json
 COPY .env.example ./.env.example
 
-CMD ["node", "dist/job-search/run.js"]
+# Start the NestJS server (not the job scraper)
+CMD ["node", "dist/main"]
 
