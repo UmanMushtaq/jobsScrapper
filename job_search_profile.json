@@ -18,16 +18,16 @@
       "TypeScript Backend Engineer",
       "Software Engineer",
       "Full Stack Engineer (Backend heavy)",
-      "Senior Backend Developer",
       "Backend Software Engineer"
     ],
     "queries": [
-      "Node.js backend developer remote Europe",
-      "TypeScript backend engineer remote France",
-      "Node.js PostgreSQL developer remote",
-      "backend engineer fintech crypto remote",
-      "Node.js microservices Docker remote Paris",
-      "TypeScript backend remote English"
+      "Node.js backend",
+      "TypeScript backend",
+      "NestJS",
+      "Node.js PostgreSQL",
+      "Backend API",
+      "Software Engineer Node.js",
+      "Backend Engineer"
     ],
     "requiredKeywords": [
       "Node.js", "TypeScript",  "Express.js",
@@ -56,8 +56,9 @@
     "minimumSalaryMonthlyEur": 3000,
     "language": "en",
     "maxResults": 20,
-    "maxAgeHours": 24,
+    "maxAgeHours": 168,
     "checkIntervalHours": 1,
+    "seenTtlHours": 1,
     "willingToRelocate": true,
     "preferredCountries": [
       "FR"
@@ -65,7 +66,7 @@
     "acceptRemote": true,
     "acceptHybrid": true,
     "acceptOnSite": true,
-    "usaJobs": true,
+    "usaJobs": false,
     "startupJobs": true,
     "startupPrioritySources": [
       "wellfound.com",
@@ -143,4 +144,3 @@
     ]
   }
 }
-

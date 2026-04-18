@@ -11,6 +11,7 @@
     "jobs:scan": "npm run build && node dist/job-search/run.js",
     "jobs:scan:dev": "ts-node src/job-search/run.ts",
     "jobs:applied:add": "ts-node src/job-search/mark-applied.ts",
+    "jobs:dismiss:add": "ts-node src/job-search/mark-dismissed.ts",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",

@@ -1,403 +1,109 @@
 # Job Search Bot
 
-Automated job search bot for Node Js and Nest Js positions across European Union, USA, and global startup platforms. Scans multiple job sources, filters by location preferences (France priority), relocation support, work mode, and experience level. Sends curated matches to Telegram every 3 hours.
+This project now runs as a Railway-friendly Nest service for Uman Mushtaq's job search. It keeps an HTTP server alive for healthchecks and dashboard access, runs job scans on an interval, stores recent matches, and lets jobs be marked as `applied` or `dismissed` without editing JSON by hand.
 
-## Key Features
+## What it does
 
-✅ **Multi-source job boards** (architecture ready for):
-  - Welcome to the Jungle (currently active)
-  - LinkedIn Jobs
-  - Indeed
-  - Glassdoor  
-  - EURES (EU portal)
-  - AngelList/Wellfound (startups)
-  - GitHub Jobs
-  - Country-specific boards
+- Serves `GET /health` for Railway healthchecks
+- Serves `GET /` as a small dashboard with:
+  - last run status
+  - next run time
+  - current matches
+  - buttons to mark jobs as `Applied` or `Dismiss`
+- Runs the scanner automatically in-process every `CHECK_INTERVAL_MINUTES`
+- Expires `seen` cache after `seenTtlHours` from `job_search_profile.json`
+- Keeps `applied` and `dismissed` jobs permanently so they do not come back
+- Prioritizes startup companies across all fetched jobs, not just startup job boards
 
-✅ **Smart Location Filtering**:
-  - France priority (100/100 score)
-  - EU countries acceptable (60-85/100)
-  - Relocation detection & scoring
-  - USA support
-  - Automatic country code validation
+## Current source status
 
-✅ **Job Preferences**:
-  - Remote, Hybrid, and On-site positions
-  - Startup detection & prioritization
-  - IoT-specific keywords (MQTT, LoRa, Zigbee, etc.)
-  - Experience level filtering (3-5 years)
-  - Salary filtering (€3000+ monthly)
-  - Language filtering (English)
+Active:
 
-✅ **Scheduling**:
-  - **Local**: Every 3 hours (continuous mode)
-  - **Deployed**: Every 3 hours via Kubernetes CronJob
-  - Persistent history of seen/applied jobs
+- `welcometothejungle.com`
 
-✅ **Telegram Integration**:
-  - Real-time job notifications
-  - Match scores & location details
-  - Direct apply links
-  - Relocation support indicators
+Tracked but blocked in this environment:
 
-## What works today
+- `wellfound.com`
+- `startup.jobs`
+- `indeed.com`
+- `linkedin.com`
 
-- **Active data source**: Welcome to the Jungle (automatic)
-- **Filters**: English language, France + EU + USA regions
-- **Rejects**: Internships, senior/staff/lead roles, outside 3-5 year band
-- **Scoring**: 90%+ match on IoT keywords, experience, salary
-- **Storage**: Seen/applied URLs prevent duplicates
-- **Reporting**: Markdown reports + Telegram notifications
+## Interval and cache logic
 
-## 🚀 Quick Deploy to Railway
+- Default interval: `60` minutes
+- Config source: `CHECK_INTERVAL_MINUTES`
+- Default seen-cache TTL: `1` hour
+- Config source: `job_search_profile.json -> search.seenTtlHours`
+- Search window: latest `7` days by default
+- Fallback behavior: if no strong matches are found in the normal window, the bot broadens the search window automatically so it does not stay empty for weeks
 
-Want to deploy and start getting job notifications automatically?
+## Job decisions
 
-### 1. Set up Telegram Bot
+There are 3 job states:
+
+- `seen`: temporary, expires after the TTL
+- `applied`: permanent, never shown again
+- `dismissed`: permanent, never shown again
+
+You can set decisions in 2 ways:
+
 ```bash
-# Create bot with @BotFather, get token and chat ID
-# Add to .env file
-TELEGRAM_BOT_TOKEN=your_token
-TELEGRAM_CHAT_ID=your_chat_id
+npm run jobs:applied:add -- 'https://job-link'
+npm run jobs:dismiss:add -- 'https://job-link'
 ```
 
-### 2. Deploy to Railway (Free)
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-railway login
+Or from the dashboard at `/` by pressing `Applied` or `Dismiss`.
 
-# Create project
-railway init iot-job-bot
-
-# Set environment variables
-railway variables set TELEGRAM_BOT_TOKEN your_token
-railway variables set TELEGRAM_CHAT_ID your_chat_id
-
-# Deploy
-git add .
-git commit -m "Deploy to Railway"
-git push origin main
-```
-
-### 3. Set up Cron Job
-In Railway dashboard → Cron Jobs:
-- **Command**: `npm run jobs:scan`
-- **Schedule**: `0 */3 * * *` (every 3 hours)
-
-**That's it!** You'll get IoT job matches sent to your Telegram every 3 hours.
-
-## Architecture for Extensibility
-
-The bot is structured to support multiple job sources:
-
-```
-src/job-search/sources/
-├── wttj.source.ts          ✅ Currently active
-├── multi-source.ts         📋 Stub implementations:
-│   ├── GitHubJobsSource()
-│   ├── LinkedInJobsSource()
-│   ├── IndeedJobsSource()
-│   ├── GlassdoorJobsSource()
-│   ├── EuresJobsSource()
-│   └── AngelListSource()
-├── registry.ts             🔧 Source manager
-├── location-filter.ts      🌍 Location scoring
-└── [future sources]
-```
-
-To add a new job board, implement the `JobSource` interface and register it. See `multi-source.ts` for API recommendations.
-
-## Local Setup
+## Local run
 
 ```bash
 npm install
 cp .env.example .env
-mkdir -p data
+npm run build
+node dist/main
 ```
 
-Add your Telegram values to `.env`:
-
-```bash
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-```
-
-## Running Locally
-
-### Single Scan (One-time search)
+One-off scan:
 
 ```bash
 npm run jobs:scan
 ```
 
-Output: `job_search_latest.md` with matches found, Telegram notification sent.
+## Railway deploy
 
-### Continuous Mode (Every 3 hours - ideal for local dev)
+This app is designed to run as a Railway web service, not as a one-off worker.
 
-**Option 1: Docker Compose** (recommended)
-```bash
-docker compose up --build
-```
-
-**Option 2: Direct Node.js**
-```bash
-RUN_MODE=continuous npm run jobs:scan
-```
-
-This will:
-- Check for new jobs every 3 hours
-- Run indefinitely until you stop it (Ctrl+C)
-- Store persistent history in `data/`
-- Send Telegram notifications for each batch
-
-### Helper Commands
+### Required Railway variables
 
 ```bash
-# scan without cached build
-npm run jobs:scan:dev
-
-# mark a job as already applied (won't show again)
-npm run jobs:applied:add -- 'https://example.com/job-link'
-
-# reset history (WARNING: clears seen/applied jobs)
-rm data/job_search_*.json
-```
-
-## Telegram Bot Setup
-
-1. Open Telegram and search for **@BotFather**
-2. Send `/newbot` and follow prompts
-3. Copy the bot token (looks like `123456:ABC-DEF...`)
-4. Start a chat with your new bot and send any message
-5. Visit: `https://api.telegram.org/bot<YOUR_TOKEN>/getMe`
-6. Find your Chat ID or use **@userinfobot** → `/start`
-7. Add both to `.env`:
-   ```
-   TELEGRAM_BOT_TOKEN=...
-   TELEGRAM_CHAT_ID=...
-   ```
-
-## Docker
-
-Single scan in container:
-
-```bash
-docker build -t iot-job-bot .
-docker run --rm --env-file .env -v "$(pwd)/data:/data" iot-job-bot
-```
-
-Continuous monitoring with Compose:
-
-```bash
-docker compose up --build
-```
-
-## Kubernetes Deployment
-
-### 1. Create Namespace
-
-```bash
-kubectl create namespace job-bot
-```
-
-### 2. Create Secret (with your Telegram credentials)
-
-```bash
-kubectl create secret generic job-bot-secrets \
-  --from-literal=TELEGRAM_BOT_TOKEN=8793734794:AAFPxBRJjaSYj6ui3IVGgS0pVW0MQO1T3lA \
-  --from-literal=TELEGRAM_CHAT_ID=123456789 \
-  -n job-bot
-```
-
-### 3. Create PersistentVolumeClaim
-
-```bash
-kubectl apply -f k8s/pvc.yaml -n job-bot
-```
-
-### 4. Deploy CronJob
-
-Update image in `k8s/cronjob.yaml`:
-```yaml
-image: your-registry/iot-job-bot:latest
-```
-
-Then deploy:
-```bash
-kubectl apply -f k8s/cronjob.yaml -n job-bot
-```
-
-**Schedule**: `0 */3 * * *` → Every 3 hours at minute 0 (00:00, 03:00, 06:00, etc.)
-
-**Monitor**:
-```bash
-kubectl get cronjobs -n job-bot
-kubectl get jobs -n job-bot --sort-by=.metadata.creationTimestamp
-kubectl logs -n job-bot -f job-job-bot-<timestamp>
-```
-
-## Configuration
-
-Edit `job_search_profile.json`:
-
-### Search Queries
-```json
-"queries": [
-  "IoT engineer",
-  "embedded systems",
-  "firmware engineer",
-  "MQTT developer",
-  ...
-]
-```
-
-### Location Priorities
-```json
-"preferredCountries": ["FR"],      // France gets highest score
-"acceptRemote": true,               // Accept remote jobs
-"acceptHybrid": true,               // Accept hybrid 
-"acceptOnSite": true,               // Accept on-site
-"willingToRelocate": true,          // Unlock EU on-site jobs
-"usaJobs": true,                    // Include USA positions
-"startupJobs": true,                // Include startup roles
-```
-
-### Blacklist Countries
-```json
-"excludedCountries": ["RO", "BG", "LT", "CY", "LV", "HR"]
-```
-
-### Keywords
-```json
-"requiredKeywords": [
-  "iot", "embedded", "firmware", "mqtt", "lora", ...
-],
-"preferredKeywordGroups": [...],
-"relocationKeywords": [
-  "relocation", "visa sponsorship", "assistance provided", ...
-]
-```
-
-### Scheduling
-```json
-"checkIntervalHours": 3,          // Run every 3 hours
-"maxAgeHours": 24,                // Only jobs from last 24h
-"maxResults": 20                  // Max matches per scan
-```
-
-## Adding New Job Sources
-
-Example: Add LinkedIn jobs
-
-1. Create `src/job-search/sources/linkedin.source.ts`:
-
-```typescript
-import { JobPosting, SearchSettings } from '../types';
-import { JobSource } from './registry';
-
-export class LinkedInJobsSource implements JobSource {
-  name = 'linkedin';
-  priority = 2; // Lower number = higher priority
-
-  async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
-    // 1. Authenticate (LinkedIn API requires OAuth)
-    // 2. Query jobs for each search term
-    // 3. Filter by country, experience, salary
-    // 4. Map to JobPosting interface
-    // 5. Return array of jobs
-    
-    return [];
-  }
-}
-```
-
-2. Register in `src/job-search/run.ts`:
-
-```typescript
-import { LinkedInJobsSource } from './sources/linkedin.source';
-
-// Add to existing sources:
-registry.register(new LinkedInJobsSource());
-```
-
-3. Get API credentials:
-   - LinkedIn: https://business.linkedin.com/talent-solutions/recruiting
-   - Indeed: https://opensource.indeedapis.com/
-   - EURES: https://ec.europa.eu/eures/api/docs
-   - AngelList: https://angel.co/api/
-
-## Environment Variables
-
-```bash
-# Telegram
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-
-# File locations
+RUN_MODE=continuous
+CHECK_INTERVAL_MINUTES=60
+TELEGRAM_BOT_TOKEN=your_real_bot_token
+TELEGRAM_CHAT_ID=your_real_chat_id
 JOB_SEARCH_SEEN_FILE=/data/job_search_seen.json
 JOB_SEARCH_APPLIED_FILE=/data/job_search_applied.json
+JOB_SEARCH_DISMISSED_FILE=/data/job_search_dismissed.json
 JOB_SEARCH_REPORT_PATH=/data/job_search_latest.md
-
-# Job search limits
-JOB_SEARCH_MAX_RESULTS=20
-JOB_SEARCH_MAX_PAGES=2
-
-# Execution mode
-RUN_MODE=once              # 'once' for single run, 'continuous' for 3-hour loops
+JOB_SEARCH_STATE_FILE=/data/job_search_state.json
+WTTJ_MAX_PAGES=2
 ```
 
-## Troubleshooting
+### Important Railway notes
 
-**No jobs found?**
-- Check `job_search_latest.md` for the report
-- Verify search queries in `job_search_profile.json`
-- Ensure location filters aren't too restrictive
-- Try increasing `JOB_SEARCH_MAX_PAGES`
+- Missing Telegram secrets will **not** break the app anymore
+- The app still runs and the dashboard/healthcheck still works without Telegram
+- Railway healthcheck should use `/health`
+- Railway cron is not required for the main behavior anymore, because the service schedules itself in-process
 
-**Telegram not working?**
-- Verify token and chat ID: `curl https://api.telegram.org/bot<TOKEN>/getMe`
-- Ensure bot is started: Send message to bot, then check `getUpdates`
-- Check logs for errors
+## Verification
 
-**Jobs repeating?**
-- Seen/applied history in `data/` directory
-- Delete to reset: `rm data/job_search_*.json`
+```bash
+npm run build
+npm test -- matcher
+npm test -- storage
+curl http://127.0.0.1:3000/health
+```
 
-**Building in Docker fails?**
-- Ensure `docker compose up` is run from project root
-- Check Docker daemon is running: `docker version`
+## About generated text
 
-## Performance Notes
-
-- **WTTJ API**: ~500-1000ms per query, 50 results per page
-- **Algolia**: Rate limited but generous for public indexes
-- **Multi-source**: Runs parallel fetches with 3s+ timeout
-- **Deduplication**: Fast Set-based lookup (O(1))
-- **Scoring**: ~50ms for 100+ jobs with full profile matching
-
-## Future Enhancements
-
-- [ ] LinkedIn API integration (requires partnership)
-- [ ] Indeed API integration (requires API key)
-- [ ] EURES integration (public API available)
-- [ ] Email fallback (if Telegram unavailable)
-- [ ] Web dashboard for job review
-- [ ] Apply automation (careful with agreements!)
-- [ ] Salary trend tracking
-- [ ] Tag-based job filtering
-- [ ] Cover letter generation refinement
-
-## About Generated Content
-
-The bot creates tailored cover letter drafts grounded in your experience. However, reviewers may detect AI assistance. **Always review and edit before sending.**
-
----
-
-**Created by**: Uman Mushtaq  
-**IT Jobs**: Node Js, Nest JS  
-**Target**: France (priority), EU (with relocation support), USA (remote/startup)  
-**Update Frequency**: Every 1 hour (local/deployed)
-
-Trigger deployment
-Force deployment trigger
+The bot creates tailored cover letter drafts grounded in your experience. They are much more specific than generic AI templates, but you should still review and lightly edit them before sending.

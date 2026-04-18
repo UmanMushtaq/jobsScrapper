@@ -1,6 +1,6 @@
-import { JobPosting } from '../types';
+import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
-import { SearchSettings } from '../types';
+
 interface WttjHit {
   name: string;
   summary: string | null;
@@ -28,12 +28,13 @@ interface WttjHit {
     slug: string;
     summary?: string;
     description?: string;
+    nb_employees?: number | null;
+    creation_year?: number | null;
   };
 }
 
 interface WttjResponse {
   hits: WttjHit[];
-  page: number;
   nbPages: number;
 }
 
@@ -42,56 +43,43 @@ const ALGOLIA_API_KEY = '4bd8f6215d0cc52b26430765769e65a0';
 const INDEX_NAME = 'wttj_jobs_production_en_published_at_desc';
 const SOURCE = 'welcometothejungle.com';
 
-const CONFIG = {
-  requiredKeywords: ["Node.js", "TypeScript", "Express.js", "PostgreSQL", "Sequelize", "Docker", "microservices", "backend", "fintech", "crypto", "trading platform", "API", "RESTful", "CI/CD"],
-  excludedTitleKeywords: ["intern", "internship", "apprentice", "apprenticeship", "student", "senior", "staff", "lead", "principal", "head of", "manager"],
-  minExperience: 3,
-  maxExperience: 6,
-  minimumSalaryMonthlyEur: 3000,
-  acceptRemote: true,
-  acceptHybrid: true,
-  acceptOnSite: true,
-  maxAgeHours: 168,
-  preferredCountries: ["FR"] as string[],
-  europeCountryCodes: ["AL","AD","AT","BE","BA","CH","CZ","DE","DK","EE","ES","FI","FR","GB","GR","HU","IE","IS","IT","LI","LU","ME","MK","MT","NL","NO","PL","PT","RS","SE","SI","SK"] as string[],
-  language: "en",
-  maxResults: 30,
-};
+export class WttjJobsSource implements JobSource {
+  name = SOURCE;
+  priority = 2;
 
-export async function fetchWttjJobs(queries: string[], maxPages = 3): Promise<JobPosting[]> {
-  const jobs = new Map<string, JobPosting>();
-  const searchTerms = "Node.js backend";   // ← very broad for testing
+  async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+    const jobs = new Map<string, JobPosting>();
+    const effectiveQueries = queries.length > 0 ? queries : settings.queries;
+    const maxPages = Number(process.env.WTTJ_MAX_PAGES ?? 2);
 
-  console.log(`[WTTJ DEBUG] Starting search with: "${searchTerms}"`);
+    for (const query of effectiveQueries) {
+      for (let page = 0; page < maxPages; page += 1) {
+        const response = await runQuery(query, page, settings.language);
+        for (const hit of response.hits) {
+          const job = mapHit(hit);
+          jobs.set(job.canonicalUrl, job);
+        }
 
-  let totalRaw = 0;
-  let passedFilter = 0;
-
-  for (let page = 0; page < maxPages; page += 1) {
-    const response = await runQuery(searchTerms, page);
-    totalRaw += response.hits.length;
-
-    for (const hit of response.hits) {
-      const job = mapHit(hit);
-      if (shouldKeepJob(job)) {
-        passedFilter++;
-        jobs.set(job.canonicalUrl, job);
+        if (page + 1 >= response.nbPages) {
+          break;
+        }
       }
     }
-    if (page + 1 >= response.nbPages) break;
+
+    return Array.from(jobs.values());
   }
-
-  console.log(`[WTTJ DEBUG] Raw jobs from Algolia: ${totalRaw} | Passed filters: ${passedFilter} | Final jobs: ${jobs.size}`);
-
-  return Array.from(jobs.values()).slice(0, CONFIG.maxResults);
 }
 
-async function runQuery(query: string, page: number): Promise<WttjResponse> {
+async function runQuery(
+  query: string,
+  page: number,
+  language: string,
+): Promise<WttjResponse> {
   const params = new URLSearchParams({
     query,
     hitsPerPage: '50',
     page: String(page),
-    filters: `language:${CONFIG.language}`,
+    filters: `language:${language}`,
   });
 
   const response = await fetch(
@@ -105,30 +93,34 @@ async function runQuery(query: string, page: number): Promise<WttjResponse> {
         referer: 'https://www.welcometothejungle.com/',
       },
       body: JSON.stringify({ params: params.toString() }),
-    }
+    },
   );
 
-  if (!response.ok) throw new Error(`WTTJ query failed: ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`WTTJ query failed: ${response.status}`);
+  }
+
   return (await response.json()) as WttjResponse;
 }
 
 function mapHit(hit: WttjHit): JobPosting {
   const primaryOffice = hit.offices[0] ?? {};
   const city = primaryOffice.city ?? null;
+  const country = primaryOffice.country ?? 'Unknown';
   const countryCode = primaryOffice.country_code?.toUpperCase() ?? null;
-  const workMode = hit.remote === 'full' ? 'remote' : hit.has_remote ? 'hybrid' : 'on-site';
-
+  const workMode =
+    hit.remote === 'full' ? 'remote' : hit.has_remote ? 'hybrid' : 'on-site';
   const canonicalUrl = `https://www.welcometothejungle.com/en/companies/${hit.organization.slug}/jobs/${hit.slug}`;
 
   return {
     source: SOURCE,
-    sourcePriority: 3,
+    sourcePriority: 2,
     canonicalUrl,
     title: hit.name,
     company: hit.organization.name,
     companySummary: hit.organization.summary ?? hit.organization.description ?? '',
     companySlug: hit.organization.slug,
-    locationLabel: city ? `${city}, ${primaryOffice.country ?? 'Unknown'}` : primaryOffice.country ?? 'Unknown',
+    locationLabel: city ? `${city}, ${country}` : country,
     countryCode,
     city,
     workMode,
@@ -145,49 +137,36 @@ function mapHit(hit: WttjHit): JobPosting {
     publishedAtTimestamp: hit.published_at_timestamp,
     startupSignals: [],
     applyUrl: canonicalUrl,
-    offersRelocation: false,
-    isStartup: false,
+    offersRelocation: containsAny(
+      `${hit.summary ?? ''} ${stripMarkup(hit.profile)} ${hit.organization.summary ?? ''}`.toLowerCase(),
+      ['relocation', 'visa sponsorship', 'visa sponsor', 'sponsorship'],
+    ),
+    isStartup: isLikelyStartup(hit),
+    employeeCount: hit.organization.nb_employees ?? null,
+    companyCreationYear: hit.organization.creation_year ?? null,
   };
 }
 
-function shouldKeepJob(job: JobPosting): boolean {
-  const titleLower = job.title.toLowerCase();
-  const descLower = job.description.toLowerCase();
-
-  const matched = CONFIG.requiredKeywords.filter(kw => 
-    titleLower.includes(kw.toLowerCase()) || descLower.includes(kw.toLowerCase())
-  );
-  if (matched.length < 1) return false;
-
-  if (CONFIG.excludedTitleKeywords.some(kw => titleLower.includes(kw))) return false;
-
-  if (job.experienceLevelMinimum !== null) {
-    if (job.experienceLevelMinimum < CONFIG.minExperience || job.experienceLevelMinimum > CONFIG.maxExperience) return false;
+function stripMarkup(value: string | null | undefined): string {
+  if (!value) {
+    return '';
   }
 
-  if (!CONFIG.acceptRemote && job.workMode === 'remote') return false;
-  if (!CONFIG.acceptHybrid && job.workMode === 'hybrid') return false;
-  if (!CONFIG.acceptOnSite && job.workMode === 'on-site') return false;
-
-  const countryCode = job.countryCode ?? '';
-  if (countryCode && 
-      !CONFIG.preferredCountries.includes(countryCode) &&
-      !CONFIG.europeCountryCodes.includes(countryCode)) return false;
-
-  return true;
-}
-
-function stripMarkup(value: string | null | undefined): string {
-  if (!value) return '';
   return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function containsAny(text: string, tokens: string[]): boolean {
+  return tokens.some((token) => text.includes(token));
+}
 
-export class WttjJobsSource implements JobSource {
-  name = 'wttj';
-  priority = 3;
+function isLikelyStartup(hit: WttjHit): boolean {
+  const text = `${hit.organization.summary ?? ''} ${hit.organization.description ?? ''} ${hit.summary ?? ''}`.toLowerCase();
+  const employeeCount = hit.organization.nb_employees ?? null;
+  const creationYear = hit.organization.creation_year ?? null;
 
-  async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
-    return fetchWttjJobs(queries, 3);
-  }
+  return (
+    containsAny(text, ['startup', 'startup studio', 'seed', 'series a', 'early-stage', 'founding']) ||
+    (employeeCount !== null && employeeCount <= 300) ||
+    (creationYear !== null && creationYear >= new Date().getUTCFullYear() - 10)
+  );
 }

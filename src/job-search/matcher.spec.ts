@@ -22,9 +22,20 @@ const profile: SearchProfile = {
     language: 'en',
     maxResults: 15,
     maxAgeHours: 24,
+    checkIntervalHours: 1,
+    seenTtlHours: 1,
+    willingToRelocate: true,
+    preferredCountries: ['FR'],
+    acceptRemote: true,
+    acceptHybrid: true,
+    acceptOnSite: true,
+    usaJobs: false,
+    startupJobs: true,
     startupPrioritySources: ['wellfound.com', 'startup.jobs', 'welcometothejungle.com'],
     excludedCountries: ['RO'],
     europeCountryCodes: ['FR', 'DE'],
+    usaCountryCodes: ['US'],
+    relocationKeywords: ['relocation', 'visa sponsorship'],
     excludedTitleKeywords: ['senior', 'lead'],
   },
 };
@@ -56,6 +67,8 @@ function buildJob(overrides: Partial<JobPosting> = {}): JobPosting {
     publishedAtTimestamp: 1775894400,
     startupSignals: [],
     applyUrl: 'https://example.com/job',
+    offersRelocation: false,
+    isStartup: true,
     ...overrides,
   };
 }
@@ -79,4 +92,3 @@ describe('scoreJob', () => {
     expect(result).toBeNull();
   });
 });
-

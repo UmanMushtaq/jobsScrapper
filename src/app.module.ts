@@ -1,13 +1,10 @@
 import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 
-/**
- * Minimal AppModule for IoT Job Search Bot
- * This module just keeps the NestJS server running
- * Actual job scanning runs via cron jobs via "npm run jobs:scan"
- */
 @Module({
   imports: [],
-  controllers: [],
-  providers: [],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}

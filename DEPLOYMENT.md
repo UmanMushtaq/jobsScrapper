@@ -164,8 +164,8 @@ kubectl create namespace job-bot
 
 ```bash
 kubectl create secret generic job-bot-secrets \
-  --from-literal=TELEGRAM_BOT_TOKEN=8793734794:AAFPxBRJjaSYj6ui3IVGgS0pVW0MQO1T3lA \
-  --from-literal=TELEGRAM_CHAT_ID=123456789 \
+  --from-literal=TELEGRAM_BOT_TOKEN=your_real_bot_token \
+  --from-literal=TELEGRAM_CHAT_ID=your_real_chat_id \
   -n job-bot
 ```
 

@@ -25,6 +25,7 @@ export interface SearchSettings {
   maxResults: number;
   maxAgeHours: number;
   checkIntervalHours: number;
+  seenTtlHours?: number;
   willingToRelocate: boolean;
   preferredCountries: string[];
   acceptRemote: boolean;
@@ -67,6 +68,8 @@ export interface JobPosting {
   applyUrl: string;
   offersRelocation: boolean;
   isStartup: boolean;
+  employeeCount?: number | null;
+  companyCreationYear?: number | null;
 }
 
 export interface MatchResult {
@@ -79,3 +82,32 @@ export interface MatchResult {
   shortAnswers: string[];
 }
 
+export interface RunSummary {
+  reportPath: string;
+  allJobsCount: number;
+  freshJobsCount: number;
+  matchCount: number;
+  matches: MatchResult[];
+  blockedSources: string[];
+  activeSources: string[];
+  ranAt: string;
+}
+
+export interface JobSearchState {
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastRunStatus: 'idle' | 'running' | 'success' | 'error';
+  lastError: string | null;
+  latestMatches: MatchResult[];
+  reportPath: string | null;
+  blockedSources: string[];
+  activeSources: string[];
+  stats: {
+    allJobsCount: number;
+    freshJobsCount: number;
+    matchCount: number;
+  };
+  intervalMinutes: number;
+  seenTtlHours: number;
+  nextRunAt: string | null;
+}
