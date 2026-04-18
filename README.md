@@ -1,6 +1,6 @@
 # Job Search Bot
 
-Automated job search bot for IoT/Embedded Systems positions across European Union, USA, and global startup platforms. Scans multiple job sources, filters by location preferences (France priority), relocation support, work mode, and experience level. Sends curated matches to Telegram every 3 hours.
+Automated job search bot for Node Js and Nest Js positions across European Union, USA, and global startup platforms. Scans multiple job sources, filters by location preferences (France priority), relocation support, work mode, and experience level. Sends curated matches to Telegram every 3 hours.
 
 ## Key Features
 
