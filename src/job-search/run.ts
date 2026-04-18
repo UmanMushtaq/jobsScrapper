@@ -89,4 +89,8 @@ async function ensureOutputDir(filePath: string): Promise<void> {
   await mkdir(dirname(resolve(filePath)), { recursive: true });
 }
 
-main().catch(console.error);
+// Only run if this file is executed directly (via npm run jobs:scan)
+// Not when imported as a module during app startup
+if (require.main === module) {
+  main().catch(console.error);
+}
