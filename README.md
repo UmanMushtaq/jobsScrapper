@@ -399,3 +399,4 @@ The bot creates tailored cover letter drafts grounded in your experience. Howeve
 **Target**: France (priority), EU (with relocation support), USA (remote/startup)  
 **Update Frequency**: Every 3 hours (local/deployed)
 
+Trigger deployment
