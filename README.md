@@ -394,10 +394,10 @@ The bot creates tailored cover letter drafts grounded in your experience. Howeve
 
 ---
 
-**Created for**: Uman Mushtaq  
-**IoT Focus**: Embedded Systems, Firmware, MQTT, LoRa  
+**Created by**: Uman Mushtaq  
+**IT Jobs**: Node Js, Nest JS  
 **Target**: France (priority), EU (with relocation support), USA (remote/startup)  
-**Update Frequency**: Every 3 hours (local/deployed)
+**Update Frequency**: Every 1 hour (local/deployed)
 
 Trigger deployment
 Force deployment trigger
