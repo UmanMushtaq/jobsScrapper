@@ -1,0 +1,12 @@
+.git
+.idea
+.vscode
+coverage
+dist
+node_modules
+*.log
+Uman Mushtaq Resume.pdf
+resume_extracted.txt
+job_search_latest.md
+data
+

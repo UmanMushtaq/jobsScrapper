@@ -1,0 +1,146 @@
+{
+"candidate": {
+    "name": "Uman Mushtaq",
+    "location": "Paris, France",
+    "summary": "Backend Software Engineer with 4+ years building scalable, high-throughput systems in Node.js, TypeScript, Nest.js/Express, PostgreSQL, Docker, and microservices. Specialized in fintech and cryptocurrency platforms (real-time trading, asset-backed tokens, blockchain integrations). Recent MBA graduate from Paris School of Business. Seeking remote EU or Paris-based roles with English communication.",
+    "coreSkills": [
+      "Node.js", "TypeScript", "Nest.js", "Express.js",
+      "PostgreSQL", "Sequelize", "Docker", "microservices",
+      "backend", "fintech", "crypto", "trading platform",
+      "API", "RESTful", "CI/CD", "AWS"
+    ],
+    "experienceYears": 4
+  },
+  "search": {
+    "titles": [
+      "Backend Engineer",
+      "Node.js Developer",
+      "TypeScript Backend Engineer",
+      "Software Engineer",
+      "Full Stack Engineer (Backend heavy)",
+      "Senior Backend Developer",
+      "Backend Software Engineer"
+    ],
+    "queries": [
+      "Node.js backend developer remote Europe",
+      "TypeScript backend engineer remote France",
+      "Node.js PostgreSQL developer remote",
+      "backend engineer fintech crypto remote",
+      "Node.js microservices Docker remote Paris",
+      "TypeScript backend remote English"
+    ],
+    "requiredKeywords": [
+      "Node.js", "TypeScript",  "Express.js",
+      "PostgreSQL", "Sequelize", "Docker", "microservices",
+      "backend", "fintech", "crypto", "trading platform",
+      "API", "RESTful", "CI/CD"
+    ],
+    "preferredKeywordGroups": [
+      [
+        "Node.js", "TypeScript",  "Express.js",
+        "PostgreSQL", "Sequelize", "Docker", "microservices",
+        "backend", "fintech", "crypto", "trading platform",
+        "API", "RESTful", "CI/CD", "AWS"
+      ],
+      [
+        "Kubernetes", "serverless", "CI/CD", "observability"
+      ],
+      [
+        "blockchain", "Quorum", "real-time", "high-throughput"
+      ]
+    ],
+    "experience": {
+      "min": 3,
+      "max": 5
+},
+    "minimumSalaryMonthlyEur": 3000,
+    "language": "en",
+    "maxResults": 20,
+    "maxAgeHours": 24,
+    "checkIntervalHours": 1,
+    "willingToRelocate": true,
+    "preferredCountries": [
+      "FR"
+    ],
+    "acceptRemote": true,
+    "acceptHybrid": true,
+    "acceptOnSite": true,
+    "usaJobs": true,
+    "startupJobs": true,
+    "startupPrioritySources": [
+      "wellfound.com",
+      "startup.jobs",
+      "welcometothejungle.com",
+      "linkedin.com",
+      "indeed.com",
+      "glassdoor.com"
+    ],
+    "excludedCountries": [
+      "RO",
+      "BG",
+      "LT",
+      "CY",
+      "LV",
+      "HR"
+    ],
+    "europeCountryCodes": [
+      "AL",
+      "AD",
+      "AT",
+      "BE",
+      "BA",
+      "CH",
+      "CZ",
+      "DE",
+      "DK",
+      "EE",
+      "ES",
+      "FI",
+      "FR",
+      "GB",
+      "GR",
+      "HU",
+      "IE",
+      "IS",
+      "IT",
+      "LI",
+      "LU",
+      "ME",
+      "MK",
+      "MT",
+      "NL",
+      "NO",
+      "PL",
+      "PT",
+      "RS",
+      "SE",
+      "SI",
+      "SK"
+    ],
+    "usaCountryCodes": [
+      "US"
+    ],
+    "relocationKeywords": [
+      "relocation",
+      "visa sponsorship",
+      "visa sponsor",
+      "we support relocation",
+      "relocation assistance",
+      "assistance provided"
+    ],
+    "excludedTitleKeywords": [
+      "intern",
+      "internship",
+      "apprentice",
+      "apprenticeship",
+      "student",
+      "senior",
+      "staff",
+      "lead",
+      "principal",
+      "head of",
+      "manager"
+    ]
+  }
+}
+

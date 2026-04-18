@@ -1,0 +1,11 @@
+services:
+  job-bot:
+    build: .
+    env_file:
+      - .env
+    environment:
+      - RUN_MODE=continuous
+    volumes:
+      - ./data:/data
+    command: ["node", "dist/job-search/run.js"]
+

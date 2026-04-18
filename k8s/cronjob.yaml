@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: startup-job-bot
+spec:
+  schedule: "0 */3 * * *"
+  timeZone: Europe/Paris
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: job-bot
+              image: your-registry/startup-job-bot:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: TELEGRAM_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: startup-job-bot-secrets
+                      key: TELEGRAM_BOT_TOKEN
+                - name: TELEGRAM_CHAT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: startup-job-bot-secrets
+                      key: TELEGRAM_CHAT_ID
+                - name: JOB_SEARCH_SEEN_FILE
+                  value: /data/job_search_seen.json
+                - name: JOB_SEARCH_APPLIED_FILE
+                  value: /data/job_search_applied.json
+                - name: JOB_SEARCH_REPORT_PATH
+                  value: /data/job_search_latest.md
+              volumeMounts:
+                - name: job-search-data
+                  mountPath: /data
+          volumes:
+            - name: job-search-data
+              persistentVolumeClaim:
+                claimName: startup-job-bot-data
+

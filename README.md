@@ -49,6 +49,44 @@ Automated job search bot for IoT/Embedded Systems positions across European Unio
 - **Storage**: Seen/applied URLs prevent duplicates
 - **Reporting**: Markdown reports + Telegram notifications
 
+## 🚀 Quick Deploy to Railway
+
+Want to deploy and start getting job notifications automatically?
+
+### 1. Set up Telegram Bot
+```bash
+# Create bot with @BotFather, get token and chat ID
+# Add to .env file
+TELEGRAM_BOT_TOKEN=your_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+
+### 2. Deploy to Railway (Free)
+```bash
+# Install Railway CLI
+npm install -g @railway/cli
+railway login
+
+# Create project
+railway init iot-job-bot
+
+# Set environment variables
+railway variables set TELEGRAM_BOT_TOKEN your_token
+railway variables set TELEGRAM_CHAT_ID your_chat_id
+
+# Deploy
+git add .
+git commit -m "Deploy to Railway"
+git push origin main
+```
+
+### 3. Set up Cron Job
+In Railway dashboard → Cron Jobs:
+- **Command**: `npm run jobs:scan`
+- **Schedule**: `0 */3 * * *` (every 3 hours)
+
+**That's it!** You'll get IoT job matches sent to your Telegram every 3 hours.
+
 ## Architecture for Extensibility
 
 The bot is structured to support multiple job sources:
