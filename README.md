@@ -81,8 +81,8 @@ mkdir -p data
 Add your Telegram values to `.env`:
 
 ```bash
-TELEGRAM_BOT_TOKEN=8793734794:AAFPxBRJjaSYj6ui3IVGgS0pVW0MQO1T3lA
-TELEGRAM_CHAT_ID=123456789
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
 ```
 
 ## Running Locally
