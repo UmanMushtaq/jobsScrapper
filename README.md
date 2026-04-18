@@ -400,3 +400,4 @@ The bot creates tailored cover letter drafts grounded in your experience. Howeve
 **Update Frequency**: Every 3 hours (local/deployed)
 
 Trigger deployment
+Force deployment trigger
