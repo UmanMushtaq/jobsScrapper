@@ -1,28 +1,13 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { UsersModule } from './user/user.module';
-import { TweetModule } from './tweet/tweet.module';
-import { AuthModule } from './auth/auth.module';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from './user/user.entity';
 
+/**
+ * Minimal AppModule for IoT Job Search Bot
+ * This module just keeps the NestJS server running
+ * Actual job scanning runs via cron jobs via "npm run jobs:scan"
+ */
 @Module({
-  imports: [ UsersModule, TweetModule, AuthModule, TypeOrmModule.forRootAsync({
-    imports:[],
-    inject:[],
-    useFactory:()=>({
-      type:'postgres',
-    entities:[User],
-    synchronize:true,
-    host:'localhost',
-    port:5432,
-    username:'postgres',
-    password:'uman',  
-    database:'nestjs'
-    })
-  })],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [],
+  controllers: [],
+  providers: [],
 })
 export class AppModule {}
