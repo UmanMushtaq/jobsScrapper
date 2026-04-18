@@ -1,8 +1,7 @@
 name: Deploy to Railway
 
 on:
-  push:
-    branches: [ main ]
+  # Disabled - using Railway dashboard deployment instead
   workflow_dispatch:
 
 jobs:
@@ -17,4 +16,4 @@ jobs:
       uses: railwayapp/actions@v1
       with:
         railway_token: ${{ secrets.RAILWAY_TOKEN }}
-        project_id: ${{ secrets.RAILWAY_PROJECT_ID }}
+        railway_project_id: ${{ secrets.RAILWAY_PROJECT_ID }}
