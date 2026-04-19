@@ -1,3 +1,26 @@
 {
-  "seen_urls": []
+  "seen_urls": [
+    "https://www.welcometothejungle.com/en/companies/hexa/jobs/founding-engineer-brokerforce-backed-by-hexa_paris",
+    "https://www.welcometothejungle.com/en/companies/hexa/jobs/founding-engineer-damagex-backed-by-hexa_paris",
+    "https://www.welcometothejungle.com/en/companies/shine/jobs/full-stack-software-engineer",
+    "https://www.welcometothejungle.com/en/companies/spare-it/jobs/full-stack-web-engineer-aws-react-node-js"
+  ],
+  "seen_entries": [
+    {
+      "url": "https://www.welcometothejungle.com/en/companies/hexa/jobs/founding-engineer-brokerforce-backed-by-hexa_paris",
+      "timestamp": "2026-04-19T11:15:05.433Z"
+    },
+    {
+      "url": "https://www.welcometothejungle.com/en/companies/hexa/jobs/founding-engineer-damagex-backed-by-hexa_paris",
+      "timestamp": "2026-04-19T11:15:05.433Z"
+    },
+    {
+      "url": "https://www.welcometothejungle.com/en/companies/shine/jobs/full-stack-software-engineer",
+      "timestamp": "2026-04-19T11:15:05.433Z"
+    },
+    {
+      "url": "https://www.welcometothejungle.com/en/companies/spare-it/jobs/full-stack-web-engineer-aws-react-node-js",
+      "timestamp": "2026-04-19T11:15:05.433Z"
+    }
+  ]
 }
