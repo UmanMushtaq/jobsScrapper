@@ -179,7 +179,9 @@ function mapOffer(offer: FranceTravailOffer): JobPosting | null {
     language: inferLanguage(text),
     description,
     keyMissions: [],
-    experienceLevelMinimum: parseExperienceLibelle(offer.experienceLibelle),
+    experienceLevelMinimum:
+      parseExperienceLibelle(offer.experienceLibelle) ??
+      extractExperienceMinimum(description),
     salaryCurrency: parseSalaryCurrency(offer.salaire?.libelle),
     salaryPeriod: parseSalaryPeriod(offer.salaire?.libelle),
     salaryMinimum: parseSalaryMin(offer.salaire?.libelle),
@@ -200,6 +202,29 @@ function extractCity(locationLabel: string): string | null {
   // France Travail location format: "75 - Paris" or "Paris 1er"
   const match = locationLabel.match(/^(?:\d+\s+-\s+)?(.+)/);
   return match ? match[1].trim() : null;
+}
+
+function extractExperienceMinimum(text: string): number | null {
+  const lower = text.toLowerCase();
+
+  const plusMatch = lower.match(/(\d+)\+\s*years?/i);
+  if (plusMatch) return parseInt(plusMatch[1], 10) + 1;
+
+  const rangeMatch = lower.match(/(\d+)\s*(?:to|-)\s*\d+\s+years?/i);
+  if (rangeMatch) return parseInt(rangeMatch[1], 10);
+
+  const patterns: RegExp[] = [
+    /(?:minimum|at\s+least|min\.?)\s+(\d+)\s+years?/i,
+    /(\d+)\s+years?\s+(?:of\s+)?(?:professional\s+)?experience/i,
+    /experience\s*(?:of\s+)?(\d+)\s+years?/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    if (match) return parseInt(match[1], 10);
+  }
+
+  return null;
 }
 
 function parseExperienceLibelle(libelle: string | undefined): number | null {

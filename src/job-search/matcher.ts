@@ -137,12 +137,22 @@ function isLanguageFit(job: JobPosting, profile: SearchProfile, text: string): b
 }
 
 function inferExperienceFromText(text: string): number | null {
+  // "5+ years" means strictly more than 5 — add 1 so it exceeds the max and gets filtered
+  const plusMatch = text.match(/(\d+)\+\s*years?/i);
+  if (plusMatch) {
+    return parseInt(plusMatch[1], 10) + 1;
+  }
+
+  // "5 to 10 years" or "5-10 years" — use the lower bound of the range
+  const rangeMatch = text.match(/(\d+)\s*(?:to|-)\s*\d+\s+years?/i);
+  if (rangeMatch) {
+    return parseInt(rangeMatch[1], 10);
+  }
+
   const patterns: RegExp[] = [
-    /(\d+)\s*(?:to|-)\s*\d+\s+years?\s+(?:of\s+)?experience/i,
-    /(\d+)\+\s*years?\s+(?:of\s+)?experience/i,
     /(?:minimum|at\s+least|min\.?)\s+(\d+)\s+years?/i,
-    /experience\s*(?:of\s+)?(\d+)\+?\s+years?/i,
     /(\d+)\s+years?\s+(?:of\s+)?(?:professional\s+)?experience/i,
+    /experience\s*(?:of\s+)?(\d+)\s+years?/i,
   ];
 
   for (const pattern of patterns) {
