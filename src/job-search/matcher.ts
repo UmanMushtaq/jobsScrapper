@@ -49,10 +49,15 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     return null;
   }
 
-  if (job.experienceLevelMinimum !== null) {
+  const effectiveExperience =
+    job.experienceLevelMinimum !== null
+      ? job.experienceLevelMinimum
+      : inferExperienceFromText(text);
+
+  if (effectiveExperience !== null) {
     if (
-      job.experienceLevelMinimum < profile.search.experience.min ||
-      job.experienceLevelMinimum > profile.search.experience.max
+      effectiveExperience < profile.search.experience.min ||
+      effectiveExperience > profile.search.experience.max
     ) {
       return null;
     }
@@ -129,6 +134,25 @@ function isLanguageFit(job: JobPosting, profile: SearchProfile, text: string): b
   }
 
   return inferEnglishText(text);
+}
+
+function inferExperienceFromText(text: string): number | null {
+  const patterns: RegExp[] = [
+    /(\d+)\s*(?:to|-)\s*\d+\s+years?\s+(?:of\s+)?experience/i,
+    /(\d+)\+\s*years?\s+(?:of\s+)?experience/i,
+    /(?:minimum|at\s+least|min\.?)\s+(\d+)\s+years?/i,
+    /experience\s*(?:of\s+)?(\d+)\+?\s+years?/i,
+    /(\d+)\s+years?\s+(?:of\s+)?(?:professional\s+)?experience/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+
+  return null;
 }
 
 function inferEnglishText(text: string): boolean {

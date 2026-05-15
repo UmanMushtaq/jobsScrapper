@@ -107,8 +107,9 @@ async function fetchPage(
 function mapResult(result: AdzunaResult, country: string): JobPosting {
   const countryCode = COUNTRY_CODE_MAP[country] ?? country.toUpperCase();
   const currency = COUNTRY_CURRENCY[country] ?? 'EUR';
-  const area = result.location.area;
+  const area = result.location?.area ?? [];
   const city = area.length > 1 ? area[area.length - 1] : null;
+  const companyName = result.company?.display_name ?? 'Unknown';
   const text = `${result.title} ${result.description}`.toLowerCase();
   const salaryMin = result.salary_min ?? null;
 
@@ -117,17 +118,17 @@ function mapResult(result: AdzunaResult, country: string): JobPosting {
     sourcePriority: 3,
     canonicalUrl: result.redirect_url,
     title: result.title,
-    company: result.company.display_name,
+    company: companyName,
     companySummary: '',
-    companySlug: result.company.display_name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    locationLabel: result.location.display_name,
+    companySlug: companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    locationLabel: result.location?.display_name ?? country.toUpperCase(),
     countryCode,
     city,
     workMode: inferWorkMode(text),
     language: inferLanguage(text),
     description: result.description,
     keyMissions: [],
-    experienceLevelMinimum: null,
+    experienceLevelMinimum: extractExperienceMinimum(result.description ?? ''),
     salaryCurrency: salaryMin !== null ? currency : null,
     salaryPeriod: salaryMin !== null ? 'yearly' : null,
     salaryMinimum: salaryMin,
@@ -142,6 +143,26 @@ function mapResult(result: AdzunaResult, country: string): JobPosting {
     employeeCount: null,
     companyCreationYear: null,
   };
+}
+
+function extractExperienceMinimum(text: string): number | null {
+  const lower = text.toLowerCase();
+  const patterns: RegExp[] = [
+    /(\d+)\s*(?:to|-)\s*\d+\s+years?\s+(?:of\s+)?experience/i,
+    /(\d+)\+\s*years?\s+(?:of\s+)?experience/i,
+    /(?:minimum|at\s+least|min\.?)\s+(\d+)\s+years?/i,
+    /experience\s*(?:of\s+)?(\d+)\+?\s+years?/i,
+    /(\d+)\s+years?\s+(?:of\s+)?(?:professional\s+)?experience/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+
+  return null;
 }
 
 function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {

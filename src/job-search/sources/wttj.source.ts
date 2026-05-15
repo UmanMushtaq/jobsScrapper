@@ -54,13 +54,21 @@ export class WttjJobsSource implements JobSource {
 
     for (const query of effectiveQueries) {
       for (let page = 0; page < maxPages; page += 1) {
-        const response = await runQuery(query, page, settings.language);
-        for (const hit of response.hits) {
-          const job = mapHit(hit);
-          jobs.set(job.canonicalUrl, job);
-        }
+        try {
+          const response = await runQuery(query, page, settings.language);
+          for (const hit of response.hits) {
+            const job = mapHit(hit);
+            jobs.set(job.canonicalUrl, job);
+          }
 
-        if (page + 1 >= response.nbPages) {
+          if (page + 1 >= response.nbPages) {
+            break;
+          }
+        } catch (error) {
+          console.error(
+            `[wttj] error for "${query}" page ${page}:`,
+            error instanceof Error ? error.message : String(error),
+          );
           break;
         }
       }

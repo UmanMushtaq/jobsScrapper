@@ -5,6 +5,7 @@ import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
 import { AdzunaJobsSource } from './sources/adzuna.source';
 import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
+import { FranceTravailJobsSource } from './sources/france-travail.source';
 import { RemoteOKJobsSource } from './sources/remoteok.source';
 import { RemotiveJobsSource } from './sources/remotive.source';
 import { WttjJobsSource } from './sources/wttj.source';
@@ -23,7 +24,7 @@ const DEFAULT_APPLIED_FILE = 'job_search_applied.json';
 const DEFAULT_DISMISSED_FILE = 'job_search_dismissed.json';
 const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
-const ACTIVE_SOURCES = ['welcometothejungle.com', 'adzuna.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com'];
+const ACTIVE_SOURCES = ['welcometothejungle.com', 'adzuna.com', 'francetravail.fr', 'remotive.com', 'remoteok.com', 'arbeitnow.com'];
 const BLOCKED_SOURCES = ['wellfound.com', 'startup.jobs', 'indeed.com', 'linkedin.com'];
 
 export async function runJobSearchOnce(
@@ -58,6 +59,7 @@ export async function runJobSearchOnce(
     const sources = [
       new WttjJobsSource(),
       new AdzunaJobsSource(),
+      new FranceTravailJobsSource(),
       new RemotiveJobsSource(),
       new RemoteOKJobsSource(),
       new ArbeitnowJobsSource(),
