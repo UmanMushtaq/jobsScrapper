@@ -1,3 +1,4 @@
+import { detectLanguage } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
 import { MatchResult, JobPosting, SearchProfile } from './types';
 
@@ -128,37 +129,8 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
 
 function isLanguageFit(job: JobPosting, profile: SearchProfile, text: string): boolean {
   const desiredLanguage = profile.search.language.toLowerCase();
-  const detectedLanguage = job.language ? job.language.toLowerCase() : detectTextLanguage(text);
+  const detectedLanguage = job.language ? job.language.toLowerCase() : detectLanguage(text);
   return detectedLanguage === desiredLanguage;
-}
-
-// Score English vs French/German signals to handle bilingual job descriptions.
-// A job written in English that says "French required" still passes as English.
-// A job written in French that mentions "English" is still rejected.
-function detectTextLanguage(text: string): string {
-  const frenchSignals = [
-    'rejoignez', 'nous recherchons', 'vous serez', 'vos missions',
-    'votre profil', 'profil recherché', 'expérience requise',
-    'compétences', 'rémunération', 'développeur', 'ingénieur',
-    'nous vous proposons', 'poste à pourvoir', 'dans le cadre',
-  ];
-  const germanSignals = [
-    'wir suchen', 'ihre aufgaben', 'ihr profil', 'was wir bieten',
-    'kenntnisse', 'entwickler', 'stellenbeschreibung', 'berufserfahrung',
-  ];
-  const englishSignals = [
-    'we are looking', 'you will', 'requirements', 'responsibilities',
-    'about us', 'what you will', 'we offer', 'join our team',
-    'must have', 'nice to have', 'strong knowledge', 'experience with',
-    'you are', 'the role', 'ideal candidate',
-  ];
-
-  const frCount = frenchSignals.filter((s) => text.includes(s)).length;
-  const deCount = germanSignals.filter((s) => text.includes(s)).length;
-  const enCount = englishSignals.filter((s) => text.includes(s)).length;
-
-  if (frCount > enCount || deCount > enCount) return 'fr';
-  return 'en';
 }
 
 function inferExperienceFromText(text: string): number | null {

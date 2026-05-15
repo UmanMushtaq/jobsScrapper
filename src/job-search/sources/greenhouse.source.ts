@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
 const SOURCE = 'greenhouse.io';
@@ -105,7 +106,7 @@ function mapJob(job: GreenhouseJob, company: string): JobPosting {
     countryCode: inferCountryCode(job.location.name),
     city: inferCity(job.location.name),
     workMode: inferWorkMode(text),
-    language: inferLanguage(text),
+    language: detectLanguage(`${job.title} ${description}`),
     description,
     keyMissions: [],
     experienceLevelMinimum: extractExperienceMinimum(text),
@@ -134,29 +135,6 @@ function isRelevant(title: string, queryTerms: string[]): boolean {
   );
 }
 
-function inferLanguage(text: string): string {
-  const frenchSignals = [
-    'rejoignez', 'nous recherchons', 'vous serez', 'vos missions',
-    'votre profil', 'profil recherché', 'expérience requise',
-    'compétences', 'rémunération', 'télétravail', 'développeur', 'ingénieur',
-  ];
-  const germanSignals = [
-    'wir suchen', 'ihre aufgaben', 'ihr profil', 'was wir bieten',
-    'kenntnisse', 'erfahrung', 'entwickler', 'stellenbeschreibung',
-  ];
-  const englishSignals = [
-    'we are looking', 'you will', 'requirements', 'responsibilities',
-    'about us', 'what you', 'we offer', 'join our', 'must have',
-    'nice to have', 'strong knowledge', 'experience with',
-  ];
-
-  const frCount = frenchSignals.filter((s) => text.includes(s)).length;
-  const deCount = germanSignals.filter((s) => text.includes(s)).length;
-  const enCount = englishSignals.filter((s) => text.includes(s)).length;
-
-  if (frCount > enCount || deCount > enCount) return 'fr';
-  return 'en';
-}
 
 function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {
   if (containsAny(text, ['full remote', 'fully remote', '100% remote', 'remote only', 'work from anywhere'])) return 'remote';

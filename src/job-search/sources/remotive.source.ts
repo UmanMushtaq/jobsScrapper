@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
 const SOURCE = 'remotive.com';
@@ -82,7 +83,7 @@ function mapJob(job: RemotiveJob): JobPosting {
     countryCode: inferCountryCode(job.candidate_required_location),
     city: null,
     workMode: 'remote',
-    language: inferLanguage(text),
+    language: detectLanguage(`${job.title} ${stripHtml(job.description)}`),
     description: stripHtml(job.description),
     keyMissions: [],
     experienceLevelMinimum: null,
@@ -111,10 +112,6 @@ function inferCountryCode(location: string): string | null {
   return null;
 }
 
-function inferLanguage(text: string): string {
-  const frenchSignals = ['rejoignez', 'nous recherchons', 'expérience', 'vous êtes', 'compétences'];
-  return frenchSignals.some((t) => text.includes(t)) ? 'fr' : 'en';
-}
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();

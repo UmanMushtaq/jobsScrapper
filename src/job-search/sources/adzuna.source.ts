@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
 const ADZUNA_BASE_URL = 'https://api.adzuna.com/v1/api/jobs';
@@ -125,7 +126,7 @@ function mapResult(result: AdzunaResult, country: string): JobPosting {
     countryCode,
     city,
     workMode: inferWorkMode(text),
-    language: inferLanguage(text),
+    language: detectLanguage(`${result.title} ${result.description ?? ''}`),
     description: result.description,
     keyMissions: [],
     experienceLevelMinimum: extractExperienceMinimum(result.description ?? ''),
@@ -186,14 +187,6 @@ function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {
   return 'on-site';
 }
 
-function inferLanguage(text: string): string {
-  const frenchSignals = [
-    'rejoignez', 'nous recherchons', 'vous êtes', 'compétences',
-    'expérience requise', 'vos missions', 'votre profil', 'télétravail',
-    'rémunération', 'candidature', 'développeur', 'ingénieur',
-  ];
-  return frenchSignals.filter((token) => text.includes(token)).length >= 1 ? 'fr' : 'en';
-}
 
 function containsAny(text: string, tokens: string[]): boolean {
   return tokens.some((token) => text.includes(token));
