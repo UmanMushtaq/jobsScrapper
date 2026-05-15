@@ -4,14 +4,17 @@ import { JobSource } from './registry';
 const SOURCE = 'greenhouse.io';
 const API_BASE = 'https://boards-api.greenhouse.io/v1/boards';
 
-// Well-known French and European tech companies using Greenhouse
+// French and European startups/scale-ups using Greenhouse — mix of sizes
 const DEFAULT_COMPANIES = [
-  'algolia', 'aircall', 'alan', 'ankorstore', 'back-market',
-  'blablacar', 'contentsquare', 'dataiku', 'doctolib', 'doctrine',
-  'ledger', 'malt', 'owkin', 'payfit', 'pennylane',
-  'qonto', 'swile', 'toucan-toco', 'datadog', 'stripe',
-  'deliveroo', 'revolut', 'n26', 'spendesk', 'platform-sh',
-  'mirakl', 'axelor', 'cegid', 'sendinblue', 'tinyclues',
+  // French startups & scale-ups (Series A–C range)
+  'pennylane', 'spendesk', 'libeo', 'fime', 'alma-2',
+  'payfit payfit', 'malt', 'swile', 'ringover', 'contentsquare',
+  'platform-sh', 'toucan-toco', 'tinyclues', 'doctrine', 'owkin',
+  'ankorstore', 'cegid', 'sendinblue', 'mirakl', 'axelor',
+  // European startups with Paris/EU offices
+  'aircall', 'luko', 'agicap', 'indy', 'karmen',
+  'epsor', 'haiilo', 'gymlib', 'skillup', 'yousign',
+  'payplug', 'lucca', 'sinch', 'hivebrite', 'yubo',
 ];
 
 interface GreenhouseJob {
