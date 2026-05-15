@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { scoreJob } from './matcher';
 import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
+import { AdzunaJobsSource } from './sources/adzuna.source';
 import { WttjJobsSource } from './sources/wttj.source';
 import {
   addUrlsToStore,
@@ -12,14 +13,14 @@ import {
   writeJsonFile,
 } from './storage';
 import { sendTelegramMessages } from './telegram';
-import { JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
+import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
 
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
 const DEFAULT_APPLIED_FILE = 'job_search_applied.json';
 const DEFAULT_DISMISSED_FILE = 'job_search_dismissed.json';
 const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
-const ACTIVE_SOURCES = ['welcometothejungle.com'];
+const ACTIVE_SOURCES = ['welcometothejungle.com', 'adzuna.com'];
 const BLOCKED_SOURCES = ['wellfound.com', 'startup.jobs', 'indeed.com', 'linkedin.com'];
 
 export async function runJobSearchOnce(
@@ -51,8 +52,17 @@ export async function runJobSearchOnce(
       readUrlSet(dismissedFile, 'dismissed_urls'),
     ]);
 
-    const source = new WttjJobsSource();
-    const jobs = await source.fetch(profile.search.queries, profile.search);
+    const sources = [new WttjJobsSource(), new AdzunaJobsSource()];
+    const jobLists = await Promise.all(
+      sources.map((s) => s.fetch(profile.search.queries, profile.search)),
+    );
+    const jobMap = new Map<string, JobPosting>();
+    for (const list of jobLists) {
+      for (const job of list) {
+        jobMap.set(job.canonicalUrl, job);
+      }
+    }
+    const jobs = Array.from(jobMap.values());
 
     const baseFilter = (job: { canonicalUrl: string }) =>
       !seenUrls.has(job.canonicalUrl) &&
