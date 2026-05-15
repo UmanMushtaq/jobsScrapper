@@ -33,6 +33,11 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     return null;
   }
 
+  const FRONTEND_TITLE_KEYWORDS = ['frontend', 'front-end', 'front end', 'ui developer', 'ux developer', 'react developer', 'vue developer', 'angular developer', 'flutter', 'ios developer', 'android developer', 'mobile developer'];
+  if (FRONTEND_TITLE_KEYWORDS.some((keyword) => normalizedTitle.includes(keyword))) {
+    return null;
+  }
+
   const locationScore = scoreLocation(
     job.countryCode,
     job.city,
@@ -91,7 +96,7 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
       startupScore,
   );
 
-  if (score < 75) {
+  if (score < 85) {
     return null;
   }
 

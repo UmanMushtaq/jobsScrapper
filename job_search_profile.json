@@ -57,7 +57,7 @@
     "language": "en",
     "maxResults": 20,
     "maxAgeHours": 168,
-    "checkIntervalHours": 1,
+    "checkIntervalHours": 3,
     "seenTtlHours": 1,
     "willingToRelocate": true,
     "preferredCountries": [
