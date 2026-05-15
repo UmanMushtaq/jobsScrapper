@@ -21,6 +21,7 @@ A personal backend job search automation tool built for **Uman Mushtaq**. It run
 | `welcometothejungle.com` | English-indexed Algolia API |
 | `adzuna.com` | Multi-country (FR, GB, DE, NL, BE) |
 | `francetravail.fr` | French government job board — requires API credentials |
+| `greenhouse.io` | 30+ French/EU tech companies using Greenhouse ATS — no credentials needed |
 | `remotive.com` | Remote-only roles |
 | `remoteok.com` | Remote-only roles |
 | `arbeitnow.com` | European English-language roles |
