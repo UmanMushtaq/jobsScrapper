@@ -176,8 +176,12 @@ function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {
 }
 
 function inferLanguage(text: string): string {
-  const frenchSignals = ['rejoignez', 'nous recherchons', 'poste', 'entreprise', 'expérience', 'vous êtes', 'compétences', 'missions'];
-  return frenchSignals.filter((token) => text.includes(token)).length >= 2 ? 'fr' : 'en';
+  const frenchSignals = [
+    'rejoignez', 'nous recherchons', 'vous êtes', 'compétences',
+    'expérience requise', 'vos missions', 'votre profil', 'télétravail',
+    'rémunération', 'candidature', 'développeur', 'ingénieur',
+  ];
+  return frenchSignals.filter((token) => text.includes(token)).length >= 1 ? 'fr' : 'en';
 }
 
 function containsAny(text: string, tokens: string[]): boolean {

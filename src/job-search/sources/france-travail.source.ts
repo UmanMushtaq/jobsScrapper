@@ -227,11 +227,13 @@ function inferWorkMode(
 }
 
 function inferLanguage(text: string): string {
-  const frenchSignals = [
-    'rejoignez', 'nous recherchons', 'expérience', 'vous êtes',
-    'compétences', 'poste', 'entreprise', 'missions', 'profil',
+  // France Travail is a French-government board; default to 'fr' unless strong English signals
+  const englishSignals = [
+    'we are looking for', 'you will be', 'join our team', 'we are seeking',
+    'responsibilities', 'requirements', 'what you will do', 'about the role',
+    'you will work', 'we offer', 'your profile', 'the ideal candidate',
   ];
-  return frenchSignals.filter((t) => text.includes(t)).length >= 3 ? 'fr' : 'en';
+  return englishSignals.filter((t) => text.includes(t)).length >= 2 ? 'en' : 'fr';
 }
 
 function parseSalaryMin(libelle: string | undefined): number | null {
