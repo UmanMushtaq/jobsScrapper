@@ -91,7 +91,7 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
       startupScore,
   );
 
-  if (score < 90) {
+  if (score < 75) {
     return null;
   }
 
