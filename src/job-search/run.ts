@@ -91,32 +91,13 @@ export async function runJobSearchOnce(
           Date.now() - profile.search.maxAgeHours * 60 * 60 * 1000 && baseFilter(job),
     );
 
-    let matches = freshJobs
+    const matches = freshJobs
       .map((job) => scoreJob(job, profile))
       .filter((match): match is MatchResult => match !== null)
       .sort(sortMatches)
       .slice(0, maxResults);
 
-    let effectiveFreshJobs = freshJobs;
-    if (matches.length === 0) {
-      const fallbackHours = Math.max(profile.search.maxAgeHours, 24 * 30);
-      const fallbackJobs = jobs.filter(
-        (job) =>
-          job.publishedAtTimestamp * 1000 >= Date.now() - fallbackHours * 60 * 60 * 1000 &&
-          baseFilter(job),
-      );
-
-      const fallbackMatches = fallbackJobs
-        .map((job) => scoreJob(job, profile))
-        .filter((match): match is MatchResult => match !== null)
-        .sort(sortMatches)
-        .slice(0, maxResults);
-
-      if (fallbackMatches.length > 0) {
-        matches = fallbackMatches;
-        effectiveFreshJobs = fallbackJobs;
-      }
-    }
+    const effectiveFreshJobs = freshJobs;
 
     const reportLocation = await writeReport(reportPath, matches, BLOCKED_SOURCES);
 
