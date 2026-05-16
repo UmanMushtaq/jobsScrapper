@@ -5,9 +5,11 @@ interface UrlStore {
   seen_urls?: string[];
   applied_urls?: string[];
   dismissed_urls?: string[];
+  sent_urls?: string[];
   seen_entries?: UrlEntry[];
   applied_entries?: UrlEntry[];
   dismissed_entries?: UrlEntry[];
+  sent_entries?: UrlEntry[];
 }
 
 interface UrlEntry {
@@ -15,12 +17,13 @@ interface UrlEntry {
   timestamp: string;
 }
 
-type UrlKey = 'seen_urls' | 'applied_urls' | 'dismissed_urls';
-type EntryKey = 'seen_entries' | 'applied_entries' | 'dismissed_entries';
+type UrlKey = 'seen_urls' | 'applied_urls' | 'dismissed_urls' | 'sent_urls';
+type EntryKey = 'seen_entries' | 'applied_entries' | 'dismissed_entries' | 'sent_entries';
 const ENTRY_KEY_MAP: Record<UrlKey, EntryKey> = {
   seen_urls: 'seen_entries',
   applied_urls: 'applied_entries',
   dismissed_urls: 'dismissed_entries',
+  sent_urls: 'sent_entries',
 };
 
 export function normalizeUrl(rawUrl: string): string {

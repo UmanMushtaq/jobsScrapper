@@ -23,6 +23,7 @@ import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } fr
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
 const DEFAULT_APPLIED_FILE = 'job_search_applied.json';
 const DEFAULT_DISMISSED_FILE = 'job_search_dismissed.json';
+const DEFAULT_SENT_FILE = 'job_search_sent.json';
 const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
 const ACTIVE_SOURCES = ['welcometothejungle.com', 'adzuna.com', 'francetravail.fr', 'greenhouse.io', 'remotive.com', 'remoteok.com', 'arbeitnow.com'];
@@ -35,9 +36,10 @@ export async function runJobSearchOnce(
   const seenFile = process.env.JOB_SEARCH_SEEN_FILE ?? DEFAULT_SEEN_FILE;
   const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? DEFAULT_APPLIED_FILE;
   const dismissedFile = process.env.JOB_SEARCH_DISMISSED_FILE ?? DEFAULT_DISMISSED_FILE;
+  const sentFile = process.env.JOB_SEARCH_SENT_FILE ?? DEFAULT_SENT_FILE;
   const reportPath = process.env.JOB_SEARCH_REPORT_PATH ?? DEFAULT_REPORT_FILE;
   const stateFile = process.env.JOB_SEARCH_STATE_FILE ?? DEFAULT_STATE_FILE;
-  const seenTtlHours = profile.search.seenTtlHours ?? 1;
+  const seenTtlHours = profile.search.seenTtlHours ?? 168;
   const seenTtlMs = seenTtlHours * 60 * 60 * 1000;
   const maxResults = Number(process.env.JOB_SEARCH_MAX_RESULTS ?? profile.search.maxResults);
 
@@ -51,10 +53,11 @@ export async function runJobSearchOnce(
   }), profile);
 
   try {
-    const [seenUrls, appliedUrls, dismissedUrls] = await Promise.all([
+    const [seenUrls, appliedUrls, dismissedUrls, sentUrls] = await Promise.all([
       readUrlSet(seenFile, 'seen_urls', { ttlMs: seenTtlMs }),
       readUrlSet(appliedFile, 'applied_urls'),
       readUrlSet(dismissedFile, 'dismissed_urls'),
+      readUrlSet(sentFile, 'sent_urls'),
     ]);
 
     const sources = [
@@ -116,12 +119,17 @@ export async function runJobSearchOnce(
     }
 
     const reportLocation = await writeReport(reportPath, matches, BLOCKED_SOURCES);
-    const messages = buildTelegramPayload(matches, reportLocation, profile);
+
+    // Only send jobs that have never been sent to Telegram before
+    const newMatches = matches.filter((m) => !sentUrls.has(m.job.canonicalUrl));
+    const messages = buildTelegramPayload(newMatches, reportLocation, profile);
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId && messages.length > 0) {
       await sendTelegramMessages(botToken, chatId, messages);
+      // Permanently record every URL that was sent so it is never sent again
+      await addUrlsToStore(sentFile, 'sent_urls', newMatches.map((m) => m.job.canonicalUrl));
     }
 
     await addUrlsToStore(
