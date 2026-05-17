@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { enrichMatch } from './ai-enrichment';
 import { scoreJob } from './matcher';
 import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
@@ -92,11 +93,29 @@ export async function runJobSearchOnce(
           Date.now() - profile.search.maxAgeHours * 60 * 60 * 1000 && baseFilter(job),
     );
 
-    const matches = freshJobs
+    const rawMatches = freshJobs
       .map((job) => scoreJob(job, profile))
       .filter((match): match is MatchResult => match !== null)
       .sort(sortMatches)
       .slice(0, maxResults);
+
+    // AI enrichment: fraud detection + humanized cover letters (fails silently)
+    const enrichments = await Promise.all(rawMatches.map((m) => enrichMatch(m, profile)));
+    const matches: MatchResult[] = rawMatches
+      .map((match, i) => {
+        const ai = enrichments[i];
+        if (!ai) return match;
+        return {
+          ...match,
+          coverLetter: ai.isSuspicious ? match.coverLetter : ai.coverLetter,
+          fraudScore: ai.fraudScore,
+          fraudReasons: ai.fraudReasons,
+        };
+      })
+      .filter((_match, i) => {
+        const ai = enrichments[i];
+        return !ai || !ai.isSuspicious;
+      });
 
     const effectiveFreshJobs = freshJobs;
 

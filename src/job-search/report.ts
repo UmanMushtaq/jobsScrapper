@@ -40,6 +40,12 @@ export async function writeReport(
     lines.push(`- Match score: ${match.score}%`);
     lines.push(`- Why it fits: ${match.reasons.join('; ')}`);
     lines.push(`- Salary: ${match.salaryLabel}`);
+    if (match.fraudScore !== undefined) {
+      lines.push(`- Fraud risk: ${match.fraudScore}% ${match.fraudScore >= 40 ? '⚠️' : '✓'}`);
+      if (match.fraudReasons && match.fraudReasons.length > 0) {
+        lines.push(`- Fraud notes: ${match.fraudReasons.join('; ')}`);
+      }
+    }
     lines.push('');
     lines.push('### Draft cover letter');
     lines.push('');
