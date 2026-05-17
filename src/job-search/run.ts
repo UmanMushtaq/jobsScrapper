@@ -123,14 +123,15 @@ export async function runJobSearchOnce(
 
     // Only send jobs that have never been sent to Telegram before
     const newMatches = matches.filter((m) => !sentUrls.has(m.job.canonicalUrl));
-    const messages = buildTelegramPayload(newMatches, reportLocation, profile);
+    const liveNewMatches = await filterDeadUrls(newMatches);
+    const messages = buildTelegramPayload(liveNewMatches, reportLocation, profile);
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId && messages.length > 0) {
       await sendTelegramMessages(botToken, chatId, messages);
       // Permanently record every URL that was sent so it is never sent again
-      await addUrlsToStore(sentFile, 'sent_urls', newMatches.map((m) => m.job.canonicalUrl));
+      await addUrlsToStore(sentFile, 'sent_urls', liveNewMatches.map((m) => m.job.canonicalUrl));
     }
 
     await addUrlsToStore(
@@ -303,6 +304,58 @@ function buildEmptyState(profile?: SearchProfile): JobSearchState {
     seenTtlHours,
     nextRunAt: null,
   };
+}
+
+const DEAD_JOB_SIGNALS = [
+  // English
+  'job no longer available',
+  'position has been filled',
+  'this position has been closed',
+  'job listing has expired',
+  'this job is no longer',
+  'vacancy has been filled',
+  'posting has been removed',
+  'this role has been filled',
+  // French
+  "offre expirée",
+  "offre n'est plus disponible",
+  "ce poste est pourvu",
+  "annonce expirée",
+  "cette offre n'est plus",
+  "poste pourvu",
+];
+
+async function isUrlAlive(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; job-search-bot/1.0)' },
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (response.status === 404 || response.status === 410) return false;
+    // Non-404 error codes (403, 429, 5xx) — bot-blocking or server errors, assume alive
+    if (!response.ok) return true;
+
+    const text = await response.text();
+    const lower = text.toLowerCase();
+    return !DEAD_JOB_SIGNALS.some((signal) => lower.includes(signal));
+  } catch {
+    // Network error or timeout — assume alive to avoid false negatives
+    return true;
+  }
+}
+
+async function filterDeadUrls(matches: MatchResult[]): Promise<MatchResult[]> {
+  if (matches.length === 0) return matches;
+  const alive = await Promise.all(matches.map((m) => isUrlAlive(m.job.applyUrl)));
+  return matches.filter((_, i) => alive[i]);
 }
 
 async function ensureOutputDir(filePath: string): Promise<void> {
