@@ -1,16 +1,16 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
-// Haiku 4.5: fast and cheap — appropriate for per-job enrichment every 3 hours.
-// Upgrade to claude-sonnet-4-6 if cover letter quality needs improvement.
-const MODEL = 'claude-haiku-4-5';
+// gemini-1.5-flash: free tier — 15 RPM, 1 M tokens/day, 1 500 req/day.
+// Plenty for a bot running every 3 hours with ~10 jobs per run.
+const MODEL = 'gemini-1.5-flash';
 
-let client: Anthropic | null = null;
+let genAI: GoogleGenerativeAI | null = null;
 
-function getClient(): Anthropic | null {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return client;
+function getClient(): GoogleGenerativeAI | null {
+  if (!process.env.GEMINI_API_KEY) return null;
+  if (!genAI) genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  return genAI;
 }
 
 export interface AiEnrichment {
@@ -38,67 +38,37 @@ export async function enrichMatch(
   }
 }
 
-const FRAUD_SCHEMA = {
-  type: 'object',
-  properties: {
-    fraudScore: {
-      type: 'integer',
-      description: '0 = clearly legitimate, 100 = obvious scam',
-    },
-    reasons: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'Up to 3 specific fraud signals found, or empty array if none',
-    },
-  },
-  required: ['fraudScore', 'reasons'],
-  additionalProperties: false,
-} as const;
-
 async function detectFraud(
-  ai: Anthropic,
+  ai: GoogleGenerativeAI,
   job: JobPosting,
 ): Promise<{ fraudScore: number; fraudReasons: string[]; isSuspicious: boolean }> {
-  const response = await ai.messages.create({
+  const model = ai.getGenerativeModel({
     model: MODEL,
-    max_tokens: 256,
-    system:
+    systemInstruction:
       'You are a job fraud detection expert. Analyze job postings and score how suspicious they are. ' +
-      'Signs of fraud: unrealistic salary, vague/copy-pasted description, no real company info, ' +
+      'Signs of fraud: unrealistic salary, vague or copy-pasted description, no real company info, ' +
       'requests personal info upfront, grammar errors suggesting mass posting, ' +
-      'too-good-to-be-true perks, no specific tech requirements for a tech role.',
-    messages: [
-      {
-        role: 'user',
-        content:
-          `Title: ${job.title}\n` +
-          `Company: ${job.company}\n` +
-          `Location: ${job.locationLabel}\n` +
-          `Salary: ${job.salaryMinimum ? `${job.salaryMinimum}–${job.salaryMaximum ?? '?'} ${job.salaryCurrency ?? ''}` : 'not listed'}\n` +
-          `Description: ${job.description.slice(0, 700)}`,
-      },
-    ],
-    output_config: {
-      format: {
-        type: 'json_schema',
-        schema: FRAUD_SCHEMA,
-      },
-    },
+      'too-good-to-be-true perks, no specific tech requirements for a tech role. ' +
+      'Return ONLY valid JSON with no markdown, no code fences: {"fraudScore": 0-100, "reasons": ["signal"]}',
+    generationConfig: { responseMimeType: 'application/json' },
   });
 
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') {
-    return { fraudScore: 0, fraudReasons: [], isSuspicious: false };
-  }
+  const prompt =
+    `Title: ${job.title}\n` +
+    `Company: ${job.company}\n` +
+    `Location: ${job.locationLabel}\n` +
+    `Salary: ${job.salaryMinimum ? `${job.salaryMinimum}–${job.salaryMaximum ?? '?'} ${job.salaryCurrency ?? ''}` : 'not listed'}\n` +
+    `Description: ${job.description.slice(0, 700)}`;
 
-  const parsed = JSON.parse(textBlock.text) as { fraudScore?: number; reasons?: string[] };
+  const result = await model.generateContent(prompt);
+  const parsed = JSON.parse(result.response.text()) as { fraudScore?: number; reasons?: string[] };
   const fraudScore = Math.min(100, Math.max(0, Number(parsed.fraudScore ?? 0)));
   const fraudReasons = (parsed.reasons ?? []).slice(0, 3);
   return { fraudScore, fraudReasons, isSuspicious: fraudScore >= 60 };
 }
 
 async function humanizeCoverLetter(
-  ai: Anthropic,
+  ai: GoogleGenerativeAI,
   job: JobPosting,
   profile: SearchProfile,
   matchReasons: string[],
@@ -111,37 +81,32 @@ async function humanizeCoverLetter(
     ? 'product company building their own software'
     : 'service or consulting company working with multiple clients';
 
-  const response = await ai.messages.create({
+  const model = ai.getGenerativeModel({
     model: MODEL,
-    max_tokens: 512,
-    system:
+    systemInstruction:
       `You are ${profile.candidate.name}, a Paris-based backend engineer with ` +
-      `${profile.candidate.experienceYears} years of experience in Node.js, TypeScript, ` +
-      `NestJS, PostgreSQL, and REST APIs. Write cover letters that:\n` +
-      `- Sound human, conversational, and genuine — not AI-generated\n` +
-      `- Are under 180 words\n` +
-      `- Mention the company by name and what they specifically do\n` +
-      `- Reference 1-2 technical things from the job that match your background\n` +
-      `- Avoid buzzwords: passionate, leverage, synergy, utilize, excited to contribute\n` +
-      `- End naturally — not with "I look forward to hearing from you"`,
-    messages: [
-      {
-        role: 'user',
-        content:
-          `Write a cover letter for: ${job.title} at ${job.company}\n` +
-          `Company type: ${companyType}\n` +
-          `Location: ${job.locationLabel} (${job.workMode})\n` +
-          `Why it matches me: ${matchReasons.slice(0, 3).join('; ')}\n` +
-          `Job description: ${job.description.slice(0, 600)}\n\n` +
-          `Write just the letter body, no subject line:`,
-      },
-    ],
+      `${profile.candidate.experienceYears} years of hands-on experience. ` +
+      `Your core stack is Node.js, NestJS, TypeScript, PostgreSQL, and REST APIs. ` +
+      `Write cover letters as flowing prose paragraphs. ` +
+      `Rules: no bullet points, no hyphens as list markers, no numbered lists, no dashes starting a line; ` +
+      `keep it under 180 words; address the company by name and say one specific thing about what they do; ` +
+      `mention 1 or 2 technical skills from your stack that match the job naturally in a sentence; ` +
+      `do not use any of these words: passionate, leverage, synergy, utilize, excited, contribute, journey; ` +
+      `end the letter with a natural closing sentence, then on new lines write exactly: ` +
+      `"Best regards," and then "${profile.candidate.name}".`,
   });
 
-  const textBlock = response.content.find((b) => b.type === 'text');
-  return textBlock && textBlock.type === 'text'
-    ? textBlock.text.trim()
-    : buildFallbackCoverLetter(job, profile, matchReasons);
+  const prompt =
+    `Write a cover letter for: ${job.title} at ${job.company}\n` +
+    `Company type: ${companyType}\n` +
+    `Location: ${job.locationLabel} (${job.workMode})\n` +
+    `Why it matches me: ${matchReasons.slice(0, 3).join('; ')}\n` +
+    `Job description: ${job.description.slice(0, 600)}\n\n` +
+    `Write just the letter body, no subject line, no greeting like "Dear Hiring Manager":`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+  return text || buildFallbackCoverLetter(job, profile, matchReasons);
 }
 
 function buildFallbackCoverLetter(
@@ -153,10 +118,9 @@ function buildFallbackCoverLetter(
   return [
     `Hello ${job.company} team,`,
     '',
-    `I am a Paris-based backend engineer with about ${profile.candidate.experienceYears} years of hands-on experience building Node.js and TypeScript systems in production.`,
-    `What stood out to me here is ${reasonLine.toLowerCase()}, along with the overlap around APIs, data-intensive backend work, and product ownership.`,
-    `My recent work has included REST APIs, PostgreSQL and MongoDB, Dockerized deployments, and backend services for fintech-style platforms where performance and reliability mattered every day.`,
-    `I would be glad to bring that same practical backend ownership to ${job.company} and contribute quickly in an English-speaking team.`,
+    `I am a Paris-based backend engineer with ${profile.candidate.experienceYears} years building production systems with Node.js, NestJS, and TypeScript.`,
+    `What caught my attention here is ${reasonLine.toLowerCase()}, along with the focus on APIs and PostgreSQL-backed services where reliability matters every day.`,
+    `My recent work spans REST APIs, Docker deployments, and backend services for fintech platforms. I would be glad to bring that same practical approach to ${job.company}.`,
     '',
     'Best regards,',
     profile.candidate.name,

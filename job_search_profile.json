@@ -37,7 +37,7 @@
     ],
     "preferredKeywordGroups": [
       [
-        "Node.js", "TypeScript",  "Express.js",
+        "Node.js", "TypeScript", "NestJS", "Nest.js", "Express.js",
         "PostgreSQL", "Sequelize", "Docker", "microservices",
         "backend", "fintech", "crypto", "trading platform",
         "API", "RESTful", "CI/CD", "AWS"
