@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
-const MODEL = 'claude-haiku-4-5-20251001';
-const TIMEOUT_MS = 15_000;
+// Haiku 4.5: fast and cheap — appropriate for per-job enrichment every 3 hours.
+// Upgrade to claude-sonnet-4-6 if cover letter quality needs improvement.
+const MODEL = 'claude-haiku-4-5';
 
 let client: Anthropic | null = null;
 
@@ -37,40 +38,60 @@ export async function enrichMatch(
   }
 }
 
+const FRAUD_SCHEMA = {
+  type: 'object',
+  properties: {
+    fraudScore: {
+      type: 'integer',
+      description: '0 = clearly legitimate, 100 = obvious scam',
+    },
+    reasons: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Up to 3 specific fraud signals found, or empty array if none',
+    },
+  },
+  required: ['fraudScore', 'reasons'],
+  additionalProperties: false,
+} as const;
+
 async function detectFraud(
   ai: Anthropic,
   job: JobPosting,
 ): Promise<{ fraudScore: number; fraudReasons: string[]; isSuspicious: boolean }> {
-  const prompt = `You are a job fraud detection expert. Analyze this job posting and rate how suspicious it is.
-
-Title: ${job.title}
-Company: ${job.company}
-Location: ${job.locationLabel}
-Salary: ${job.salaryMinimum ? `${job.salaryMinimum}–${job.salaryMaximum ?? '?'} ${job.salaryCurrency ?? ''}` : 'not listed'}
-Description (first 800 chars): ${job.description.slice(0, 800)}
-
-Return ONLY valid JSON with this exact shape:
-{
-  "fraudScore": <0-100 integer, 0=clearly legitimate, 100=obvious scam>,
-  "reasons": ["reason1", "reason2"]
-}
-
-Signs of fraud: unrealistic salary, vague/copy-pasted description, no real company info, requests personal info upfront, grammar errors suggesting mass posting, too-good-to-be-true perks, no specific tech requirements for a tech role.`;
-
-  const response = await ai.messages.create(
-    {
-      model: MODEL,
-      max_tokens: 256,
-      messages: [{ role: 'user', content: prompt }],
+  const response = await ai.messages.create({
+    model: MODEL,
+    max_tokens: 256,
+    system:
+      'You are a job fraud detection expert. Analyze job postings and score how suspicious they are. ' +
+      'Signs of fraud: unrealistic salary, vague/copy-pasted description, no real company info, ' +
+      'requests personal info upfront, grammar errors suggesting mass posting, ' +
+      'too-good-to-be-true perks, no specific tech requirements for a tech role.',
+    messages: [
+      {
+        role: 'user',
+        content:
+          `Title: ${job.title}\n` +
+          `Company: ${job.company}\n` +
+          `Location: ${job.locationLabel}\n` +
+          `Salary: ${job.salaryMinimum ? `${job.salaryMinimum}–${job.salaryMaximum ?? '?'} ${job.salaryCurrency ?? ''}` : 'not listed'}\n` +
+          `Description: ${job.description.slice(0, 700)}`,
+      },
+    ],
+    output_config: {
+      format: {
+        type: 'json_schema',
+        schema: FRAUD_SCHEMA,
+      },
     },
-    { timeout: TIMEOUT_MS },
-  );
+  });
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return { fraudScore: 0, fraudReasons: [], isSuspicious: false };
+  const textBlock = response.content.find((b) => b.type === 'text');
+  if (!textBlock || textBlock.type !== 'text') {
+    return { fraudScore: 0, fraudReasons: [], isSuspicious: false };
+  }
 
-  const parsed = JSON.parse(jsonMatch[0]) as { fraudScore?: number; reasons?: string[] };
+  const parsed = JSON.parse(textBlock.text) as { fraudScore?: number; reasons?: string[] };
   const fraudScore = Math.min(100, Math.max(0, Number(parsed.fraudScore ?? 0)));
   const fraudReasons = (parsed.reasons ?? []).slice(0, 3);
   return { fraudScore, fraudReasons, isSuspicious: fraudScore >= 60 };
@@ -87,39 +108,39 @@ async function humanizeCoverLetter(
   );
 
   const companyType = isProductCompany
-    ? 'product company (building their own software/platform)'
-    : 'service/consulting company (working with multiple clients)';
+    ? 'product company building their own software'
+    : 'service or consulting company working with multiple clients';
 
-  const prompt = `You are ${profile.candidate.name}, a backend engineer with ${profile.candidate.experienceYears} years of experience in Node.js, TypeScript, NestJS, PostgreSQL, and REST APIs. You are based in Paris and looking for a new role.
+  const response = await ai.messages.create({
+    model: MODEL,
+    max_tokens: 512,
+    system:
+      `You are ${profile.candidate.name}, a Paris-based backend engineer with ` +
+      `${profile.candidate.experienceYears} years of experience in Node.js, TypeScript, ` +
+      `NestJS, PostgreSQL, and REST APIs. Write cover letters that:\n` +
+      `- Sound human, conversational, and genuine — not AI-generated\n` +
+      `- Are under 180 words\n` +
+      `- Mention the company by name and what they specifically do\n` +
+      `- Reference 1-2 technical things from the job that match your background\n` +
+      `- Avoid buzzwords: passionate, leverage, synergy, utilize, excited to contribute\n` +
+      `- End naturally — not with "I look forward to hearing from you"`,
+    messages: [
+      {
+        role: 'user',
+        content:
+          `Write a cover letter for: ${job.title} at ${job.company}\n` +
+          `Company type: ${companyType}\n` +
+          `Location: ${job.locationLabel} (${job.workMode})\n` +
+          `Why it matches me: ${matchReasons.slice(0, 3).join('; ')}\n` +
+          `Job description: ${job.description.slice(0, 600)}\n\n` +
+          `Write just the letter body, no subject line:`,
+      },
+    ],
+  });
 
-Write a cover letter for this job. CRITICAL RULES:
-- Sound completely human, conversational, and genuine — NOT AI-generated
-- Mention the company by name and what they specifically do or build (based on the job description)
-- For a ${companyType}: express why ${isProductCompany ? 'working on their specific product excites you' : 'working across different client projects appeals to you'}
-- Reference 1-2 specific technical things from the job description that match your experience
-- Keep it under 180 words
-- No buzzwords like "passionate", "leverage", "synergy", "utilize", "excited to contribute"
-- Write in first person, direct tone, like a real person not a chatbot
-- End naturally, not with generic "I look forward to hearing from you" boilerplate
-
-Job: ${job.title} at ${job.company}
-Location: ${job.locationLabel} (${job.workMode})
-Key match reasons: ${matchReasons.slice(0, 3).join('; ')}
-Job description excerpt: ${job.description.slice(0, 600)}
-
-Write the cover letter now (just the letter body, no subject line):`;
-
-  const response = await ai.messages.create(
-    {
-      model: MODEL,
-      max_tokens: 512,
-      messages: [{ role: 'user', content: prompt }],
-    },
-    { timeout: TIMEOUT_MS },
-  );
-
-  return response.content[0].type === 'text'
-    ? response.content[0].text.trim()
+  const textBlock = response.content.find((b) => b.type === 'text');
+  return textBlock && textBlock.type === 'text'
+    ? textBlock.text.trim()
     : buildFallbackCoverLetter(job, profile, matchReasons);
 }
 
