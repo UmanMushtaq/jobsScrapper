@@ -36,7 +36,8 @@ export async function runJobSearchOnce(
   const seenFile = process.env.JOB_SEARCH_SEEN_FILE ?? DEFAULT_SEEN_FILE;
   const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? DEFAULT_APPLIED_FILE;
   const dismissedFile = process.env.JOB_SEARCH_DISMISSED_FILE ?? DEFAULT_DISMISSED_FILE;
-  const sentFile = process.env.JOB_SEARCH_SENT_FILE ?? DEFAULT_SENT_FILE;
+  // Derive sent file from same directory as seen file so it lands on the persistent disk
+  const sentFile = process.env.JOB_SEARCH_SENT_FILE ?? resolve(dirname(resolve(seenFile)), 'job_search_sent.json');
   const reportPath = process.env.JOB_SEARCH_REPORT_PATH ?? DEFAULT_REPORT_FILE;
   const stateFile = process.env.JOB_SEARCH_STATE_FILE ?? DEFAULT_STATE_FILE;
   const seenTtlHours = profile.search.seenTtlHours ?? 168;

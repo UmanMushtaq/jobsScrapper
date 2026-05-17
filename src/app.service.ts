@@ -17,13 +17,17 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AppService.name);
   private intervalHandle: NodeJS.Timeout | null = null;
   private activeRun: Promise<void> | null = null;
-  private intervalMinutes = Number(process.env.CHECK_INTERVAL_MINUTES ?? 0);
+  private intervalMinutes = 0;
 
   async onModuleInit(): Promise<void> {
     const profile = await loadSearchProfile();
-    if (!this.intervalMinutes || this.intervalMinutes <= 0) {
-      this.intervalMinutes = Math.max(15, Math.round(profile.search.checkIntervalHours * 60));
-    }
+    const envMinutes = Number(process.env.CHECK_INTERVAL_MINUTES ?? 0);
+    const profileMinutes = Math.round(profile.search.checkIntervalHours * 60);
+    // Env var is respected only if it is >= the profile setting — prevents
+    // accidental leftover values (e.g. 60) from overriding the intended 180.
+    this.intervalMinutes = (envMinutes >= profileMinutes && envMinutes > 0)
+      ? envMinutes
+      : profileMinutes;
 
     if (!shouldEnableScheduler()) {
       this.logger.log('Scheduler disabled; web app is running in health/dashboard mode only.');
