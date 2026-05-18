@@ -64,21 +64,31 @@ export function scoreLocation(
 
   // Europe acceptance
   if (profile.europeCountryCodes.includes(countryCode)) {
-    // Hybrid or on-site outside preferred country: only if the company offers relocation
-    if (workMode === 'on-site' || workMode === 'hybrid') {
+    if (workMode === 'on-site') {
+      // On-site outside France: only acceptable if company offers relocation
       if (offersRelocation) {
         return {
           isAcceptable: true,
-          score: 75,
+          score: 70,
           priority: 'acceptable',
-          reason: `Europe ${workMode} (${countryCode}) with relocation support`,
+          reason: `Europe on-site (${countryCode}) with relocation support`,
         };
       }
       return {
         isAcceptable: false,
         score: 0,
         priority: 'rejected',
-        reason: `Europe ${workMode} (${countryCode}) - no relocation offered`,
+        reason: `Europe on-site (${countryCode}) - no relocation offered`,
+      };
+    }
+
+    if (workMode === 'hybrid') {
+      // Hybrid outside France: acceptable, score depends on relocation support
+      return {
+        isAcceptable: true,
+        score: offersRelocation ? 80 : 65,
+        priority: 'acceptable',
+        reason: `Europe hybrid (${countryCode})${offersRelocation ? ' with relocation' : ''}`,
       };
     }
   }
