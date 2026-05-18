@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { enrichMatch } from './ai-enrichment';
 import { scoreJob } from './matcher';
 import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
@@ -92,11 +93,30 @@ export async function runJobSearchOnce(
           Date.now() - profile.search.maxAgeHours * 60 * 60 * 1000 && baseFilter(job),
     );
 
-    const matches = freshJobs
+    const rawMatches = freshJobs
       .map((job) => scoreJob(job, profile))
       .filter((match): match is MatchResult => match !== null)
       .sort(sortMatches)
       .slice(0, maxResults);
+
+    // AI enrichment: fraud detection + humanized cover letters (fails silently)
+    const enrichments = await Promise.all(rawMatches.map((m) => enrichMatch(m, profile)));
+    const matches: MatchResult[] = rawMatches
+      .map((match, i) => {
+        const ai = enrichments[i];
+        if (!ai) return match;
+        return {
+          ...match,
+          coverLetter: ai.isSuspicious ? match.coverLetter : ai.coverLetter,
+          fraudScore: ai.fraudScore,
+          fraudReasons: ai.fraudReasons,
+          suggestedSalary: ai.suggestedSalary ?? undefined,
+        };
+      })
+      .filter((_match, i) => {
+        const ai = enrichments[i];
+        return !ai || !ai.isSuspicious;
+      });
 
     const effectiveFreshJobs = freshJobs;
 
@@ -104,14 +124,15 @@ export async function runJobSearchOnce(
 
     // Only send jobs that have never been sent to Telegram before
     const newMatches = matches.filter((m) => !sentUrls.has(m.job.canonicalUrl));
-    const messages = buildTelegramPayload(newMatches, reportLocation, profile);
+    const liveNewMatches = await filterDeadUrls(newMatches);
+    const messages = buildTelegramPayload(liveNewMatches, reportLocation, profile);
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId && messages.length > 0) {
       await sendTelegramMessages(botToken, chatId, messages);
       // Permanently record every URL that was sent so it is never sent again
-      await addUrlsToStore(sentFile, 'sent_urls', newMatches.map((m) => m.job.canonicalUrl));
+      await addUrlsToStore(sentFile, 'sent_urls', liveNewMatches.map((m) => m.job.canonicalUrl));
     }
 
     await addUrlsToStore(
@@ -210,28 +231,51 @@ function buildTelegramPayload(
     return [
       [
         `No new strong matches for ${profile.candidate.name} in this run.`,
-        `Active source: ${ACTIVE_SOURCES.join(', ')}`,
+        `Active sources: ${ACTIVE_SOURCES.join(', ')}`,
         `Blocked sources: ${BLOCKED_SOURCES.join(', ')}`,
-        `Report path: ${resolve(reportPath)}`,
       ].join('\n'),
     ];
   }
 
-  const lines = [
-    `Found ${matches.length} new strong matches for ${profile.candidate.name}.`,
-    `Active source: ${ACTIVE_SOURCES.join(', ')}`,
+  const messages: string[] = [];
+
+  // Message 1: quick overview of all matches
+  const summaryLines = [
+    `${matches.length} new match${matches.length > 1 ? 'es' : ''} for ${profile.candidate.name}:`,
     '',
   ];
-
-  for (const [index, match] of matches.entries()) {
-    lines.push(
-      `${index + 1}. ${match.job.title} — ${match.job.company}\n${match.job.locationLabel} | ${match.job.workMode} | ${match.salaryLabel} | ${match.score}%\nApply: ${match.job.applyUrl}\nWhy: ${match.reasons.join('; ')}`,
+  for (const [i, match] of matches.entries()) {
+    summaryLines.push(
+      `${i + 1}. ${match.job.title} — ${match.job.company}`,
+      `   ${match.job.locationLabel} | ${match.job.workMode} | ${match.salaryLabel} | ${match.score}%`,
     );
-    lines.push('');
+  }
+  messages.push(summaryLines.join('\n'));
+
+  // One message per job with full details + cover letter
+  for (const [i, match] of matches.entries()) {
+    const lines: string[] = [
+      `[${i + 1}/${matches.length}] ${match.job.title}`,
+      `Company: ${match.job.company}`,
+      `Location: ${match.job.locationLabel} | ${match.job.workMode}`,
+      `Score: ${match.score}%`,
+      `Apply: ${match.job.applyUrl}`,
+      `Why: ${match.reasons.slice(0, 2).join('; ')}`,
+    ];
+
+    if (match.fraudScore !== undefined) {
+      lines.push(`Fraud risk: ${match.fraudScore}% ${match.fraudScore >= 40 ? '⚠️' : '✓'}`);
+    }
+
+    if (match.suggestedSalary) {
+      lines.push(`Salary to quote: ${match.suggestedSalary}`);
+    }
+
+    lines.push('', '--- Cover letter ---', '', match.coverLetter);
+    messages.push(lines.join('\n'));
   }
 
-  lines.push(`Report path: ${resolve(reportPath)}`);
-  return [lines.join('\n')];
+  return messages;
 }
 
 function sortMatches(left: MatchResult, right: MatchResult): number {
@@ -284,6 +328,58 @@ function buildEmptyState(profile?: SearchProfile): JobSearchState {
     seenTtlHours,
     nextRunAt: null,
   };
+}
+
+const DEAD_JOB_SIGNALS = [
+  // English
+  'job no longer available',
+  'position has been filled',
+  'this position has been closed',
+  'job listing has expired',
+  'this job is no longer',
+  'vacancy has been filled',
+  'posting has been removed',
+  'this role has been filled',
+  // French
+  "offre expirée",
+  "offre n'est plus disponible",
+  "ce poste est pourvu",
+  "annonce expirée",
+  "cette offre n'est plus",
+  "poste pourvu",
+];
+
+async function isUrlAlive(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; job-search-bot/1.0)' },
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (response.status === 404 || response.status === 410) return false;
+    // Non-404 error codes (403, 429, 5xx) — bot-blocking or server errors, assume alive
+    if (!response.ok) return true;
+
+    const text = await response.text();
+    const lower = text.toLowerCase();
+    return !DEAD_JOB_SIGNALS.some((signal) => lower.includes(signal));
+  } catch {
+    // Network error or timeout — assume alive to avoid false negatives
+    return true;
+  }
+}
+
+async function filterDeadUrls(matches: MatchResult[]): Promise<MatchResult[]> {
+  if (matches.length === 0) return matches;
+  const alive = await Promise.all(matches.map((m) => isUrlAlive(m.job.applyUrl)));
+  return matches.filter((_, i) => alive[i]);
 }
 
 async function ensureOutputDir(filePath: string): Promise<void> {

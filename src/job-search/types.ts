@@ -80,6 +80,9 @@ export interface MatchResult {
   salaryLabel: string;
   coverLetter: string;
   shortAnswers: string[];
+  fraudScore?: number;
+  fraudReasons?: string[];
+  suggestedSalary?: string;
 }
 
 export interface RunSummary {

@@ -294,10 +294,9 @@ function buildCoverLetter(job: JobPosting, profile: SearchProfile, reasons: stri
   return [
     `Hello ${job.company} team,`,
     '',
-    `I am a Paris-based backend engineer with about ${profile.candidate.experienceYears} years of hands-on experience building Node.js and TypeScript systems in production.`,
-    `What stood out to me here is ${reasonLine.toLowerCase()}, along with the overlap around APIs, data-intensive backend work, and product ownership.`,
-    `My recent work has included REST APIs, PostgreSQL and MongoDB, Dockerized deployments, and backend services for fintech-style platforms where performance and reliability mattered every day.`,
-    `I would be glad to bring that same practical backend ownership to ${job.company} and contribute quickly in an English-speaking team.`,
+    `I am a Paris-based backend engineer with ${profile.candidate.experienceYears} years building production systems with Node.js, NestJS, and TypeScript.`,
+    `What caught my attention here is ${reasonLine.toLowerCase()}, along with the focus on APIs and PostgreSQL-backed services where reliability matters every day.`,
+    `My recent work spans REST APIs, Docker deployments, and backend services for fintech platforms where performance was critical. I would be glad to bring that same practical approach to ${job.company}.`,
     '',
     'Best regards,',
     profile.candidate.name,

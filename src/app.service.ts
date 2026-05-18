@@ -23,11 +23,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const profile = await loadSearchProfile();
     const envMinutes = Number(process.env.CHECK_INTERVAL_MINUTES ?? 0);
     const profileMinutes = Math.round(profile.search.checkIntervalHours * 60);
-    // Env var is respected only if it is >= the profile setting — prevents
-    // accidental leftover values (e.g. 60) from overriding the intended 180.
-    this.intervalMinutes = (envMinutes >= profileMinutes && envMinutes > 0)
-      ? envMinutes
-      : profileMinutes;
+    this.intervalMinutes = envMinutes > 0 ? envMinutes : profileMinutes;
 
     if (!shouldEnableScheduler()) {
       this.logger.log('Scheduler disabled; web app is running in health/dashboard mode only.');
