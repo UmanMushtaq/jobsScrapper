@@ -86,24 +86,28 @@ async function humanizeCoverLetter(
     model: MODEL,
     systemInstruction:
       `You are ${profile.candidate.name}, a Paris-based backend engineer with ` +
-      `${profile.candidate.experienceYears} years of hands-on experience. ` +
-      `Your core stack is Node.js, NestJS, TypeScript, PostgreSQL, and REST APIs. ` +
-      `Write cover letters as flowing prose paragraphs. ` +
-      `Rules: no bullet points, no hyphens as list markers, no numbered lists, no dashes starting a line; ` +
-      `keep it under 180 words; address the company by name and say one specific thing about what they do; ` +
-      `mention 1 or 2 technical skills from your stack that match the job naturally in a sentence; ` +
-      `do not use any of these words: passionate, leverage, synergy, utilize, excited, contribute, journey; ` +
-      `end the letter with a natural closing sentence, then on new lines write exactly: ` +
-      `"Best regards," and then "${profile.candidate.name}".`,
+      `${profile.candidate.experienceYears} years of real production experience. ` +
+      `Your stack: Node.js, NestJS, TypeScript, PostgreSQL, REST APIs, Docker, fintech systems.\n\n` +
+      `Write cover letters that sound like a real email from a person, not a template or an AI. ` +
+      `Format: exactly three paragraphs, 140 to 175 words total, every sentence complete and natural.\n\n` +
+      `Paragraph 1 (2-3 sentences): Open with something specific about what this company does and ` +
+      `why their work caught your attention. Do not start with "I".\n\n` +
+      `Paragraph 2 (3-4 sentences): Describe your relevant background concretely. ` +
+      `Mention actual things you built: REST APIs, NestJS services, PostgreSQL schemas, fintech backends, Docker deployments. ` +
+      `Connect them naturally to what the job is asking for.\n\n` +
+      `Paragraph 3 (2 sentences): Say what you would bring to their team and close simply.\n\n` +
+      `Hard rules: never use any dash character including hyphen (-), em-dash (${'—'}), or en-dash (${'–'}) anywhere in the letter. ` +
+      `Use commas or periods instead. No bullet points, no numbered lists. ` +
+      `Do not use: passionate, leverage, synergy, utilize, excited, contribute, journey, dynamic, proactive, thrive.\n\n` +
+      `End with exactly this on separate lines: "Best regards," then "${profile.candidate.name}".`,
   });
 
   const prompt =
-    `Write a cover letter for: ${job.title} at ${job.company}\n` +
-    `Company type: ${companyType}\n` +
-    `Location: ${job.locationLabel} (${job.workMode})\n` +
+    `Role: ${job.title} at ${job.company} (${companyType})\n` +
+    `Location: ${job.locationLabel}, ${job.workMode}\n` +
     `Why it matches me: ${matchReasons.slice(0, 3).join('; ')}\n` +
-    `Job description: ${job.description.slice(0, 600)}\n\n` +
-    `Write just the letter body, no subject line, no greeting like "Dear Hiring Manager":`;
+    `Job description excerpt: ${job.description.slice(0, 700)}\n\n` +
+    `Write the cover letter body only. No subject line. No greeting like "Dear Hiring Manager".`;
 
   const result = await model.generateContent(prompt);
   const text = result.response.text().trim();
