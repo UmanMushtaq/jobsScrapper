@@ -96,6 +96,7 @@ async function fetchOffers(query: string, maxAgeHours: number): Promise<ApecOffe
   });
 
   if (res.status === 204) return [];
+  if (res.status === 403 || res.status === 429) return []; // cloud IP blocked — fail silently
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`APEC API ${res.status}${text ? ': ' + text.slice(0, 150) : ''}`);
