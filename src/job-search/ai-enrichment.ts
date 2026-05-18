@@ -2,14 +2,66 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
 // gemini-2.0-flash: free tier — 15 RPM, 1 M tokens/day, 1 500 req/day.
+// Multiple keys supported: GEMINI_API_KEY (comma-separated) or GEMINI_API_KEY_1..5
+// Keys rotate automatically when one hits quota.
 const MODEL = 'gemini-2.0-flash';
 
-let genAI: GoogleGenerativeAI | null = null;
+let _cachedKeys: string[] | null = null;
+let _currentKeyIndex = 0;
 
-function getClient(): GoogleGenerativeAI | null {
-  if (!process.env.GEMINI_API_KEY) return null;
-  if (!genAI) genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  return genAI;
+function getApiKeys(): string[] {
+  if (_cachedKeys) return _cachedKeys;
+  const keys: string[] = [];
+  const main = process.env.GEMINI_API_KEY;
+  if (main) keys.push(...main.split(',').map((k) => k.trim()).filter(Boolean));
+  for (let i = 1; i <= 5; i++) {
+    const k = process.env[`GEMINI_API_KEY_${i}`];
+    if (k?.trim()) keys.push(k.trim());
+  }
+  _cachedKeys = [...new Set(keys)];
+  return _cachedKeys;
+}
+
+function isQuotaError(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : err).toLowerCase();
+  return (
+    msg.includes('429') ||
+    msg.includes('quota') ||
+    msg.includes('rate_limit') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('too many requests')
+  );
+}
+
+async function callWithRotation<T>(
+  fn: (ai: GoogleGenerativeAI) => Promise<T>,
+  label: string,
+): Promise<T | null> {
+  const keys = getApiKeys();
+  if (!keys.length) return null;
+
+  for (let attempt = 0; attempt < keys.length; attempt++) {
+    const idx = (_currentKeyIndex + attempt) % keys.length;
+    const ai = new GoogleGenerativeAI(keys[idx]);
+    try {
+      const result = await fn(ai);
+      _currentKeyIndex = idx;
+      return result;
+    } catch (err) {
+      if (isQuotaError(err)) {
+        _currentKeyIndex = (idx + 1) % keys.length;
+        console.warn(
+          `[gemini] ${label}: key ${idx + 1}/${keys.length} quota exceeded — trying key ${(_currentKeyIndex % keys.length) + 1}`,
+        );
+      } else {
+        console.error(`[gemini] ${label} failed:`, err instanceof Error ? err.message : String(err));
+        return null;
+      }
+    }
+  }
+
+  console.error(`[gemini] ${label}: all ${keys.length} API key(s) exhausted`);
+  return null;
 }
 
 export interface AiEnrichment {
@@ -26,28 +78,26 @@ export async function enrichMatch(
   match: MatchResult,
   profile: SearchProfile,
 ): Promise<AiEnrichment | null> {
-  const ai = getClient();
-  if (!ai) return null;
+  if (!getApiKeys().length) return null;
 
   const [fraud, cover, salary] = await Promise.all([
-    detectFraudAndQuality(ai, match.job).catch((err: unknown) => {
-      console.error('[gemini] fraud/quality failed:', err instanceof Error ? err.message : String(err));
-      return null;
-    }),
-    humanizeCoverLetter(ai, match.job, profile, match.reasons).catch((err: unknown) => {
-      console.error('[gemini] cover letter failed:', err instanceof Error ? err.message : String(err));
-      return null;
-    }),
-    suggestSalary(ai, match.job, profile),
+    callWithRotation((ai) => detectFraudAndQuality(ai, match.job), 'fraud+quality'),
+    callWithRotation((ai) => humanizeCoverLetter(ai, match.job, profile, match.reasons), 'cover-letter'),
+    callWithRotation((ai) => suggestSalary(ai, match.job, profile), 'salary'),
   ]);
 
-  // If both fraud detection and cover letter failed, skip enrichment entirely
   if (!fraud && !cover) return null;
 
-  const fraudResult = fraud ?? { fraudScore: 0, fraudReasons: [], isSuspicious: false, companyQualityScore: 70, companyRedFlags: [] };
+  const fraudResult = fraud ?? {
+    fraudScore: 0,
+    fraudReasons: [],
+    isSuspicious: false,
+    companyQualityScore: 70,
+    companyRedFlags: [],
+  };
   const coverResult = cover ?? buildFallbackCoverLetter(match.job, profile, match.reasons);
 
-  return { ...fraudResult, coverLetter: coverResult, suggestedSalary: salary };
+  return { ...fraudResult, coverLetter: coverResult, suggestedSalary: salary ?? null };
 }
 
 async function detectFraudAndQuality(
