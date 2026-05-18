@@ -31,8 +31,14 @@ export class RemoteOKJobsSource implements JobSource {
         headers: {
           'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Accept': 'application/json',
+          'Referer': 'https://remoteok.com/',
         },
       });
+
+      if (response.status === 403) {
+        // RemoteOK blocks cloud provider IPs — fail silently, no point retrying
+        return [];
+      }
 
       if (!response.ok) {
         throw new Error(`RemoteOK API error: ${response.status}`);

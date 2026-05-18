@@ -95,7 +95,7 @@ export class FranceTravailJobsSource implements JobSource {
     }
 
     const maxAgeDate = new Date(Date.now() - settings.maxAgeHours * 60 * 60 * 1000);
-    const minCreationDate = maxAgeDate.toISOString().split('T')[0];
+    const minCreationDate = maxAgeDate.toISOString().replace(/\.\d+Z$/, 'Z');
 
     const jobs = new Map<string, JobPosting>();
 
