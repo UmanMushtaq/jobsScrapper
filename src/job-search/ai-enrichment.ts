@@ -1,8 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
-// gemini-1.5-flash: free tier — 15 RPM, 1 M tokens/day, 1 500 req/day.
-const MODEL = 'gemini-1.5-flash';
+// gemini-2.0-flash: free tier — 15 RPM, 1 M tokens/day, 1 500 req/day.
+const MODEL = 'gemini-2.0-flash';
 
 let genAI: GoogleGenerativeAI | null = null;
 
