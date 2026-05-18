@@ -1,6 +1,6 @@
 # Job Search Bot
 
-A personal backend job search automation tool built for **Uman Mushtaq**. Runs as a NestJS web service on Render, scans 7 job boards every 3 hours, filters by language, experience, location and tech stack, and sends matching jobs with AI-generated cover letters and salary suggestions directly to Telegram.
+A personal backend job search automation tool built for **Uman Mushtaq**. Runs as a NestJS web service on Render, scans 7 job boards every 3 hours, filters by language, experience, location and tech stack, and sends matching jobs with AI-generated salary suggestions directly to Telegram.
 
 ## What it does
 
@@ -11,10 +11,9 @@ Every 3 hours the bot:
 3. Scores each job 0–100% against your profile
 4. Runs AI enrichment (Google Gemini free tier):
    - **Fraud detection** — scores 0–100, drops jobs scoring 60+
-   - **Cover letter** — 3-paragraph humanized letter, no AI-sounding phrases
    - **Salary suggestion** — realistic monthly range in local currency + EUR equivalent, adjusted for required experience level
 5. Checks every apply URL is still live (drops dead/filled positions)
-6. Sends one Telegram message per matching job with full details + cover letter
+6. Sends one Telegram message per matching job with full details
 
 ### Dashboard
 
@@ -78,18 +77,6 @@ Requires `GEMINI_API_KEY`. If not set, the bot runs normally with a fallback cov
 
 Gemini analyzes each job for: unrealistic salary, vague description, no real company info, no specific tech requirements, grammar errors. Jobs scoring ≥ 60/100 are silently dropped.
 
-### Cover letter
-
-Generated per job. Rules enforced in the prompt:
-- 3 paragraphs, 140–175 words
-- No dashes, no bullet points, no em-dashes
-- First paragraph mentions the company specifically
-- Second paragraph references Node.js, NestJS, TypeScript from your actual experience
-- Ends with: `Best regards,` / `Uman Mushtaq`
-- Banned words: passionate, leverage, synergy, utilize, excited, dynamic, proactive
-
-Falls back to a template if Gemini fails or key is not set.
-
 ### Salary suggestion
 
 Gemini estimates the gross monthly salary for the role in the job's local city and country, adjusted for experience:
@@ -128,15 +115,6 @@ Apply: https://...
 Why: Node.js explicitly required; NestJS/TypeScript match
 Fraud risk: 8% ✓
 Salary to quote: GBP 4,200–5,000/month (~€4,900–5,800/month)
-
---- Cover letter ---
-
-Paace builds financial infrastructure products and that is exactly
-the kind of backend environment I have been working in for four years.
-...
-
-Best regards,
-Uman Mushtaq
 ```
 
 ---

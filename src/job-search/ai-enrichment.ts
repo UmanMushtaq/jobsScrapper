@@ -83,6 +83,22 @@ async function humanizeCoverLetter(
     ? 'product company building their own software'
     : 'service or consulting company working with multiple clients';
 
+  const companySizeHint = job.employeeCount
+    ? `approximately ${job.employeeCount} employees`
+    : job.isStartup
+      ? 'an early-stage startup'
+      : 'size not disclosed';
+
+  const companyContext = [
+    `Company: ${job.company}`,
+    `Type: ${companyType}`,
+    `Size: ${companySizeHint}`,
+    job.companyCreationYear ? `Founded: ${job.companyCreationYear}` : '',
+    job.companySummary ? `About the company: ${job.companySummary.slice(0, 400)}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   const model = ai.getGenerativeModel({
     model: MODEL,
     systemInstruction:
@@ -91,8 +107,9 @@ async function humanizeCoverLetter(
       `Your stack: Node.js, NestJS, TypeScript, PostgreSQL, REST APIs, Docker, fintech systems.\n\n` +
       `Write cover letters that sound like a real email from a person, not a template or an AI. ` +
       `Format: exactly three paragraphs, 140 to 175 words total, every sentence complete and natural.\n\n` +
-      `Paragraph 1 (2-3 sentences): Open with something specific about what this company does and ` +
-      `why their work caught your attention. Do not start with "I".\n\n` +
+      `Paragraph 1 (2-3 sentences): Open with something specific about what this company actually does, ` +
+      `their product, industry, or mission. Use the company context provided. If you know this company from ` +
+      `your training data, use that knowledge too. Do not start with "I".\n\n` +
       `Paragraph 2 (3-4 sentences): Describe your relevant background concretely. ` +
       `Mention actual things you built: REST APIs, NestJS services, PostgreSQL schemas, fintech backends, Docker deployments. ` +
       `Connect them naturally to what the job is asking for.\n\n` +
@@ -104,11 +121,13 @@ async function humanizeCoverLetter(
   });
 
   const prompt =
-    `Role: ${job.title} at ${job.company} (${companyType})\n` +
+    `${companyContext}\n` +
+    `Role: ${job.title}\n` +
     `Location: ${job.locationLabel}, ${job.workMode}\n` +
     `Why it matches me: ${matchReasons.slice(0, 3).join('; ')}\n` +
-    `Job description excerpt: ${job.description.slice(0, 700)}\n\n` +
-    `Write the cover letter body only. No subject line. No greeting like "Dear Hiring Manager".`;
+    `Job description excerpt: ${job.description.slice(0, 1000)}\n\n` +
+    `Write the cover letter body only. No subject line. No greeting like "Dear Hiring Manager". ` +
+    `Reference specific details about ${job.company} and what they build.`;
 
   const result = await model.generateContent(prompt);
   const text = result.response.text().trim();
