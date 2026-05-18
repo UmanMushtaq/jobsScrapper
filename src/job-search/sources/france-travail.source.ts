@@ -96,12 +96,13 @@ export class FranceTravailJobsSource implements JobSource {
 
     const maxAgeDate = new Date(Date.now() - settings.maxAgeHours * 60 * 60 * 1000);
     const minCreationDate = maxAgeDate.toISOString().replace(/\.\d+Z$/, 'Z');
+    const maxCreationDate = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
     const jobs = new Map<string, JobPosting>();
 
     for (const query of queries) {
       try {
-        const results = await fetchOffers(token, query, minCreationDate);
+        const results = await fetchOffers(token, query, minCreationDate, maxCreationDate);
         for (const offer of results) {
           const job = mapOffer(offer);
           if (job) {
@@ -124,10 +125,12 @@ async function fetchOffers(
   token: string,
   query: string,
   minCreationDate: string,
+  maxCreationDate: string,
 ): Promise<FranceTravailOffer[]> {
   const params = new URLSearchParams({
     motsCles: query,
     minCreationDate,
+    maxCreationDate,
     range: '0-99',
   });
 
