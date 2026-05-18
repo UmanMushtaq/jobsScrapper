@@ -29,17 +29,25 @@ export async function enrichMatch(
   const ai = getClient();
   if (!ai) return null;
 
-  try {
-    const [fraud, cover, salary] = await Promise.all([
-      detectFraudAndQuality(ai, match.job),
-      humanizeCoverLetter(ai, match.job, profile, match.reasons),
-      suggestSalary(ai, match.job, profile),
-    ]);
-    return { ...fraud, coverLetter: cover, suggestedSalary: salary };
-  } catch (err) {
-    console.error('[gemini] enrichment failed:', err instanceof Error ? err.message : String(err));
-    return null;
-  }
+  const [fraud, cover, salary] = await Promise.all([
+    detectFraudAndQuality(ai, match.job).catch((err: unknown) => {
+      console.error('[gemini] fraud/quality failed:', err instanceof Error ? err.message : String(err));
+      return null;
+    }),
+    humanizeCoverLetter(ai, match.job, profile, match.reasons).catch((err: unknown) => {
+      console.error('[gemini] cover letter failed:', err instanceof Error ? err.message : String(err));
+      return null;
+    }),
+    suggestSalary(ai, match.job, profile),
+  ]);
+
+  // If both fraud detection and cover letter failed, skip enrichment entirely
+  if (!fraud && !cover) return null;
+
+  const fraudResult = fraud ?? { fraudScore: 0, fraudReasons: [], isSuspicious: false, companyQualityScore: 70, companyRedFlags: [] };
+  const coverResult = cover ?? buildFallbackCoverLetter(match.job, profile, match.reasons);
+
+  return { ...fraudResult, coverLetter: coverResult, suggestedSalary: salary };
 }
 
 async function detectFraudAndQuality(
