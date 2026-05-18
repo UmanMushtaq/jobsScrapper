@@ -5,16 +5,18 @@
 // Usage:
 //   JOB_PROXY_SECRET=your-secret node proxy/index.js
 //
-// Then in a second terminal:
-//   cloudflared tunnel --url http://localhost:3001
+// Then in a second terminal (quick tunnel):
+//   cloudflared tunnel --url http://localhost:9876
 //
-// Copy the tunnel URL (e.g. https://abc-def.trycloudflare.com) into
-// Render as JOB_PROXY_URL, and add JOB_PROXY_SECRET with the same secret.
+// Or for permanent URL (named tunnel, run setup-autostart.sh first):
+//   cloudflared tunnel run job-proxy
+//
+// Copy the tunnel URL into Render as JOB_PROXY_URL.
 
 const http = require('http');
 
 const SECRET = process.env.JOB_PROXY_SECRET;
-const PORT = process.env.PORT ?? 3001;
+const PORT = process.env.PORT ?? 9876;
 
 const ALLOWED_HOSTS = ['www.apec.fr', 'remoteok.com'];
 

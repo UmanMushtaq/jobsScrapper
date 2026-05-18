@@ -23,7 +23,7 @@ if ! command -v cloudflared &> /dev/null; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT=3001
+PORT="${PORT:-9876}"
 
 echo "Starting proxy on port $PORT..."
 node "$SCRIPT_DIR/index.js" &
