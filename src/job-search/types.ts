@@ -72,9 +72,17 @@ export interface JobPosting {
   companyCreationYear?: number | null;
 }
 
+export interface ScoreBreakdown {
+  mandatory: number;
+  keywords: number;
+  location: number;
+  startup: number;
+}
+
 export interface MatchResult {
   job: JobPosting;
   score: number;
+  scoreBreakdown?: ScoreBreakdown;
   reasons: string[];
   startupScore: number;
   salaryLabel: string;
@@ -83,6 +91,8 @@ export interface MatchResult {
   fraudScore?: number;
   fraudReasons?: string[];
   suggestedSalary?: string;
+  companyQualityScore?: number;
+  companyRedFlags?: string[];
 }
 
 export interface RunSummary {

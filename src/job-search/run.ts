@@ -1,15 +1,19 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { enrichMatch } from './ai-enrichment';
+import { checkFollowups } from './followup';
 import { scoreJob } from './matcher';
 import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
 import { AdzunaJobsSource } from './sources/adzuna.source';
+import { ApecJobsSource } from './sources/apec.source';
 import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
 import { FranceTravailJobsSource } from './sources/france-travail.source';
 import { GreenhouseJobsSource } from './sources/greenhouse.source';
+import { HackerNewsJobsSource } from './sources/hackernews.source';
 import { RemoteOKJobsSource } from './sources/remoteok.source';
 import { RemotiveJobsSource } from './sources/remotive.source';
+import { WellfoundJobsSource } from './sources/wellfound.source';
 import { WttjJobsSource } from './sources/wttj.source';
 import {
   addUrlsToStore,
@@ -27,8 +31,12 @@ const DEFAULT_DISMISSED_FILE = 'job_search_dismissed.json';
 const DEFAULT_SENT_FILE = 'job_search_sent.json';
 const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
-const ACTIVE_SOURCES = ['welcometothejungle.com', 'adzuna.com', 'francetravail.fr', 'greenhouse.io', 'remotive.com', 'remoteok.com', 'arbeitnow.com'];
-const BLOCKED_SOURCES = ['wellfound.com', 'startup.jobs', 'indeed.com', 'linkedin.com'];
+const ACTIVE_SOURCES = [
+  'welcometothejungle.com', 'wellfound.com', 'adzuna.com', 'francetravail.fr',
+  'apec.fr', 'greenhouse.io', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
+  'news.ycombinator.com',
+];
+const BLOCKED_SOURCES = ['startup.jobs', 'indeed.com', 'linkedin.com'];
 
 export async function runJobSearchOnce(
   overrideProfile?: SearchProfile,
@@ -64,12 +72,15 @@ export async function runJobSearchOnce(
 
     const sources = [
       new WttjJobsSource(),
+      new WellfoundJobsSource(),
       new AdzunaJobsSource(),
       new FranceTravailJobsSource(),
+      new ApecJobsSource(),
       new GreenhouseJobsSource(),
       new RemotiveJobsSource(),
       new RemoteOKJobsSource(),
       new ArbeitnowJobsSource(),
+      new HackerNewsJobsSource(),
     ];
     const jobLists = await Promise.all(
       sources.map((s) => s.fetch(profile.search.queries, profile.search)),
@@ -99,7 +110,7 @@ export async function runJobSearchOnce(
       .sort(sortMatches)
       .slice(0, maxResults);
 
-    // AI enrichment: fraud detection + humanized cover letters (fails silently)
+    // AI enrichment: fraud + quality detection, cover letters, salary (fails silently)
     const enrichments = await Promise.all(rawMatches.map((m) => enrichMatch(m, profile)));
     const matches: MatchResult[] = rawMatches
       .map((match, i) => {
@@ -111,6 +122,8 @@ export async function runJobSearchOnce(
           fraudScore: ai.fraudScore,
           fraudReasons: ai.fraudReasons,
           suggestedSalary: ai.suggestedSalary ?? undefined,
+          companyQualityScore: ai.companyQualityScore,
+          companyRedFlags: ai.companyRedFlags,
         };
       })
       .filter((_match, i) => {
@@ -134,6 +147,11 @@ export async function runJobSearchOnce(
       // Permanently record every URL that was sent so it is never sent again
       await addUrlsToStore(sentFile, 'sent_urls', liveNewMatches.map((m) => m.job.canonicalUrl));
     }
+
+    // Check for 7-day follow-up reminders on applied jobs
+    await checkFollowups().catch((err: unknown) => {
+      console.error('[followup] check failed:', err instanceof Error ? err.message : String(err));
+    });
 
     await addUrlsToStore(
       seenFile,
@@ -254,17 +272,29 @@ function buildTelegramPayload(
 
   // One message per job with full details + cover letter
   for (const [i, match] of matches.entries()) {
+    const bd = match.scoreBreakdown;
+    const scoreDetail = bd
+      ? ` [Tech:${bd.mandatory} | KW:${bd.keywords} | Loc:${bd.location} | Startup:${bd.startup}]`
+      : '';
+
     const lines: string[] = [
       `[${i + 1}/${matches.length}] ${match.job.title}`,
       `Company: ${match.job.company}`,
       `Location: ${match.job.locationLabel} | ${match.job.workMode}`,
-      `Score: ${match.score}%`,
+      `Score: ${match.score}%${scoreDetail}`,
       `Apply: ${match.job.applyUrl}`,
       `Why: ${match.reasons.slice(0, 2).join('; ')}`,
     ];
 
     if (match.fraudScore !== undefined) {
       lines.push(`Fraud risk: ${match.fraudScore}% ${match.fraudScore >= 40 ? '⚠️' : '✓'}`);
+    }
+
+    if (match.companyQualityScore !== undefined) {
+      const q = match.companyQualityScore;
+      const icon = q >= 75 ? '✓' : q >= 50 ? '⚠️' : '🚩';
+      const flags = match.companyRedFlags?.length ? ` (${match.companyRedFlags.slice(0, 2).join(', ')})` : '';
+      lines.push(`Company quality: ${q}/100 ${icon}${flags}`);
     }
 
     if (match.suggestedSalary) {

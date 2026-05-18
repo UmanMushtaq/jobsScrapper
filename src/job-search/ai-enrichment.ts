@@ -18,6 +18,8 @@ export interface AiEnrichment {
   coverLetter: string;
   isSuspicious: boolean;
   suggestedSalary: string | null;
+  companyQualityScore: number;
+  companyRedFlags: string[];
 }
 
 export async function enrichMatch(
@@ -29,7 +31,7 @@ export async function enrichMatch(
 
   try {
     const [fraud, cover, salary] = await Promise.all([
-      detectFraud(ai, match.job),
+      detectFraudAndQuality(ai, match.job),
       humanizeCoverLetter(ai, match.job, profile, match.reasons),
       suggestSalary(ai, match.job, profile),
     ]);
@@ -40,18 +42,23 @@ export async function enrichMatch(
   }
 }
 
-async function detectFraud(
+async function detectFraudAndQuality(
   ai: GoogleGenerativeAI,
   job: JobPosting,
-): Promise<{ fraudScore: number; fraudReasons: string[]; isSuspicious: boolean }> {
+): Promise<{ fraudScore: number; fraudReasons: string[]; isSuspicious: boolean; companyQualityScore: number; companyRedFlags: string[] }> {
   const model = ai.getGenerativeModel({
     model: MODEL,
     systemInstruction:
-      'You are a job fraud detection expert. Analyze job postings and score how suspicious they are. ' +
-      'Signs of fraud: unrealistic salary, vague or copy-pasted description, no real company info, ' +
-      'requests personal info upfront, grammar errors suggesting mass posting, ' +
-      'too-good-to-be-true perks, no specific tech requirements for a tech role. ' +
-      'Return ONLY valid JSON with no markdown, no code fences: {"fraudScore": 0-100, "reasons": ["signal"]}',
+      'You are a job posting analyst. For each posting, assess two things:\n' +
+      '1. FRAUD SCORE (0-100): How suspicious is this? Signs of fraud: unrealistic salary, vague description, ' +
+      'no real company info, requests personal info upfront, grammar errors, too-good-to-be-true perks, ' +
+      'no specific tech requirements for a tech role.\n' +
+      '2. COMPANY QUALITY SCORE (0-100): How healthy does this company/role appear? ' +
+      'Positive signals: specific tech stack, salary listed, clear role scope, senior engineering culture, realistic expectations. ' +
+      'Red flags: "fast-paced environment", "wear many hats", "we are a family", no salary, ' +
+      '"unlimited PTO" only perk listed, vague title, "rockstar ninja", high pressure language, no tech specifics.\n' +
+      'Return ONLY valid JSON with no markdown: ' +
+      '{"fraudScore": 0-100, "companyQualityScore": 0-100, "fraudReasons": ["signal"], "redFlags": ["flag"]}',
     generationConfig: { responseMimeType: 'application/json' },
   });
 
@@ -60,13 +67,20 @@ async function detectFraud(
     `Company: ${job.company}\n` +
     `Location: ${job.locationLabel}\n` +
     `Salary: ${job.salaryMinimum ? `${job.salaryMinimum}–${job.salaryMaximum ?? '?'} ${job.salaryCurrency ?? ''}` : 'not listed'}\n` +
-    `Description: ${job.description.slice(0, 700)}`;
+    `Description: ${job.description.slice(0, 800)}`;
 
   const result = await model.generateContent(prompt);
-  const parsed = JSON.parse(result.response.text()) as { fraudScore?: number; reasons?: string[] };
+  const parsed = JSON.parse(result.response.text()) as {
+    fraudScore?: number;
+    companyQualityScore?: number;
+    fraudReasons?: string[];
+    redFlags?: string[];
+  };
   const fraudScore = Math.min(100, Math.max(0, Number(parsed.fraudScore ?? 0)));
-  const fraudReasons = (parsed.reasons ?? []).slice(0, 3);
-  return { fraudScore, fraudReasons, isSuspicious: fraudScore >= 60 };
+  const companyQualityScore = Math.min(100, Math.max(0, Number(parsed.companyQualityScore ?? 70)));
+  const fraudReasons = (parsed.fraudReasons ?? []).slice(0, 3);
+  const companyRedFlags = (parsed.redFlags ?? []).slice(0, 3);
+  return { fraudScore, fraudReasons, isSuspicious: fraudScore >= 60, companyQualityScore, companyRedFlags };
 }
 
 async function humanizeCoverLetter(

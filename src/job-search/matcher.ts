@@ -1,6 +1,6 @@
 import { detectLanguage } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
-import { MatchResult, JobPosting, SearchProfile } from './types';
+import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
 
 const BASE_REQUIRED_WEIGHTS = [
   {
@@ -92,19 +92,25 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
       : 0;
 
   const startupScore = computeStartupScore(job, text, profile);
+  const kwScore = Math.min(requiredKeywordMatches * 3, 18);
+  const locScore = Math.round(locationScore.score / 10);
+  const keywordsTotal = kwScore + preferredGroupScore + titleScore;
+
   const score = Math.min(
     100,
-    mandatoryScore +
-      Math.min(requiredKeywordMatches * 3, 18) +
-      preferredGroupScore +
-      titleScore +
-      Math.round(locationScore.score / 10) +
-      startupScore,
+    mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore,
   );
 
   if (score < 85) {
     return null;
   }
+
+  const scoreBreakdown: ScoreBreakdown = {
+    mandatory: mandatoryScore,
+    keywords: keywordsTotal,
+    location: locScore,
+    startup: startupScore,
+  };
 
   const salaryLabel = buildSalaryLabel(job);
   const reasons = [
@@ -119,6 +125,7 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
       startupSignals: buildStartupSignals(job, text),
     },
     score,
+    scoreBreakdown,
     reasons,
     startupScore,
     salaryLabel,
