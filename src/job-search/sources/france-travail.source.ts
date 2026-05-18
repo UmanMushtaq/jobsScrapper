@@ -95,7 +95,7 @@ export class FranceTravailJobsSource implements JobSource {
     }
 
     const maxAgeDate = new Date(Date.now() - settings.maxAgeHours * 60 * 60 * 1000);
-    const minCreationDate = maxAgeDate.toISOString().split('T')[0] + 'T00:00:00Z';
+    const minCreationDate = maxAgeDate.toISOString().split('T')[0];
 
     const jobs = new Map<string, JobPosting>();
 
@@ -127,9 +127,8 @@ async function fetchOffers(
 ): Promise<FranceTravailOffer[]> {
   const params = new URLSearchParams({
     motsCles: query,
-    typeContrat: 'CDI',
     minCreationDate,
-    range: '0-149',
+    range: '0-99',
   });
 
   const response = await fetch(`${API_BASE_URL}?${params.toString()}`, {
@@ -144,7 +143,8 @@ async function fetchOffers(
   }
 
   if (!response.ok) {
-    throw new Error(`France Travail API error: ${response.status}`);
+    const body = await response.text().catch(() => '');
+    throw new Error(`France Travail API error: ${response.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
   }
 
   const data = (await response.json()) as FranceTravailResponse;
