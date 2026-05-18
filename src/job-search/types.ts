@@ -82,6 +82,7 @@ export interface MatchResult {
   shortAnswers: string[];
   fraudScore?: number;
   fraudReasons?: string[];
+  suggestedSalary?: string;
 }
 
 export interface RunSummary {

@@ -2,7 +2,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
 // gemini-1.5-flash: free tier — 15 RPM, 1 M tokens/day, 1 500 req/day.
-// Plenty for a bot running every 3 hours with ~10 jobs per run.
 const MODEL = 'gemini-1.5-flash';
 
 let genAI: GoogleGenerativeAI | null = null;
@@ -18,6 +17,7 @@ export interface AiEnrichment {
   fraudReasons: string[];
   coverLetter: string;
   isSuspicious: boolean;
+  suggestedSalary: string | null;
 }
 
 export async function enrichMatch(
@@ -28,11 +28,12 @@ export async function enrichMatch(
   if (!ai) return null;
 
   try {
-    const [fraud, cover] = await Promise.all([
+    const [fraud, cover, salary] = await Promise.all([
       detectFraud(ai, match.job),
       humanizeCoverLetter(ai, match.job, profile, match.reasons),
+      suggestSalary(ai, match.job, profile),
     ]);
-    return { ...fraud, coverLetter: cover };
+    return { ...fraud, coverLetter: cover, suggestedSalary: salary };
   } catch {
     return null;
   }
@@ -107,6 +108,91 @@ async function humanizeCoverLetter(
   const result = await model.generateContent(prompt);
   const text = result.response.text().trim();
   return text || buildFallbackCoverLetter(job, profile, matchReasons);
+}
+
+// Exchange rate cache — refreshed at most once per hour
+let rateCache: { rates: Record<string, number>; fetchedAt: number } | null = null;
+
+async function getEurRates(): Promise<Record<string, number>> {
+  if (rateCache && Date.now() - rateCache.fetchedAt < 3_600_000) return rateCache.rates;
+  try {
+    const res = await fetch(
+      'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json',
+    );
+    const json = (await res.json()) as { eur: Record<string, number> };
+    rateCache = { rates: json.eur, fetchedAt: Date.now() };
+    return json.eur;
+  } catch {
+    return rateCache?.rates ?? {};
+  }
+}
+
+function adjustSalaryYears(requiredYears: number | null, candidateYears: number): number {
+  if (requiredYears === null || requiredYears >= 5) return candidateYears;
+  if (requiredYears <= 3) return requiredYears;
+  // 4 or 4.5 years required → quote at 3.5yr market rate (competitive without overpricing)
+  return 3.5;
+}
+
+function fmt(n: number): string {
+  return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+async function suggestSalary(
+  ai: GoogleGenerativeAI,
+  job: JobPosting,
+  profile: SearchProfile,
+): Promise<string | null> {
+  try {
+    const adjustedYears = adjustSalaryYears(
+      job.experienceLevelMinimum,
+      profile.candidate.experienceYears,
+    );
+    const location = job.city ? `${job.city}, ${job.locationLabel}` : job.locationLabel;
+
+    const model = ai.getGenerativeModel({
+      model: MODEL,
+      systemInstruction:
+        'You are a tech salary research expert with knowledge of developer pay across Europe. ' +
+        'Give realistic GROSS MONTHLY salary ranges in the LOCAL currency of the country. ' +
+        'Base your answer on typical market rates for that city and country. ' +
+        'Return ONLY valid JSON, no markdown: {"min": 4500, "max": 5500, "currency": "EUR"}',
+      generationConfig: { responseMimeType: 'application/json' },
+    });
+
+    const result = await model.generateContent(
+      `What is the realistic gross monthly salary range for a Node.js/NestJS backend engineer ` +
+      `with ${adjustedYears} years of experience at a tech company in ${location}? ` +
+      `Role title: ${job.title}. Use the local currency of that country.`,
+    );
+
+    const parsed = JSON.parse(result.response.text()) as {
+      min?: number;
+      max?: number;
+      currency?: string;
+    };
+
+    if (!parsed.min || !parsed.max || !parsed.currency) return null;
+
+    const currency = parsed.currency.toUpperCase();
+    const min = Math.round(parsed.min / 100) * 100;
+    const max = Math.round(parsed.max / 100) * 100;
+    const localStr = `${currency} ${fmt(min)}–${fmt(max)}/month`;
+
+    if (currency === 'EUR') return localStr;
+
+    // Convert to EUR using live rate
+    const rates = await getEurRates();
+    const rateKey = currency.toLowerCase();
+    const rate = rates[rateKey];
+    if (!rate) return localStr;
+
+    const minEur = Math.round(min / rate / 100) * 100;
+    const maxEur = Math.round(max / rate / 100) * 100;
+    return `${localStr} (~€${fmt(minEur)}–${fmt(maxEur)}/month)`;
+  } catch {
+    return null;
+  }
 }
 
 function buildFallbackCoverLetter(

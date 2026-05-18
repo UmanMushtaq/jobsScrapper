@@ -110,6 +110,7 @@ export async function runJobSearchOnce(
           coverLetter: ai.isSuspicious ? match.coverLetter : ai.coverLetter,
           fraudScore: ai.fraudScore,
           fraudReasons: ai.fraudReasons,
+          suggestedSalary: ai.suggestedSalary ?? undefined,
         };
       })
       .filter((_match, i) => {
@@ -230,28 +231,51 @@ function buildTelegramPayload(
     return [
       [
         `No new strong matches for ${profile.candidate.name} in this run.`,
-        `Active source: ${ACTIVE_SOURCES.join(', ')}`,
+        `Active sources: ${ACTIVE_SOURCES.join(', ')}`,
         `Blocked sources: ${BLOCKED_SOURCES.join(', ')}`,
-        `Report path: ${resolve(reportPath)}`,
       ].join('\n'),
     ];
   }
 
-  const lines = [
-    `Found ${matches.length} new strong matches for ${profile.candidate.name}.`,
-    `Active source: ${ACTIVE_SOURCES.join(', ')}`,
+  const messages: string[] = [];
+
+  // Message 1: quick overview of all matches
+  const summaryLines = [
+    `${matches.length} new match${matches.length > 1 ? 'es' : ''} for ${profile.candidate.name}:`,
     '',
   ];
-
-  for (const [index, match] of matches.entries()) {
-    lines.push(
-      `${index + 1}. ${match.job.title} — ${match.job.company}\n${match.job.locationLabel} | ${match.job.workMode} | ${match.salaryLabel} | ${match.score}%\nApply: ${match.job.applyUrl}\nWhy: ${match.reasons.join('; ')}`,
+  for (const [i, match] of matches.entries()) {
+    summaryLines.push(
+      `${i + 1}. ${match.job.title} — ${match.job.company}`,
+      `   ${match.job.locationLabel} | ${match.job.workMode} | ${match.salaryLabel} | ${match.score}%`,
     );
-    lines.push('');
+  }
+  messages.push(summaryLines.join('\n'));
+
+  // One message per job with full details + cover letter
+  for (const [i, match] of matches.entries()) {
+    const lines: string[] = [
+      `[${i + 1}/${matches.length}] ${match.job.title}`,
+      `Company: ${match.job.company}`,
+      `Location: ${match.job.locationLabel} | ${match.job.workMode}`,
+      `Score: ${match.score}%`,
+      `Apply: ${match.job.applyUrl}`,
+      `Why: ${match.reasons.slice(0, 2).join('; ')}`,
+    ];
+
+    if (match.fraudScore !== undefined) {
+      lines.push(`Fraud risk: ${match.fraudScore}% ${match.fraudScore >= 40 ? '⚠️' : '✓'}`);
+    }
+
+    if (match.suggestedSalary) {
+      lines.push(`Salary to quote: ${match.suggestedSalary}`);
+    }
+
+    lines.push('', '--- Cover letter ---', '', match.coverLetter);
+    messages.push(lines.join('\n'));
   }
 
-  lines.push(`Report path: ${resolve(reportPath)}`);
-  return [lines.join('\n')];
+  return messages;
 }
 
 function sortMatches(left: MatchResult, right: MatchResult): number {
