@@ -34,7 +34,8 @@ export async function enrichMatch(
       suggestSalary(ai, match.job, profile),
     ]);
     return { ...fraud, coverLetter: cover, suggestedSalary: salary };
-  } catch {
+  } catch (err) {
+    console.error('[gemini] enrichment failed:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }

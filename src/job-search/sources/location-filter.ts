@@ -64,31 +64,21 @@ export function scoreLocation(
 
   // Europe acceptance
   if (profile.europeCountryCodes.includes(countryCode)) {
-    // On-site in Europe is acceptable if relocation offered or willing to relocate
-    if (workMode === 'on-site') {
-      if (offersRelocation || profile.willingToRelocate) {
+    // Hybrid or on-site outside preferred country: only if the company offers relocation
+    if (workMode === 'on-site' || workMode === 'hybrid') {
+      if (offersRelocation) {
         return {
           isAcceptable: true,
           score: 75,
           priority: 'acceptable',
-          reason: `Europe on-site (${countryCode}) with relocation support`,
+          reason: `Europe ${workMode} (${countryCode}) with relocation support`,
         };
       }
       return {
-        isAcceptable: profile.acceptOnSite,
-        score: profile.acceptOnSite ? 60 : 0,
-        priority: profile.acceptOnSite ? 'acceptable' : 'rejected',
-        reason: `Europe on-site (${countryCode}) - no relocation mentioned`,
-      };
-    }
-
-    // Hybrid in Europe
-    if (workMode === 'hybrid') {
-      return {
-        isAcceptable: profile.acceptHybrid,
-        score: profile.acceptHybrid ? 85 : 0,
-        priority: profile.acceptHybrid ? 'acceptable' : 'rejected',
-        reason: `Europe hybrid (${countryCode})`,
+        isAcceptable: false,
+        score: 0,
+        priority: 'rejected',
+        reason: `Europe ${workMode} (${countryCode}) - no relocation offered`,
       };
     }
   }
