@@ -30,12 +30,31 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    await this.safeRun('startup');
-    this.intervalHandle = setInterval(() => {
-      void this.safeRun('interval');
-    }, this.intervalMinutes * 60 * 1000);
+    const intervalMs = this.intervalMinutes * 60 * 1000;
+    const state = await readJobSearchState();
+    const msSinceLastSuccess = state.lastSuccessAt
+      ? Date.now() - new Date(state.lastSuccessAt).getTime()
+      : Infinity;
 
-    this.logger.log(`Scheduler enabled with ${this.intervalMinutes} minute interval.`);
+    if (msSinceLastSuccess < intervalMs - 60_000) {
+      // A scan completed recently — skip startup scan to avoid re-sending same jobs on every deploy.
+      // Schedule the next run at the correct offset from the last scan.
+      const nextRunMs = intervalMs - msSinceLastSuccess;
+      this.logger.log(
+        `Skipping startup scan (last success ${Math.round(msSinceLastSuccess / 60_000)}min ago). ` +
+          `Next scan in ${Math.round(nextRunMs / 60_000)}min.`,
+      );
+      const handle = setTimeout(() => {
+        void this.safeRun('interval');
+        this.intervalHandle = setInterval(() => void this.safeRun('interval'), intervalMs);
+      }, nextRunMs);
+      this.intervalHandle = handle as unknown as NodeJS.Timeout;
+    } else {
+      await this.safeRun('startup');
+      this.intervalHandle = setInterval(() => void this.safeRun('interval'), intervalMs);
+    }
+
+    this.logger.log(`Scheduler running with ${this.intervalMinutes}min interval.`);
   }
 
   onModuleDestroy(): void {

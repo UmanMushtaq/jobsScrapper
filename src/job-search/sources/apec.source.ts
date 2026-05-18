@@ -1,3 +1,4 @@
+import { proxyFetch } from '../proxy-fetch';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
@@ -83,7 +84,7 @@ async function fetchOffers(query: string, maxAgeHours: number): Promise<ApecOffe
     datePublication: dateMin,
   };
 
-  const res = await fetch(API_URL, {
+  const res = await proxyFetch(API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
