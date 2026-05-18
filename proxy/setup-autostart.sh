@@ -7,28 +7,27 @@
 # Prerequisites:
 #   1. Node.js 18+  (brew install node)
 #   2. cloudflared  (brew install cloudflared)
-#   3. Named tunnel configured (see NAMED TUNNEL SETUP below)
 #
 # Usage:
-#   JOB_PROXY_SECRET=your-secret ./proxy/setup-autostart.sh
+#   JOB_PROXY_SECRET=your-secret \
+#   TELEGRAM_BOT_TOKEN=your-token \
+#   TELEGRAM_CHAT_ID=your-chat-id \
+#   ./proxy/setup-autostart.sh
 #
-# ─────────────────────────────────────────────────────────────
-# NAMED TUNNEL SETUP (one-time, gives you a permanent URL)
-# ─────────────────────────────────────────────────────────────
-#   1. cloudflared tunnel login          # opens browser, authorizes your account
-#   2. cloudflared tunnel create job-proxy   # creates the tunnel (skip if already done)
-#   3. Go to Cloudflare Zero Trust → Networks → Tunnels → job-proxy
-#      → Public Hostname → Add hostname:
-#        Subdomain: job-proxy   Domain: your-domain.com   Service: http://localhost:9876
-#   4. Copy the permanent URL (e.g. https://job-proxy.your-domain.com)
-#      and set it as JOB_PROXY_URL in Render — you never need to update it again.
-# ─────────────────────────────────────────────────────────────
+# TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are optional but recommended.
+# When set, you get a Telegram message with the new URL whenever your Mac
+# restarts (which is the only time the tunnel URL changes).
 
 set -e
 
 if [ -z "$JOB_PROXY_SECRET" ]; then
   echo "ERROR: Set JOB_PROXY_SECRET first."
-  echo "  Example: JOB_PROXY_SECRET=my-secret ./proxy/setup-autostart.sh"
+  echo ""
+  echo "Example:"
+  echo "  JOB_PROXY_SECRET=my-secret \\"
+  echo "  TELEGRAM_BOT_TOKEN=123:abc \\"
+  echo "  TELEGRAM_CHAT_ID=456 \\"
+  echo "  ./proxy/setup-autostart.sh"
   exit 1
 fi
 
@@ -40,7 +39,7 @@ NODE_BIN="$(command -v node 2>/dev/null || echo '')"
 CLOUDFLARED_BIN="$(command -v cloudflared 2>/dev/null || echo '')"
 
 if [ -z "$NODE_BIN" ]; then
-  echo "ERROR: node not found. Install it: brew install node"
+  echo "ERROR: node not found. Install: brew install node"
   exit 1
 fi
 
@@ -82,13 +81,13 @@ PLIST
 
 launchctl unload "$PROXY_PLIST" 2>/dev/null || true
 launchctl load "$PROXY_PLIST"
-echo "Proxy agent installed and started (port $PORT)"
+echo "Proxy agent installed (port $PORT)"
 
-# ── 2. Cloudflared named tunnel plist ─────────────────────────────────────
+# ── 2. Cloudflared quick tunnel plist ─────────────────────────────────────
 if [ -z "$CLOUDFLARED_BIN" ]; then
   echo ""
   echo "WARNING: cloudflared not found — skipping tunnel agent."
-  echo "  Install it: brew install cloudflared"
+  echo "  Install: brew install cloudflared"
   echo "  Then re-run this script."
 else
   TUNNEL_PLIST="$LAUNCH_AGENTS/com.jobscrapper.cloudflared.plist"
@@ -102,11 +101,20 @@ else
     <string>com.jobscrapper.cloudflared</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$CLOUDFLARED_BIN</string>
-        <string>tunnel</string>
-        <string>run</string>
-        <string>job-proxy</string>
+        <string>/bin/bash</string>
+        <string>$SCRIPT_DIR/cloudflared-notify.sh</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CLOUDFLARED_BIN</key>
+        <string>$CLOUDFLARED_BIN</string>
+        <key>PORT</key>
+        <string>$PORT</string>
+        <key>TELEGRAM_BOT_TOKEN</key>
+        <string>${TELEGRAM_BOT_TOKEN:-}</string>
+        <key>TELEGRAM_CHAT_ID</key>
+        <string>${TELEGRAM_CHAT_ID:-}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -121,16 +129,23 @@ PLIST
 
   launchctl unload "$TUNNEL_PLIST" 2>/dev/null || true
   launchctl load "$TUNNEL_PLIST"
-  echo "Cloudflare tunnel agent installed and started (named tunnel: job-proxy)"
+  echo "Cloudflare tunnel agent installed (quick tunnel on port $PORT)"
 fi
 
 echo ""
-echo "Done. Services now start automatically at login and restart on crash."
+echo "Done. Both services start at login and restart automatically on crash or wake."
 echo ""
-echo "Useful commands:"
-echo "  Check status:       launchctl list | grep jobscrapper"
-echo "  Proxy logs:         tail -f /tmp/jobscrapper-proxy.log"
-echo "  Tunnel logs:        tail -f /tmp/jobscrapper-cloudflared.log"
-echo "  Stop proxy:         launchctl unload $PROXY_PLIST"
-echo "  Stop tunnel:        launchctl unload $LAUNCH_AGENTS/com.jobscrapper.cloudflared.plist"
-echo "  Uninstall all:      ./proxy/remove-autostart.sh"
+echo "First-time URL setup:"
+echo "  tail -f /tmp/jobscrapper-cloudflared.log"
+echo "  Look for the https://....trycloudflare.com line, paste it into Render as JOB_PROXY_URL."
+echo ""
+echo "After that, the URL only changes when your Mac fully restarts."
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+  echo "When it does, you'll get a Telegram message with the new URL."
+fi
+echo ""
+echo "Other commands:"
+echo "  Status:       launchctl list | grep jobscrapper"
+echo "  Proxy logs:   tail -f /tmp/jobscrapper-proxy.log"
+echo "  Tunnel logs:  tail -f /tmp/jobscrapper-cloudflared.log"
+echo "  Uninstall:    ./proxy/remove-autostart.sh"
