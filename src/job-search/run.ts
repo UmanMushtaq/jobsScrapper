@@ -123,33 +123,36 @@ export async function runJobSearchOnce(
       .sort(sortMatches)
       .slice(0, maxResults);
 
-    // AI enrichment: fraud + quality detection, cover letters, salary (fails silently)
-    const enrichments = await Promise.all(rawMatches.map((m) => enrichMatch(m, profile)));
-    const matches: MatchResult[] = rawMatches
-      .map((match, i) => {
-        const ai = enrichments[i];
-        if (!ai) return match;
-        return {
-          ...match,
-          coverLetter: ai.isSuspicious ? match.coverLetter : ai.coverLetter,
-          fraudScore: ai.fraudScore,
-          fraudReasons: ai.fraudReasons,
-          suggestedSalary: ai.suggestedSalary ?? undefined,
-          companyQualityScore: ai.companyQualityScore,
-          companyRedFlags: ai.companyRedFlags,
-        };
-      })
-      .filter((_match, i) => {
-        const ai = enrichments[i];
-        return !ai || !ai.isSuspicious;
-      });
+    // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
+    // Enrichment is sequential across jobs: each job's 3 parallel calls complete before the next
+    // job starts, so we never fire 60 simultaneous requests that exhaust all keys at once.
+    const unseenRaw = rawMatches.filter((m) => !sentUrls.has(m.job.canonicalUrl));
+    const newMatches: MatchResult[] = [];
+    for (const match of unseenRaw) {
+      const ai = await enrichMatch(match, profile);
+      if (ai && ai.isSuspicious) continue;
+      newMatches.push(
+        ai
+          ? {
+              ...match,
+              coverLetter: ai.coverLetter,
+              fraudScore: ai.fraudScore,
+              fraudReasons: ai.fraudReasons,
+              suggestedSalary: ai.suggestedSalary ?? undefined,
+              companyQualityScore: ai.companyQualityScore,
+              companyRedFlags: ai.companyRedFlags,
+            }
+          : match,
+      );
+    }
+
+    // All scored matches (new + already-sent) for the report and seenUrls tracking
+    const matches: MatchResult[] = [...newMatches, ...rawMatches.filter((m) => sentUrls.has(m.job.canonicalUrl))];
 
     const effectiveFreshJobs = freshJobs;
 
     const reportLocation = await writeReport(reportPath, matches, BLOCKED_SOURCES);
 
-    // Only send jobs that have never been sent to Telegram before
-    const newMatches = matches.filter((m) => !sentUrls.has(m.job.canonicalUrl));
     const liveNewMatches = await filterDeadUrls(newMatches);
     const messages = buildTelegramPayload(liveNewMatches, reportLocation, profile);
 
