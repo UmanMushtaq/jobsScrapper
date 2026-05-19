@@ -34,8 +34,23 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     return null;
   }
 
-  const FRONTEND_TITLE_KEYWORDS = ['frontend', 'front-end', 'front end', 'ui developer', 'ux developer', 'react developer', 'vue developer', 'angular developer', 'flutter', 'ios developer', 'android developer', 'mobile developer'];
-  if (FRONTEND_TITLE_KEYWORDS.some((keyword) => normalizedTitle.includes(keyword))) {
+  const EXCLUDED_ROLE_KEYWORDS = [
+    // Frontend (including .js variants and React Native that simple string match misses)
+    'frontend', 'front-end', 'front end',
+    'ui developer', 'ui engineer', 'ux developer', 'ux engineer',
+    'react developer', 'react.js', 'react native',
+    'vue developer', 'vue.js',
+    'angular developer',
+    'flutter', 'ios developer', 'android developer', 'mobile developer',
+    // AI / ML / Data — not the backend profile
+    'ai engineer', 'ml engineer', 'machine learning engineer', 'machine learning developer',
+    'data engineer', 'data scientist', 'data analyst', 'nlp engineer', 'llm engineer',
+    'prompt engineer', 'computer vision engineer',
+    // DevOps / Infra
+    'devops engineer', 'site reliability engineer', 'sre engineer',
+    'infrastructure engineer', 'platform engineer', 'cloud engineer',
+  ];
+  if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => normalizedTitle.includes(keyword))) {
     return null;
   }
 

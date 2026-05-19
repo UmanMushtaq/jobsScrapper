@@ -22,6 +22,7 @@ import {
   removeUrlsFromStore,
   writeJsonFile,
 } from './storage';
+import { isRedisAvailable } from './redis-store';
 import { sendTelegramMessages } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
 
@@ -42,6 +43,11 @@ export async function runJobSearchOnce(
   overrideProfile?: SearchProfile,
 ): Promise<RunSummary> {
   const profile = overrideProfile ?? (await loadSearchProfile());
+  if (isRedisAvailable()) {
+    console.log('[storage] Redis (Upstash) — state persists across restarts');
+  } else {
+    console.warn('[storage] File-based — state will be lost on restart (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN to fix)');
+  }
   const seenFile = process.env.JOB_SEARCH_SEEN_FILE ?? DEFAULT_SEEN_FILE;
   const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? DEFAULT_APPLIED_FILE;
   const dismissedFile = process.env.JOB_SEARCH_DISMISSED_FILE ?? DEFAULT_DISMISSED_FILE;
@@ -53,7 +59,14 @@ export async function runJobSearchOnce(
   const seenTtlMs = seenTtlHours * 60 * 60 * 1000;
   const maxResults = Number(process.env.JOB_SEARCH_MAX_RESULTS ?? profile.search.maxResults);
 
-  await Promise.all([ensureOutputDir(reportPath), ensureOutputDir(stateFile)]);
+  await Promise.all([
+    ensureOutputDir(reportPath),
+    ensureOutputDir(stateFile),
+    ensureOutputDir(seenFile),
+    ensureOutputDir(sentFile),
+    ensureOutputDir(appliedFile),
+    ensureOutputDir(dismissedFile),
+  ]);
 
   await updateState(stateFile, (current) => ({
     ...current,

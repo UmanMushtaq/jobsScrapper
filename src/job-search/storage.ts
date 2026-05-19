@@ -1,5 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
+import {
+  FILE_KEY_MAP,
+  isRedisAvailable,
+  redisAddUrls,
+  redisGetJson,
+  redisReadUrlSet,
+  redisRemoveUrls,
+  redisSetJson,
+} from './redis-store';
 
 interface UrlStore {
   seen_urls?: string[];
@@ -81,6 +90,11 @@ export async function readUrlSet(
     ttlMs?: number;
   },
 ): Promise<Set<string>> {
+  if (isRedisAvailable()) {
+    const result = await redisReadUrlSet(key, options);
+    if (result !== null) return result;
+  }
+
   const absolutePath = resolve(filePath);
   const store = await readStore(absolutePath);
   const entryKey = ENTRY_KEY_MAP[key];
@@ -114,6 +128,11 @@ export async function addUrlsToStore(
   key: UrlKey,
   urls: string[],
 ): Promise<void> {
+  if (isRedisAvailable()) {
+    await redisAddUrls(key, urls.map(normalizeUrl));
+    return;
+  }
+
   const absolutePath = resolve(filePath);
   const store = await readStore(absolutePath);
   const currentValues = new Set((store[key] ?? []).map(normalizeUrl));
@@ -147,6 +166,11 @@ export async function removeUrlsFromStore(
   key: UrlKey,
   urls: string[],
 ): Promise<void> {
+  if (isRedisAvailable()) {
+    await redisRemoveUrls(key, urls.map(normalizeUrl));
+    return;
+  }
+
   const absolutePath = resolve(filePath);
   const store = await readStore(absolutePath);
   const entryKey = ENTRY_KEY_MAP[key];
@@ -165,6 +189,11 @@ export async function removeUrlsFromStore(
 }
 
 export async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
+  const redisKey = FILE_KEY_MAP[basename(filePath)];
+  if (redisKey && isRedisAvailable()) {
+    return redisGetJson(redisKey, fallback);
+  }
+
   try {
     const absolutePath = resolve(filePath);
     const content = await readFile(absolutePath, 'utf-8');
@@ -175,6 +204,12 @@ export async function readJsonFile<T>(filePath: string, fallback: T): Promise<T>
 }
 
 export async function writeJsonFile<T>(filePath: string, value: T): Promise<void> {
+  const redisKey = FILE_KEY_MAP[basename(filePath)];
+  if (redisKey && isRedisAvailable()) {
+    await redisSetJson(redisKey, value);
+    return;
+  }
+
   const absolutePath = resolve(filePath);
   await ensureParentDir(absolutePath);
   await writeFile(absolutePath, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
