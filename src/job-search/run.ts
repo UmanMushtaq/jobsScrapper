@@ -53,7 +53,14 @@ export async function runJobSearchOnce(
   const seenTtlMs = seenTtlHours * 60 * 60 * 1000;
   const maxResults = Number(process.env.JOB_SEARCH_MAX_RESULTS ?? profile.search.maxResults);
 
-  await Promise.all([ensureOutputDir(reportPath), ensureOutputDir(stateFile)]);
+  await Promise.all([
+    ensureOutputDir(reportPath),
+    ensureOutputDir(stateFile),
+    ensureOutputDir(seenFile),
+    ensureOutputDir(sentFile),
+    ensureOutputDir(appliedFile),
+    ensureOutputDir(dismissedFile),
+  ]);
 
   await updateState(stateFile, (current) => ({
     ...current,
