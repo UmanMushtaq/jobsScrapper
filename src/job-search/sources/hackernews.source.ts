@@ -101,8 +101,12 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
 
   // Company is first part, strip annotations like "(YC S21)"
   let company = (parts[0] ?? '').replace(/\([^)]*\)/g, '').replace(/^(we are|at|join|hiring at)\s+/i, '').trim();
-  // Some posts start with "Company Name - Job Title"
+  // Some posts start with "Company Name - Job Title" or "Company Name, description"
   company = company.split(' - ')[0].trim();
+  // Strip comma-separated description that follows the actual company name
+  // e.g. "LearnerShape, AI-driven workforce skills startup" → "LearnerShape"
+  const commaIdx = company.indexOf(',');
+  if (commaIdx > 1) company = company.slice(0, commaIdx).trim();
   if (!company || company.length < 2 || company.length > 80) return null;
 
   const workMode: 'remote' | 'hybrid' | 'on-site' =
@@ -114,13 +118,13 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
   const rawLocation = parts[1] ?? (workMode === 'remote' ? 'Remote' : '');
   const locationLabel = rawLocation.length > 0 && rawLocation.length < 60 ? rawLocation : (workMode === 'remote' ? 'Remote' : 'Unknown');
 
-  // Country code: best-effort from location string
-  const countryCode = workMode === 'remote' ? null : guessCountryCode(locationLabel);
+  // Set countryCode even for remote jobs so the location filter can enforce usaJobs:false
+  const countryCode = guessCountryCode(locationLabel);
 
-  // Extract apply URL from HTML (first non-HN link)
+  // Extract apply URL from HTML (first non-HN link). HN encodes slashes as &#x2F; inside href attributes.
   const urlMatches = [...html.matchAll(/href="([^"]+)"/g)];
   const applyUrl =
-    urlMatches.map((m) => m[1]).find((u) => u.startsWith('http') && !u.includes('news.ycombinator.com'))
+    urlMatches.map((m) => decodeUrlEntities(m[1])).find((u) => u.startsWith('http') && !u.includes('news.ycombinator.com'))
     ?? `https://news.ycombinator.com/item?id=${hit.objectID}`;
 
   // Title: look for role keywords in the text
@@ -216,9 +220,14 @@ function stripHtml(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/gi, '/')
     .replace(/&nbsp;/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function decodeUrlEntities(url: string): string {
+  return url.replace(/&#x2F;/gi, '/').replace(/&amp;/g, '&');
 }
 
 function capitalize(s: string): string {
