@@ -145,7 +145,8 @@ function tryMapJob(raw: unknown): JobPosting | null {
     : 'on-site';
 
   const locationLabel = (j.locationNames ?? []).join(', ') || (workMode === 'remote' ? 'Remote' : '');
-  const countryCode = workMode === 'remote' ? null : guessCountryCode(locationLabel);
+  // Set countryCode even for remote jobs so the location filter can enforce usaJobs:false
+  const countryCode = guessCountryCode(locationLabel);
 
   const description = j.description ?? j.startup.description ?? j.startup.highConcept ?? '';
   const publishedAt = j.liveStartAt ?? j.createdAt ?? new Date().toISOString();

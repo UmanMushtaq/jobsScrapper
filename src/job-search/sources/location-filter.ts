@@ -14,8 +14,17 @@ export function scoreLocation(
   offersRelocation: boolean,
   profile: SearchSettings,
 ): LocationScore {
-  // Remote jobs are always acceptable regardless of country
+  // Remote jobs: acceptable regardless of country, BUT respect usaJobs:false.
+  // If the company is USA-based and the profile opts out of USA jobs, reject even for remote.
   if (workMode === 'remote') {
+    if (!profile.usaJobs && countryCode && profile.usaCountryCodes.includes(countryCode)) {
+      return {
+        isAcceptable: false,
+        score: 0,
+        priority: 'rejected',
+        reason: 'USA-based company — usaJobs is disabled',
+      };
+    }
     return {
       isAcceptable: true,
       score: 90,
