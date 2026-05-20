@@ -14,15 +14,13 @@ export function isRedisAvailable(): boolean {
   return getClient() !== null;
 }
 
-// URL storage key → Redis key
 const URL_KEY_MAP: Record<string, string> = {
-  seen_urls: 'job:seen',       // ZSET — score = timestamp ms, enables TTL filtering
-  sent_urls: 'job:sent',       // SET  — permanent
+  seen_urls: 'job:seen',       // ZSET — score = timestamp ms; old entries pruned on write
+  sent_urls: 'job:sent',       // SET  — permanent, never expires
   applied_urls: 'job:applied', // SET
   dismissed_urls: 'job:dismissed', // SET
 };
 
-// State JSON file basename → Redis key
 export const FILE_KEY_MAP: Record<string, string> = {
   'job_search_state.json': 'job:state',
 };
@@ -31,7 +29,7 @@ export const FILE_KEY_MAP: Record<string, string> = {
 
 export async function redisReadUrlSet(
   urlKey: string,
-  options?: { ttlMs?: number },
+  _options?: { ttlMs?: number },
 ): Promise<Set<string> | null> {
   const r = getClient();
   if (!r) return null;
@@ -39,10 +37,11 @@ export async function redisReadUrlSet(
   if (!key) return null;
 
   try {
-    if (urlKey === 'seen_urls' && options?.ttlMs) {
-      const minScore = Date.now() - options.ttlMs;
-      // zrange with byScore returns members scored between minScore and +inf
-      const members = await r.zrange<string[]>(key, minScore, '+inf', { byScore: true });
+    if (urlKey === 'seen_urls') {
+      // Use ZRANGE 0 -1 (get all members) — old entries are pruned in redisAddUrls,
+      // so all remaining members are within the TTL window. Avoids BYSCORE syntax
+      // issues that can cause the query to silently return an empty set.
+      const members = await r.zrange<string[]>(key, 0, -1);
       return new Set(members);
     }
     const members = await r.smembers<string[]>(key);
@@ -63,14 +62,12 @@ export async function redisAddUrls(urlKey: string, urls: string[]): Promise<void
   try {
     if (urlKey === 'seen_urls') {
       const now = Date.now();
-      // Cast to non-empty tuple — safe because we guard urls.length > 0 above
       type SM = { score: number; member: string };
       const scoreMembers = urls.map((url): SM => ({ score: now, member: url })) as [SM, ...SM[]];
       await r.zadd<string>(key, ...scoreMembers);
-      // Prune entries older than 7 days to keep the sorted set bounded
+      // Prune entries older than 7 days so the ZSET stays bounded
       await r.zremrangebyscore(key, 0, now - 7 * 24 * 60 * 60 * 1000);
     } else {
-      // Cast to non-empty tuple — safe because we guard urls.length > 0 above
       const nonEmpty = urls as [string, ...string[]];
       await r.sadd<string>(key, ...nonEmpty);
     }
@@ -98,14 +95,18 @@ export async function redisRemoveUrls(urlKey: string, urls: string[]): Promise<v
 }
 
 // --- JSON state operations ---
+// Use explicit JSON.stringify/parse to ensure reliable round-trip for nested objects.
 
 export async function redisGetJson<T>(redisKey: string, fallback: T): Promise<T> {
   const r = getClient();
   if (!r) return fallback;
   try {
-    const data = await r.get<T>(redisKey);
-    return data ?? fallback;
-  } catch {
+    // State is stored as a JSON string so complex nested objects survive serialization
+    const raw = await r.get<string>(redisKey);
+    if (raw == null) return fallback;
+    return JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as T;
+  } catch (err) {
+    console.error('[redis] getJson failed:', (err as Error).message);
     return fallback;
   }
 }
@@ -114,7 +115,8 @@ export async function redisSetJson<T>(redisKey: string, value: T): Promise<void>
   const r = getClient();
   if (!r) return;
   try {
-    await r.set(redisKey, value);
+    const serialized = JSON.stringify(value);
+    await r.set(redisKey, serialized);
   } catch (err) {
     console.error('[redis] setJson failed:', (err as Error).message);
   }
