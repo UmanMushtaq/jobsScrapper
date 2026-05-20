@@ -128,6 +128,19 @@ export async function runJobSearchOnce(
       .sort(sortMatches)
       .slice(0, maxResults);
 
+    console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${rawMatches.length} passed scoring`);
+    if (rawMatches.length === 0 && freshJobs.length > 0) {
+      const sample = freshJobs.slice(0, 5);
+      for (const job of sample) {
+        const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
+        const hasNode = ['node.js','nodejs','nestjs','nest.js','express.js'].some((t) => txt.includes(t));
+        const hasTs = txt.includes('typescript') || txt.includes('javascript');
+        const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
+        const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
+        console.log(`[scorer-debug] "${job.title}" (${job.source}): node=${hasNode} ts=${hasTs} backend=${hasBackend} mandatory=${mandatory}`);
+      }
+    }
+
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
     // Enrichment is sequential across jobs: each job's 3 parallel calls complete before the next
     // job starts, so we never fire 60 simultaneous requests that exhaust all keys at once.
@@ -152,7 +165,7 @@ export async function runJobSearchOnce(
     }
 
     // All scored matches (new + already-sent) for the report and seenUrls tracking
-    const matches: MatchResult[] = [...newMatches, ...rawMatches.filter((m) => sentUrls.has(m.job.canonicalUrl))];
+    const matches: MatchResult[] = [...newMatches, ...rawMatches.filter((m) => sentUrls.has(safeNorm(m.job.canonicalUrl)))];
 
     const effectiveFreshJobs = freshJobs;
 

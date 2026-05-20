@@ -54,7 +54,7 @@
     "minimumSalaryMonthlyEur": 3000,
     "language": "en",
     "maxResults": 20,
-    "maxAgeHours": 24,
+    "maxAgeHours": 72,
     "checkIntervalHours": 3,
     "seenTtlHours": 168,
     "willingToRelocate": true,
