@@ -17,6 +17,7 @@ import { WellfoundJobsSource } from './sources/wellfound.source';
 import { WttjJobsSource } from './sources/wttj.source';
 import {
   addUrlsToStore,
+  normalizeUrl,
   readJsonFile,
   readUrlSet,
   removeUrlsFromStore,
@@ -48,6 +49,9 @@ export async function runJobSearchOnce(
   } else {
     console.warn('[storage] File-based — state will be lost on restart (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN to fix)');
   }
+
+  // Normalize a URL safely — never throws, falls back to raw string
+  const safeNorm = (url: string): string => { try { return normalizeUrl(url); } catch { return url; } };
   const seenFile = process.env.JOB_SEARCH_SEEN_FILE ?? DEFAULT_SEEN_FILE;
   const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? DEFAULT_APPLIED_FILE;
   const dismissedFile = process.env.JOB_SEARCH_DISMISSED_FILE ?? DEFAULT_DISMISSED_FILE;
@@ -106,10 +110,11 @@ export async function runJobSearchOnce(
     }
     const jobs = Array.from(jobMap.values());
 
-    const baseFilter = (job: { canonicalUrl: string }) =>
-      !seenUrls.has(job.canonicalUrl) &&
-      !appliedUrls.has(job.canonicalUrl) &&
-      !dismissedUrls.has(job.canonicalUrl);
+    // Always compare normalized URLs — sources may return raw URLs while Redis stores normalized ones.
+    const baseFilter = (job: { canonicalUrl: string }) => {
+      const url = safeNorm(job.canonicalUrl);
+      return !seenUrls.has(url) && !appliedUrls.has(url) && !dismissedUrls.has(url);
+    };
 
     const freshJobs = jobs.filter(
       (job) =>
@@ -126,7 +131,7 @@ export async function runJobSearchOnce(
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
     // Enrichment is sequential across jobs: each job's 3 parallel calls complete before the next
     // job starts, so we never fire 60 simultaneous requests that exhaust all keys at once.
-    const unseenRaw = rawMatches.filter((m) => !sentUrls.has(m.job.canonicalUrl));
+    const unseenRaw = rawMatches.filter((m) => !sentUrls.has(safeNorm(m.job.canonicalUrl)));
     const newMatches: MatchResult[] = [];
     for (const match of unseenRaw) {
       const ai = await enrichMatch(match, profile);
@@ -193,7 +198,11 @@ export async function runJobSearchOnce(
         lastSuccessAt: summary.ranAt,
         lastRunStatus: 'success',
         lastError: null,
-        latestMatches: summary.matches,
+        // Strip large fields (description, coverLetter) before persisting to Redis.
+        // The dashboard only uses title, company, location, score, reasons and applyUrl.
+        // Keeping state small prevents silent Redis write failures that would cause
+        // lastSuccessAt to never be saved, resulting in a run on every service restart.
+        latestMatches: slimMatchesForState(summary.matches),
         reportPath: summary.reportPath,
         blockedSources: summary.blockedSources,
         activeSources: summary.activeSources,
@@ -430,6 +439,17 @@ async function filterDeadUrls(matches: MatchResult[]): Promise<MatchResult[]> {
 
 async function ensureOutputDir(filePath: string): Promise<void> {
   await mkdir(dirname(resolve(filePath)), { recursive: true });
+}
+
+function slimMatchesForState(matches: MatchResult[]): MatchResult[] {
+  return matches.map((m) => ({
+    ...m,
+    // Strip large text fields — dashboard only needs title/company/location/score/reasons/applyUrl.
+    // Keeping state small prevents Redis write failures that lose lastSuccessAt.
+    job: { ...m.job, description: '', companySummary: '', keyMissions: [] },
+    coverLetter: '',
+    shortAnswers: [],
+  }));
 }
 
 async function cli(): Promise<void> {

@@ -152,7 +152,17 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
 function isLanguageFit(job: JobPosting, profile: SearchProfile, text: string): boolean {
   const desiredLanguage = profile.search.language.toLowerCase();
   const detectedLanguage = job.language ? job.language.toLowerCase() : detectLanguage(text);
-  return detectedLanguage === desiredLanguage;
+  if (detectedLanguage !== desiredLanguage) return false;
+
+  // Some sources (WTTJ) mark bilingual jobs as 'en' even when the title is in another language.
+  // If the job title contains accented characters strongly associated with French/German,
+  // run a second language check on the title alone and reject if it doesn't match.
+  if (/[àâéèêëîïôùûüçœæäöüß]/i.test(job.title)) {
+    const titleLanguage = detectLanguage(job.title);
+    if (titleLanguage !== desiredLanguage) return false;
+  }
+
+  return true;
 }
 
 function inferExperienceFromText(text: string): number | null {
