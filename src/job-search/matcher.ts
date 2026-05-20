@@ -4,7 +4,8 @@ import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types'
 
 const BASE_REQUIRED_WEIGHTS = [
   {
-    matched: (text: string) => containsAny(text, ['node.js', 'nodejs']),
+    // NestJS and Express.js are Node.js-only frameworks — if they appear, Node.js is implied.
+    matched: (text: string) => containsAny(text, ['node.js', 'nodejs', 'nestjs', 'nest.js', 'express.js']),
     weight: 24,
     reason: 'Node.js is explicitly required',
   },
@@ -14,7 +15,7 @@ const BASE_REQUIRED_WEIGHTS = [
     reason: 'TypeScript/JavaScript matches your backend stack',
   },
   {
-    matched: (text: string) => containsAny(text, ['backend', 'back-end', 'api', 'rest']),
+    matched: (text: string) => containsAny(text, ['backend', 'back-end', 'api', 'rest', 'server-side', 'microservice']),
     weight: 18,
     reason: 'The role is centered on backend and API work',
   },
@@ -87,7 +88,7 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     return sum + (check.matched(text) ? check.weight : 0);
   }, 0);
 
-  if (mandatoryScore < 50) {
+  if (mandatoryScore < 36) {
     return null;
   }
 
@@ -116,7 +117,7 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore,
   );
 
-  if (score < 85) {
+  if (score < 78) {
     return null;
   }
 
