@@ -16,6 +16,7 @@ import { JobSearchState } from './job-search/types';
 export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AppService.name);
   private intervalHandle: NodeJS.Timeout | null = null;
+  private pingHandle: NodeJS.Timeout | null = null;
   private activeRun: Promise<void> | null = null;
   private intervalMinutes = 0;
 
@@ -24,6 +25,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const envMinutes = Number(process.env.CHECK_INTERVAL_MINUTES ?? 0);
     const profileMinutes = Math.round(profile.search.checkIntervalHours * 60);
     this.intervalMinutes = envMinutes > 0 ? envMinutes : profileMinutes;
+
+    this.startSelfPing();
 
     if (!shouldEnableScheduler()) {
       this.logger.log('Scheduler disabled; web app is running in health/dashboard mode only.');
@@ -62,6 +65,24 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       clearInterval(this.intervalHandle);
       this.intervalHandle = null;
     }
+    if (this.pingHandle) {
+      clearInterval(this.pingHandle);
+      this.pingHandle = null;
+    }
+  }
+
+  // Ping own /health endpoint every 4 minutes so Render free tier never spins down.
+  // RENDER_EXTERNAL_URL is set automatically by Render — no config needed.
+  private startSelfPing(): void {
+    const externalUrl = process.env.RENDER_EXTERNAL_URL;
+    if (!externalUrl) return;
+
+    const ping = (): void => {
+      fetch(`${externalUrl}/health`, { signal: AbortSignal.timeout(10_000) }).catch(() => undefined);
+    };
+
+    this.pingHandle = setInterval(ping, 4 * 60 * 1000);
+    this.logger.log(`Self-ping active — keeping Render instance awake (${externalUrl}/health every 4 min).`);
   }
 
   async runNow(): Promise<void> {
