@@ -56,7 +56,7 @@
     "maxResults": 20,
     "maxAgeHours": 72,
     "checkIntervalHours": 3,
-    "seenTtlHours": 168,
+    "seenTtlHours": 48,
     "willingToRelocate": true,
     "preferredCountries": [
       "FR"

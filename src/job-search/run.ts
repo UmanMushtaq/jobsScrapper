@@ -191,6 +191,7 @@ export async function runJobSearchOnce(
       seenFile,
       'seen_urls',
       matches.map((match) => match.job.canonicalUrl),
+      { ttlMs: seenTtlMs },
     );
 
     const summary: RunSummary = {
