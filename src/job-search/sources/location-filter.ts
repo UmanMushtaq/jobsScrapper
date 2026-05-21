@@ -92,12 +92,21 @@ export function scoreLocation(
     }
 
     if (workMode === 'hybrid') {
-      // Hybrid outside France: acceptable, score depends on relocation support
+      // Hybrid outside France: only acceptable when relocation is offered.
+      // Without it a Paris-based candidate cannot realistically commute to another country.
+      if (!offersRelocation) {
+        return {
+          isAcceptable: false,
+          score: 0,
+          priority: 'rejected',
+          reason: `Europe hybrid (${countryCode}) - no relocation offered`,
+        };
+      }
       return {
         isAcceptable: true,
-        score: offersRelocation ? 80 : 65,
+        score: 80,
         priority: 'acceptable',
-        reason: `Europe hybrid (${countryCode})${offersRelocation ? ' with relocation' : ''}`,
+        reason: `Europe hybrid (${countryCode}) with relocation support`,
       };
     }
   }
