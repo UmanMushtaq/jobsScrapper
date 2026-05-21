@@ -49,8 +49,8 @@
     ],
     "experience": {
       "min": 2,
-      "max": 5
-},
+      "max": 8
+    },
     "minimumSalaryMonthlyEur": 3000,
     "language": "en",
     "maxResults": 20,
