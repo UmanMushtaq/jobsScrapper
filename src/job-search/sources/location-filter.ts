@@ -92,12 +92,30 @@ export function scoreLocation(
     }
 
     if (workMode === 'hybrid') {
-      // Hybrid outside France: acceptable, score depends on relocation support
+      // UK hybrid is never acceptable — Paris↔London commute is not viable
+      // regardless of relocation. Only UK remote or UK on-site+relocation qualify.
+      if (countryCode === 'GB') {
+        return {
+          isAcceptable: false,
+          score: 0,
+          priority: 'rejected',
+          reason: 'UK hybrid - not viable from Paris (remote or full relocation only)',
+        };
+      }
+      // Other European countries: hybrid only acceptable when relocation is offered.
+      if (!offersRelocation) {
+        return {
+          isAcceptable: false,
+          score: 0,
+          priority: 'rejected',
+          reason: `Europe hybrid (${countryCode}) - no relocation offered`,
+        };
+      }
       return {
         isAcceptable: true,
-        score: offersRelocation ? 80 : 65,
+        score: 80,
         priority: 'acceptable',
-        reason: `Europe hybrid (${countryCode})${offersRelocation ? ' with relocation' : ''}`,
+        reason: `Europe hybrid (${countryCode}) with relocation support`,
       };
     }
   }
