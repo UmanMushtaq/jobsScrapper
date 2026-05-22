@@ -15,7 +15,7 @@ export function isRedisAvailable(): boolean {
 }
 
 const URL_KEY_MAP: Record<string, string> = {
-  seen_urls: 'job:seen',       // ZSET — score = timestamp ms; old entries pruned on write
+  seen_urls: 'job:seen',       // ZSET — score = timestamp ms; pruned on every read AND write
   sent_urls: 'job:sent',       // SET  — permanent, never expires
   applied_urls: 'job:applied', // SET
   dismissed_urls: 'job:dismissed', // SET
@@ -29,7 +29,7 @@ export const FILE_KEY_MAP: Record<string, string> = {
 
 export async function redisReadUrlSet(
   urlKey: string,
-  _options?: { ttlMs?: number },
+  options?: { ttlMs?: number },
 ): Promise<Set<string> | null> {
   const r = getClient();
   if (!r) return null;
@@ -38,9 +38,11 @@ export async function redisReadUrlSet(
 
   try {
     if (urlKey === 'seen_urls') {
-      // Use ZRANGE 0 -1 (get all members) — old entries are pruned in redisAddUrls,
-      // so all remaining members are within the TTL window. Avoids BYSCORE syntax
-      // issues that can cause the query to silently return an empty set.
+      // Prune BEFORE reading so the window shrinks even when 0 matches are found
+      // (writes only happen when matches exist — without read-time pruning the ZSET
+      // accumulates forever and blocks all fresh jobs on every subsequent run).
+      const pruneMs = options?.ttlMs ?? 48 * 60 * 60 * 1000;
+      await r.zremrangebyscore(key, 0, Date.now() - pruneMs);
       const members = await r.zrange<string[]>(key, 0, -1);
       return new Set(members);
     }
