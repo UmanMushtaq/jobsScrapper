@@ -103,7 +103,8 @@ export async function runJobSearchOnce(
       sources.map((s) => s.fetch(profile.search.queries, profile.search)),
     );
     const jobMap = new Map<string, JobPosting>();
-    for (const list of jobLists) {
+    for (const [i, list] of jobLists.entries()) {
+      if (list.length > 0) console.log(`[source] ${sources[i].name}: ${list.length} jobs`);
       for (const job of list) {
         jobMap.set(job.canonicalUrl, job);
       }
@@ -130,25 +131,36 @@ export async function runJobSearchOnce(
 
     console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${rawMatches.length} passed scoring`);
     if (rawMatches.length === 0 && freshJobs.length > 0) {
-      const sample = freshJobs.slice(0, 8);
-      for (const job of sample) {
+      // Tally why fresh jobs are being rejected so we can diagnose filter issues
+      const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','sre engineer','infrastructure engineer','platform engineer','cloud engineer'];
+      const desiredLang = (profile.search.language ?? 'en').toLowerCase();
+      const expMin = profile.search.experience.min;
+      const expMax = profile.search.experience.max;
+      const counts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, mandatory: 0, score: 0 };
+      for (const job of freshJobs.slice(0, 300)) {
         const title = job.title.toLowerCase();
         const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
-        const titleExcl = profile.search.excludedTitleKeywords.find((kw) => title.includes(kw)) ?? null;
+        const jobLang = (job.language ?? '').toLowerCase();
+        if (jobLang && jobLang !== desiredLang) { counts.lang++; continue; }
+        if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { counts.title++; continue; }
+        if (EXCL_ROLES.some((k) => title.includes(k))) { counts.role++; continue; }
+        const cc = job.countryCode;
+        const wm = job.workMode;
+        const isUsaRemote = wm === 'remote' && cc && profile.search.usaCountryCodes?.includes(cc) && !profile.search.usaJobs;
+        const isPrefCountry = profile.search.preferredCountries?.includes(cc ?? '');
+        const isEU = profile.search.europeCountryCodes?.includes(cc ?? '');
+        const locOk = isPrefCountry || (wm === 'remote' && !isUsaRemote) || (isEU && wm !== 'hybrid' && wm !== 'on-site') || (!cc && wm !== 'on-site');
+        if (!locOk) { counts.location++; continue; }
+        const exp = job.experienceLevelMinimum;
+        if (exp !== null && exp !== undefined && (exp < expMin || exp > expMax)) { counts.exp++; continue; }
         const hasNode = ['node.js','nodejs','nestjs','nest.js','express.js'].some((t) => txt.includes(t));
         const hasTs = txt.includes('typescript') || txt.includes('javascript');
         const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
         const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
-        const expLevel = job.experienceLevelMinimum;
-        const expRange = `${profile.search.experience.min}-${profile.search.experience.max}`;
-        const expOk = expLevel === null || (expLevel >= profile.search.experience.min && expLevel <= profile.search.experience.max);
-        console.log(
-          `[scorer-debug] "${job.title}" (${job.source}) lang=${job.language ?? '?'} ` +
-          `titleExcl=${titleExcl ?? 'none'} node=${hasNode} ts=${hasTs} backend=${hasBackend} ` +
-          `mandatory=${mandatory} exp=${expLevel ?? 'null'} expRange=${expRange} expOk=${expOk} ` +
-          `loc=${job.workMode}/${job.countryCode ?? '?'}`,
-        );
+        if (mandatory < 36) { counts.mandatory++; continue; }
+        counts.score++;
       }
+      console.log(`[scorer-diag] rejection reasons (up to 300 sampled): lang=${counts.lang} titleExcl=${counts.title} roleExcl=${counts.role} location=${counts.location} exp=${counts.exp} mandatory=${counts.mandatory} lowScore=${counts.score}`);
     }
 
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
