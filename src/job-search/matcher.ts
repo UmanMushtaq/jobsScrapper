@@ -167,10 +167,10 @@ function isLanguageFit(job: JobPosting, profile: SearchProfile, text: string): b
 }
 
 function inferExperienceFromText(text: string): number | null {
-  // "5+ years" means strictly more than 5 — add 1 so it exceeds the max and gets filtered
+  // "5+ years" — treat as exactly the stated number (companies routinely inflate requirements)
   const plusMatch = text.match(/(\d+)\+\s*years?/i);
   if (plusMatch) {
-    return parseInt(plusMatch[1], 10) + 1;
+    return parseInt(plusMatch[1], 10);
   }
 
   // "5 to 10 years" or "5-10 years" — use the lower bound of the range

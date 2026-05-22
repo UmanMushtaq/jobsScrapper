@@ -52,7 +52,7 @@ export async function redisReadUrlSet(
   }
 }
 
-export async function redisAddUrls(urlKey: string, urls: string[]): Promise<void> {
+export async function redisAddUrls(urlKey: string, urls: string[], ttlMs?: number): Promise<void> {
   if (!urls.length) return;
   const r = getClient();
   if (!r) return;
@@ -65,8 +65,9 @@ export async function redisAddUrls(urlKey: string, urls: string[]): Promise<void
       type SM = { score: number; member: string };
       const scoreMembers = urls.map((url): SM => ({ score: now, member: url })) as [SM, ...SM[]];
       await r.zadd<string>(key, ...scoreMembers);
-      // Prune entries older than 7 days so the ZSET stays bounded
-      await r.zremrangebyscore(key, 0, now - 7 * 24 * 60 * 60 * 1000);
+      // Prune entries older than the configured TTL (defaults to 48h)
+      const pruneMs = ttlMs ?? 48 * 60 * 60 * 1000;
+      await r.zremrangebyscore(key, 0, now - pruneMs);
     } else {
       const nonEmpty = urls as [string, ...string[]];
       await r.sadd<string>(key, ...nonEmpty);

@@ -127,9 +127,10 @@ export async function addUrlsToStore(
   filePath: string,
   key: UrlKey,
   urls: string[],
+  options?: { ttlMs?: number },
 ): Promise<void> {
   if (isRedisAvailable()) {
-    await redisAddUrls(key, urls.map(normalizeUrl));
+    await redisAddUrls(key, urls.map(normalizeUrl), options?.ttlMs);
     return;
   }
 

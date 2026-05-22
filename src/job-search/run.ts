@@ -130,14 +130,24 @@ export async function runJobSearchOnce(
 
     console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${rawMatches.length} passed scoring`);
     if (rawMatches.length === 0 && freshJobs.length > 0) {
-      const sample = freshJobs.slice(0, 5);
+      const sample = freshJobs.slice(0, 8);
       for (const job of sample) {
+        const title = job.title.toLowerCase();
         const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
+        const titleExcl = profile.search.excludedTitleKeywords.find((kw) => title.includes(kw)) ?? null;
         const hasNode = ['node.js','nodejs','nestjs','nest.js','express.js'].some((t) => txt.includes(t));
         const hasTs = txt.includes('typescript') || txt.includes('javascript');
         const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
         const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
-        console.log(`[scorer-debug] "${job.title}" (${job.source}): node=${hasNode} ts=${hasTs} backend=${hasBackend} mandatory=${mandatory}`);
+        const expLevel = job.experienceLevelMinimum;
+        const expRange = `${profile.search.experience.min}-${profile.search.experience.max}`;
+        const expOk = expLevel === null || (expLevel >= profile.search.experience.min && expLevel <= profile.search.experience.max);
+        console.log(
+          `[scorer-debug] "${job.title}" (${job.source}) lang=${job.language ?? '?'} ` +
+          `titleExcl=${titleExcl ?? 'none'} node=${hasNode} ts=${hasTs} backend=${hasBackend} ` +
+          `mandatory=${mandatory} exp=${expLevel ?? 'null'} expRange=${expRange} expOk=${expOk} ` +
+          `loc=${job.workMode}/${job.countryCode ?? '?'}`,
+        );
       }
     }
 
@@ -191,6 +201,7 @@ export async function runJobSearchOnce(
       seenFile,
       'seen_urls',
       matches.map((match) => match.job.canonicalUrl),
+      { ttlMs: seenTtlMs },
     );
 
     const summary: RunSummary = {
