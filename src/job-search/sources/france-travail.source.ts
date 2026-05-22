@@ -212,7 +212,7 @@ function extractExperienceMinimum(text: string): number | null {
   const lower = text.toLowerCase();
 
   const plusMatch = lower.match(/(\d+)\+\s*years?/i);
-  if (plusMatch) return parseInt(plusMatch[1], 10) + 1;
+  if (plusMatch) return parseInt(plusMatch[1], 10);
 
   const rangeMatch = lower.match(/(\d+)\s*(?:to|-)\s*\d+\s+years?/i);
   if (rangeMatch) return parseInt(rangeMatch[1], 10);

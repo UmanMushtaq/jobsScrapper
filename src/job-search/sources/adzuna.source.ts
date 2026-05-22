@@ -46,7 +46,7 @@ export class AdzunaJobsSource implements JobSource {
       return [];
     }
 
-    const countries = (process.env.ADZUNA_COUNTRIES ?? 'fr,gb,de,nl,pl,se,es,it,be,at,ch,no')
+    const countries = (process.env.ADZUNA_COUNTRIES ?? 'fr,gb,de,nl,be,at,pl')
       .split(',')
       .map((c) => c.trim().toLowerCase());
     const maxPages = Number(process.env.ADZUNA_MAX_PAGES ?? 2);
@@ -149,10 +149,9 @@ function mapResult(result: AdzunaResult, country: string): JobPosting {
 function extractExperienceMinimum(text: string): number | null {
   const lower = text.toLowerCase();
 
-  // "5+ years" means strictly more than 5 — add 1 so it exceeds the max and gets filtered
   const plusMatch = lower.match(/(\d+)\+\s*years?/i);
   if (plusMatch) {
-    return parseInt(plusMatch[1], 10) + 1;
+    return parseInt(plusMatch[1], 10);
   }
 
   // "5 to 10 years" or "5-10 years" — use the lower bound
