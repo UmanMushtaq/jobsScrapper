@@ -36,8 +36,8 @@ export class RemoteOKJobsSource implements JobSource {
         },
       });
 
-      if (response.status === 403) {
-        // Cloud IP blocked — fails silently; configure JOB_PROXY_URL to route via home PC
+      if (response.status === 403 || response.status === 530) {
+        // Cloud IP blocked by Cloudflare (530) or firewall (403) — fail silently
         return [];
       }
 

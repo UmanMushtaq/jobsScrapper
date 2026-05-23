@@ -177,10 +177,18 @@ function extractExperienceMinimum(text: string): number | null {
 }
 
 function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {
-  if (containsAny(text, ['full remote', 'fully remote', '100% remote', 'remote only', 'work from anywhere', 'remote position'])) {
+  if (containsAny(text, [
+    'fully remote', 'full remote', '100% remote', 'remote only', 'work from anywhere',
+    'remote position', 'remote role', 'remote job', 'remote-first', 'remote first',
+    'work from home', 'working from home', 'home working', 'wfh',
+    'distributed team', 'location: remote', 'location:remote',
+  ])) {
     return 'remote';
   }
-  if (containsAny(text, ['hybrid', 'hybride', 'partial remote', 'flexible remote', 'télétravail partiel'])) {
+  if (containsAny(text, [
+    'hybrid', 'hybride', 'partial remote', 'flexible remote', 'télétravail partiel',
+    'remote friendly', 'remote-friendly', 'occasionally remote',
+  ])) {
     return 'hybrid';
   }
   return 'on-site';
