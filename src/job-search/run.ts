@@ -137,7 +137,7 @@ export async function runJobSearchOnce(
       const expMin = profile.search.experience.min;
       const expMax = profile.search.experience.max;
       const counts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, mandatory: 0, score: 0 };
-      for (const job of freshJobs.slice(0, 300)) {
+      for (const job of freshJobs) {
         const title = job.title.toLowerCase();
         const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
         const jobLang = (job.language ?? '').toLowerCase();
@@ -160,7 +160,7 @@ export async function runJobSearchOnce(
         if (mandatory < 36) { counts.mandatory++; continue; }
         counts.score++;
       }
-      console.log(`[scorer-diag] rejection reasons (up to 300 sampled): lang=${counts.lang} titleExcl=${counts.title} roleExcl=${counts.role} location=${counts.location} exp=${counts.exp} mandatory=${counts.mandatory} lowScore=${counts.score}`);
+      console.log(`[scorer-diag] rejection reasons (all ${freshJobs.length}): lang=${counts.lang} titleExcl=${counts.title} roleExcl=${counts.role} location=${counts.location} exp=${counts.exp} mandatory=${counts.mandatory} lowScore=${counts.score}`);
     }
 
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
