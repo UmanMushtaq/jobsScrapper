@@ -100,11 +100,22 @@ export async function runJobSearchOnce(
       new HackerNewsJobsSource(),
     ];
     const jobLists = await Promise.all(
-      sources.map((s) => s.fetch(profile.search.queries, profile.search)),
+      sources.map(async (s) => {
+        try {
+          return await s.fetch(profile.search.queries, profile.search);
+        } catch (err) {
+          console.error(`[source:${s.name}] unexpected crash — isolated, other sources unaffected: ${err instanceof Error ? err.message : String(err)}`);
+          return [] as JobPosting[];
+        }
+      }),
     );
     const jobMap = new Map<string, JobPosting>();
     for (const [i, list] of jobLists.entries()) {
-      if (list.length > 0) console.log(`[source] ${sources[i].name}: ${list.length} jobs`);
+      if (list.length > 0) {
+        console.log(`[source] ${sources[i].name}: ${list.length} jobs`);
+      } else {
+        console.log(`[source] ${sources[i].name}: 0 jobs (blocked, error, or no results)`);
+      }
       for (const job of list) {
         jobMap.set(job.canonicalUrl, job);
       }
@@ -131,12 +142,15 @@ export async function runJobSearchOnce(
 
     console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${rawMatches.length} passed scoring`);
     if (rawMatches.length === 0 && freshJobs.length > 0) {
-      // Tally why fresh jobs are being rejected so we can diagnose filter issues
       const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','sre engineer','infrastructure engineer','platform engineer','cloud engineer'];
       const desiredLang = (profile.search.language ?? 'en').toLowerCase();
       const expMin = profile.search.experience.min;
       const expMax = profile.search.experience.max;
       const counts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, mandatory: 0, score: 0 };
+      const locBreak = { usaRemote: 0, euOnsite: 0, euHybrid: 0, other: 0 };
+      const mandBreak = { nodeOnly: 0, tsOnly: 0, backendOnly: 0, none: 0 };
+      const nearMisses: Array<{ title: string; company: string; source: string; mandatory: number }> = [];
+
       for (const job of freshJobs) {
         const title = job.title.toLowerCase();
         const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
@@ -144,23 +158,55 @@ export async function runJobSearchOnce(
         if (jobLang && jobLang !== desiredLang) { counts.lang++; continue; }
         if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { counts.title++; continue; }
         if (EXCL_ROLES.some((k) => title.includes(k))) { counts.role++; continue; }
+
         const cc = job.countryCode;
         const wm = job.workMode;
         const isUsaRemote = wm === 'remote' && cc && profile.search.usaCountryCodes?.includes(cc) && !profile.search.usaJobs;
         const isPrefCountry = profile.search.preferredCountries?.includes(cc ?? '');
         const isEU = profile.search.europeCountryCodes?.includes(cc ?? '');
         const locOk = isPrefCountry || (wm === 'remote' && !isUsaRemote) || (isEU && wm !== 'hybrid' && wm !== 'on-site') || (!cc && wm !== 'on-site');
-        if (!locOk) { counts.location++; continue; }
+        if (!locOk) {
+          counts.location++;
+          if (isUsaRemote) locBreak.usaRemote++;
+          else if (isEU && wm === 'on-site') locBreak.euOnsite++;
+          else if (isEU && wm === 'hybrid') locBreak.euHybrid++;
+          else locBreak.other++;
+          continue;
+        }
+
         const exp = job.experienceLevelMinimum;
         if (exp !== null && exp !== undefined && (exp < expMin || exp > expMax)) { counts.exp++; continue; }
+
         const hasNode = ['node.js','nodejs','nestjs','nest.js','express.js'].some((t) => txt.includes(t));
         const hasTs = txt.includes('typescript') || txt.includes('javascript');
         const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
         const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
-        if (mandatory < 36) { counts.mandatory++; continue; }
+        if (mandatory < 36) {
+          counts.mandatory++;
+          if (!hasNode && !hasTs && !hasBackend) mandBreak.none++;
+          else if (hasNode) mandBreak.nodeOnly++;
+          else if (hasTs) mandBreak.tsOnly++;
+          else mandBreak.backendOnly++;
+          continue;
+        }
+
+        // Passed all pre-filters + mandatory — scored <78 or failed salary in the real scorer
+        nearMisses.push({ title: job.title, company: job.company, source: job.source, mandatory });
         counts.score++;
       }
-      console.log(`[scorer-diag] rejection reasons (all ${freshJobs.length}): lang=${counts.lang} titleExcl=${counts.title} roleExcl=${counts.role} location=${counts.location} exp=${counts.exp} mandatory=${counts.mandatory} lowScore=${counts.score}`);
+
+      console.log(`[scorer-diag] ${freshJobs.length} fresh jobs → 0 matched. Breakdown:`);
+      console.log(`  lang=${counts.lang} | titleExcl=${counts.title} | roleExcl=${counts.role}`);
+      console.log(`  location=${counts.location} (usa-remote=${locBreak.usaRemote} eu-onsite=${locBreak.euOnsite} eu-hybrid=${locBreak.euHybrid} other=${locBreak.other})`);
+      console.log(`  exp=${counts.exp} | mandatory=${counts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
+      console.log(`  score<78=${counts.score}`);
+
+      if (nearMisses.length > 0) {
+        console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed mandatory but scored <78 — top 5:`);
+        for (const nm of nearMisses.slice(0, 5)) {
+          console.log(`  "${nm.title}" @ ${nm.company} [${nm.source}] mandatory=${nm.mandatory}`);
+        }
+      }
     }
 
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
