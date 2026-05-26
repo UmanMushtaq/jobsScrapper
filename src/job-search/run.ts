@@ -11,9 +11,12 @@ import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
 import { FranceTravailJobsSource } from './sources/france-travail.source';
 import { GreenhouseJobsSource } from './sources/greenhouse.source';
 import { HackerNewsJobsSource } from './sources/hackernews.source';
+import { HimalayasJobsSource } from './sources/himalayas.source';
+import { JobicyJobsSource } from './sources/jobicy.source';
 import { LeverJobsSource } from './sources/lever.source';
 import { RemoteOKJobsSource } from './sources/remoteok.source';
 import { RemotiveJobsSource } from './sources/remotive.source';
+import { WeWorkRemotelyJobsSource } from './sources/weworkremotely.source';
 import { WellfoundJobsSource } from './sources/wellfound.source';
 import { WttjJobsSource } from './sources/wttj.source';
 import {
@@ -36,8 +39,9 @@ const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
 const ACTIVE_SOURCES = [
   'welcometothejungle.com', 'wellfound.com', 'adzuna.com', 'francetravail.fr',
-  'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'remotive.com', 'remoteok.com',
-  'arbeitnow.com', 'news.ycombinator.com',
+  'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'himalayas.app', 'jobicy.com',
+  'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
+  'news.ycombinator.com',
 ];
 const BLOCKED_SOURCES = ['startup.jobs', 'indeed.com', 'linkedin.com'];
 
@@ -96,6 +100,9 @@ export async function runJobSearchOnce(
       new ApecJobsSource(),
       new GreenhouseJobsSource(),
       new LeverJobsSource(),
+      new HimalayasJobsSource(),
+      new JobicyJobsSource(),
+      new WeWorkRemotelyJobsSource(),
       new RemotiveJobsSource(),
       new RemoteOKJobsSource(),
       new ArbeitnowJobsSource(),
