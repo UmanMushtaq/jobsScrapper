@@ -31,13 +31,13 @@ export class WellfoundJobsSource implements JobSource {
             jobs.push(job);
           }
         }
-      } catch {
-        // Silently skip — Wellfound blocks cloud IPs
+      } catch (err) {
+        console.log(`[wellfound] blocked or error (cloud IP likely blocked): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
-    if (jobs.length > 0) {
-      console.log(`[wellfound] found ${jobs.length} jobs`);
+    if (jobs.length === 0) {
+      console.log('[wellfound] 0 jobs — Wellfound blocks cloud IPs (Render), expected to fail silently');
     }
     return jobs;
   }

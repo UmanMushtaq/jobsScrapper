@@ -188,7 +188,7 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
 function extractExperience(text: string): number | null {
   const lower = text.toLowerCase();
   const plusMatch = lower.match(/(\d+)\+\s*years?/);
-  if (plusMatch) return parseInt(plusMatch[1]) + 1;
+  if (plusMatch) return parseInt(plusMatch[1]);
   const rangeMatch = lower.match(/(\d+)\s*(?:to|-)\s*\d+\s+years?/);
   if (rangeMatch) return parseInt(rangeMatch[1]);
   const yearsMatch = lower.match(/(\d+)\s+years?\s+(?:of\s+)?(?:experience|exp)/);

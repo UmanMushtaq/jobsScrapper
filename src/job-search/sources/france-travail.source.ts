@@ -82,7 +82,7 @@ export class FranceTravailJobsSource implements JobSource {
     const clientSecret = process.env.FRANCE_TRAVAIL_CLIENT_SECRET;
 
     if (!clientId || !clientSecret) {
-      console.log('[france-travail] skipped: FRANCE_TRAVAIL_CLIENT_ID or FRANCE_TRAVAIL_CLIENT_SECRET not set');
+      console.log('[france-travail] 0 jobs — FRANCE_TRAVAIL_CLIENT_ID or FRANCE_TRAVAIL_CLIENT_SECRET not set in Render environment');
       return [];
     }
 

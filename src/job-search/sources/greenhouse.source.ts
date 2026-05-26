@@ -44,14 +44,17 @@ export class GreenhouseJobsSource implements JobSource {
 
     const jobs = new Map<string, JobPosting>();
     const queryTerms = queries.map((q) => q.toLowerCase());
+    let totalFound = 0;
+    let companiesWithJobs = 0;
 
     for (const company of companies) {
       try {
         const results = await fetchCompanyJobs(company, settings);
-        for (const job of results) {
-          if (isRelevant(job.title, queryTerms)) {
-            jobs.set(job.canonicalUrl, job);
-          }
+        const relevant = results.filter((job) => isRelevant(job.title, queryTerms));
+        if (relevant.length > 0) companiesWithJobs++;
+        totalFound += relevant.length;
+        for (const job of relevant) {
+          jobs.set(job.canonicalUrl, job);
         }
       } catch (error) {
         console.error(
@@ -59,6 +62,12 @@ export class GreenhouseJobsSource implements JobSource {
           error instanceof Error ? error.message : String(error),
         );
       }
+    }
+
+    if (totalFound === 0) {
+      console.log(`[greenhouse] 0 relevant jobs found across ${companies.length} companies within ${settings.maxAgeHours}h window`);
+    } else {
+      console.log(`[greenhouse] ${totalFound} relevant jobs from ${companiesWithJobs}/${companies.length} companies`);
     }
 
     return Array.from(jobs.values());
@@ -162,7 +171,7 @@ function inferCity(location: string): string | null {
 
 function extractExperienceMinimum(text: string): number | null {
   const plusMatch = text.match(/(\d+)\+\s*years?/i);
-  if (plusMatch) return parseInt(plusMatch[1], 10) + 1;
+  if (plusMatch) return parseInt(plusMatch[1], 10);
 
   const rangeMatch = text.match(/(\d+)\s*(?:to|-)\s*\d+\s+years?/i);
   if (rangeMatch) return parseInt(rangeMatch[1], 10);
