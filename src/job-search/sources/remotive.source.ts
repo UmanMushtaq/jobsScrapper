@@ -61,10 +61,13 @@ async function fetchRemotive(query: string, settings: SearchSettings): Promise<J
 
   const data = (await response.json()) as RemotiveResponse;
   const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+  const fresh = data.jobs.filter((job) => new Date(job.publication_date).getTime() >= cutoff);
 
-  return data.jobs
-    .filter((job) => new Date(job.publication_date).getTime() >= cutoff)
-    .map(mapJob);
+  if (data.jobs.length > 0 && fresh.length === 0) {
+    console.log(`[remotive] "${query}": ${data.jobs.length} total jobs but none posted in last ${settings.maxAgeHours}h`);
+  }
+
+  return fresh.map(mapJob);
 }
 
 function mapJob(job: RemotiveJob): JobPosting {
