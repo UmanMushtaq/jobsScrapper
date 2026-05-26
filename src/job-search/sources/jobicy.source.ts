@@ -26,7 +26,11 @@ interface JobicyResponse {
   data?: JobicyJob[];
 }
 
-const QUERIES = ['nodejs', 'typescript', 'backend'];
+const QUERIES = [
+  { tag: 'node.js' },
+  { tag: 'typescript' },
+  { tag: 'backend-engineer' },
+];
 
 export class JobicyJobsSource implements JobSource {
   name = SOURCE;
@@ -35,7 +39,7 @@ export class JobicyJobsSource implements JobSource {
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
 
-    for (const tag of QUERIES) {
+    for (const { tag } of QUERIES) {
       try {
         const results = await fetchJobs(tag, settings);
         for (const job of results) {
@@ -63,7 +67,6 @@ async function fetchJobs(tag: string, settings: SearchSettings): Promise<JobPost
   const params = new URLSearchParams({
     count: '50',
     tag,
-    industry: 'programming',
   });
 
   const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {

@@ -44,7 +44,7 @@ export class HimalayasJobsSource implements JobSource {
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     try {
-      const response = await fetch('https://himalayas.app/jobs/api?limit=100', {
+      const response = await fetch('https://himalayas.app/jobs/api?limit=100&categories=engineering', {
         headers: {
           'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
           'Accept': 'application/json',
