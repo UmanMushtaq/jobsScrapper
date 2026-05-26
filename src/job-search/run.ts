@@ -222,10 +222,16 @@ export async function runJobSearchOnce(
     // Enrichment is sequential across jobs: each job's 3 parallel calls complete before the next
     // job starts, so we never fire 60 simultaneous requests that exhaust all keys at once.
     const unseenRaw = rawMatches.filter((m) => !sentUrls.has(safeNorm(m.job.canonicalUrl)));
+    const alreadySentCount = rawMatches.length - unseenRaw.length;
+    console.log(`[notify] ${rawMatches.length} scored → ${unseenRaw.length} not yet sent (${alreadySentCount} already sent before)`);
+
     const newMatches: MatchResult[] = [];
     for (const match of unseenRaw) {
       const ai = await enrichMatch(match, profile);
-      if (ai && ai.isSuspicious) continue;
+      if (ai && ai.isSuspicious) {
+        console.log(`[notify] SUSPICIOUS — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]`);
+        continue;
+      }
       newMatches.push(
         ai
           ? {
@@ -240,6 +246,9 @@ export async function runJobSearchOnce(
           : match,
       );
     }
+    if (unseenRaw.length > 0) {
+      console.log(`[notify] AI enrichment done: ${newMatches.length}/${unseenRaw.length} passed`);
+    }
 
     // All scored matches (new + already-sent) for the report and seenUrls tracking
     const matches: MatchResult[] = [...newMatches, ...rawMatches.filter((m) => sentUrls.has(safeNorm(m.job.canonicalUrl)))];
@@ -249,6 +258,16 @@ export async function runJobSearchOnce(
     const reportLocation = await writeReport(reportPath, matches, BLOCKED_SOURCES);
 
     const liveNewMatches = await filterDeadUrls(newMatches);
+    if (newMatches.length > liveNewMatches.length) {
+      const deadCount = newMatches.length - liveNewMatches.length;
+      const deadJobs = newMatches.filter((m) => !liveNewMatches.includes(m));
+      console.log(`[notify] URL check: ${deadCount} dead URL(s) filtered out, ${liveNewMatches.length} live`);
+      for (const m of deadJobs) {
+        console.log(`  DEAD URL: "${m.job.title}" @ ${m.job.company} — ${m.job.applyUrl}`);
+      }
+    } else if (newMatches.length > 0) {
+      console.log(`[notify] URL check: all ${newMatches.length} URL(s) alive → sending to Telegram`);
+    }
     const messages = buildTelegramPayload(liveNewMatches, reportLocation, profile);
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
