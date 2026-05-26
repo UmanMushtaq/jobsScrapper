@@ -99,10 +99,12 @@ export class FranceTravailJobsSource implements JobSource {
     const maxCreationDate = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
     const jobs = new Map<string, JobPosting>();
+    let totalRaw = 0;
 
     for (const query of queries) {
       try {
         const results = await fetchOffers(token, query, minCreationDate, maxCreationDate);
+        totalRaw += results.length;
         for (const offer of results) {
           const job = mapOffer(offer);
           if (job) {
@@ -115,6 +117,12 @@ export class FranceTravailJobsSource implements JobSource {
           error instanceof Error ? error.message : String(error),
         );
       }
+    }
+
+    if (totalRaw === 0) {
+      console.log(`[france-travail] API returned 0 offers for all queries — French job board may not index English keywords`);
+    } else {
+      console.log(`[france-travail] ${totalRaw} raw offers → ${jobs.size} unique mapped`);
     }
 
     return Array.from(jobs.values());
