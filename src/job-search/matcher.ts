@@ -117,7 +117,12 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore,
   );
 
-  if (score < 70) {
+  // Adaptive threshold based on description length:
+  // Short descriptions can't physically contain many keywords — don't penalise them for it.
+  const wordCount = job.description.trim().split(/\s+/).length;
+  const threshold = wordCount < 120 ? 58 : wordCount < 350 ? 65 : 70;
+
+  if (score < threshold) {
     return null;
   }
 

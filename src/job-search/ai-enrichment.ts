@@ -162,6 +162,7 @@ async function enrichSingle(
 
   const fraudScore = Math.min(100, Math.max(0, Number(raw.fraudScore ?? 0)));
   const companyQualityScore = Math.min(100, Math.max(0, Number(raw.companyQualityScore ?? 70)));
+  console.log(`[gemini] "${job.title}" @ ${job.company} — fraud=${fraudScore} quality=${companyQualityScore}`);
 
   let suggestedSalary: string | null = null;
   if (raw.salaryMin && raw.salaryMax && raw.salaryCurrency) {
@@ -182,7 +183,7 @@ async function enrichSingle(
   return {
     fraudScore,
     fraudReasons: (raw.fraudReasons ?? []).slice(0, 3),
-    isSuspicious: fraudScore >= 60,
+    isSuspicious: fraudScore >= 72,
     companyQualityScore,
     companyRedFlags: (raw.companyRedFlags ?? []).slice(0, 3),
     coverLetter: raw.coverLetter?.trim() || buildFallbackCoverLetter(job, profile, matchReasons),

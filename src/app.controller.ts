@@ -24,6 +24,11 @@ export class AppController {
     return this.appService.getHealth();
   }
 
+  @Get('test-gemini')
+  async testGemini() {
+    return this.appService.testGemini();
+  }
+
   @Post('run-now')
   async runNow(@Res() response: Response): Promise<void> {
     await this.appService.runNow();
