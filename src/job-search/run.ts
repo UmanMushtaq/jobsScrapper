@@ -91,6 +91,7 @@ export async function runJobSearchOnce(
       readUrlSet(dismissedFile, 'dismissed_urls'),
       readUrlSet(sentFile, 'sent_urls'),
     ]);
+    console.log(`[storage] seen=${seenUrls.size} applied=${appliedUrls.size} dismissed=${dismissedUrls.size} sent=${sentUrls.size}`);
 
     const sources = [
       new WttjJobsSource(),
@@ -208,7 +209,7 @@ export async function runJobSearchOnce(
       console.log(`  lang=${counts.lang} | titleExcl=${counts.title} | roleExcl=${counts.role}`);
       console.log(`  location=${counts.location} (usa-remote=${locBreak.usaRemote} eu-onsite=${locBreak.euOnsite} eu-hybrid=${locBreak.euHybrid} other=${locBreak.other})`);
       console.log(`  exp=${counts.exp} | mandatory=${counts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
-      console.log(`  score<78=${counts.score}`);
+      console.log(`  score<70=${counts.score}`);
 
       if (nearMisses.length > 0) {
         console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed mandatory but scored <78 — top 5:`);

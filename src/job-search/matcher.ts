@@ -117,7 +117,7 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore,
   );
 
-  if (score < 78) {
+  if (score < 70) {
     return null;
   }
 
