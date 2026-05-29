@@ -4,7 +4,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { enrichMatch } from './job-search/ai-enrichment';
+import { enrichMatch, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
   markJobDecision,
@@ -154,7 +154,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       const result = await enrichMatch(fakeMatch, profile);
       const elapsed = Date.now() - start;
       if (!result) {
-        return { ok: false, error: 'enrichMatch returned null — all Gemini keys may be exhausted or quota exceeded', keysConfigured: keys.length };
+        return { ok: false, error: lastGeminiError || 'enrichMatch returned null — all keys/models failed', keysConfigured: keys.length };
       }
       return {
         ok: true,

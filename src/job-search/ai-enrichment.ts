@@ -4,10 +4,12 @@ import { JobPosting, MatchResult, SearchProfile } from './types';
 // gemini-2.0-flash free tier: 15 RPM, 1 500 req/day, 1 M tokens/day per key.
 // One combined call per job (fraud + cover letter + salary) instead of 3 parallel
 // calls — cuts RPM usage by 3× and eliminates the burst that exhausted all keys.
-const MODEL = 'gemini-2.0-flash';
+// Fallback model list: try the first that works in case Google renames or deprecates one.
+const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-1.5-flash'];
 
 let _cachedKeys: string[] | null = null;
 let _currentKeyIndex = 0;
+let _workingModel: string | null = null;
 
 function getApiKeys(): string[] {
   if (_cachedKeys) return _cachedKeys;
@@ -22,45 +24,59 @@ function getApiKeys(): string[] {
   return _cachedKeys;
 }
 
-function isQuotaError(err: unknown): boolean {
+function isRetryableError(err: unknown): boolean {
   const msg = String(err instanceof Error ? err.message : err).toLowerCase();
+  // Retry on quota/rate errors AND on invalid-key/permission errors (try next key)
   return (
     msg.includes('429') ||
     msg.includes('quota') ||
     msg.includes('rate_limit') ||
     msg.includes('resource_exhausted') ||
-    msg.includes('too many requests')
+    msg.includes('too many requests') ||
+    msg.includes('api_key_invalid') ||
+    msg.includes('invalid api key') ||
+    msg.includes('permission') ||
+    msg.includes('403') ||
+    msg.includes('401')
   );
 }
 
+export let lastGeminiError = '';
+
 async function callWithRotation<T>(
-  fn: (ai: GoogleGenerativeAI) => Promise<T>,
+  fn: (ai: GoogleGenerativeAI, model: string) => Promise<T>,
   label: string,
 ): Promise<T | null> {
   const keys = getApiKeys();
   if (!keys.length) return null;
 
-  for (let attempt = 0; attempt < keys.length; attempt++) {
-    const idx = (_currentKeyIndex + attempt) % keys.length;
-    const ai = new GoogleGenerativeAI(keys[idx]);
-    try {
-      const result = await fn(ai);
-      _currentKeyIndex = idx;
-      return result;
-    } catch (err) {
-      if (isQuotaError(err)) {
-        _currentKeyIndex = (idx + 1) % keys.length;
-        console.warn(
-          `[gemini] ${label}: key ${idx + 1}/${keys.length} quota exceeded — trying next key`,
-        );
-      } else {
-        console.error(`[gemini] ${label} failed:`, err instanceof Error ? err.message : String(err));
-        return null;
+  const modelsToTry = _workingModel ? [_workingModel] : MODELS;
+
+  for (const model of modelsToTry) {
+    for (let attempt = 0; attempt < keys.length; attempt++) {
+      const idx = (_currentKeyIndex + attempt) % keys.length;
+      const ai = new GoogleGenerativeAI(keys[idx]);
+      try {
+        const result = await fn(ai, model);
+        _currentKeyIndex = idx;
+        _workingModel = model;
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        lastGeminiError = msg;
+        if (isRetryableError(err)) {
+          console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} — ${msg.slice(0, 80)} — trying next`);
+          _currentKeyIndex = (idx + 1) % keys.length;
+        } else {
+          // Non-retryable (model not found, bad request, etc.) — skip this model
+          console.error(`[gemini] ${label}: model=${model} non-retryable error — ${msg.slice(0, 120)}`);
+          break;
+        }
       }
     }
   }
 
-  console.error(`[gemini] ${label}: all ${keys.length} key(s) exhausted`);
+  console.error(`[gemini] ${label}: all keys/models failed — jobs will be sent without AI enrichment`);
   return null;
 }
 
@@ -80,7 +96,7 @@ export async function enrichMatch(
 ): Promise<AiEnrichment | null> {
   if (!getApiKeys().length) return null;
   return callWithRotation(
-    (ai) => enrichSingle(ai, match.job, profile, match.reasons),
+    (ai, model) => enrichSingle(ai, model, match.job, profile, match.reasons),
     match.job.company,
   );
 }
@@ -97,6 +113,7 @@ function fmt(n: number): string {
 
 async function enrichSingle(
   ai: GoogleGenerativeAI,
+  model: string,
   job: JobPosting,
   profile: SearchProfile,
   matchReasons: string[],
@@ -113,8 +130,8 @@ async function enrichSingle(
     job.companySummary ? `About: ${job.companySummary.slice(0, 300)}` : '',
   ].filter(Boolean).join('\n');
 
-  const model = ai.getGenerativeModel({
-    model: MODEL,
+  const generativeModel = ai.getGenerativeModel({
+    model,
     systemInstruction:
       `You are helping ${profile.candidate.name}, a Paris-based backend engineer ` +
       `(${profile.candidate.experienceYears} yrs exp, Node.js/NestJS/TypeScript/PostgreSQL/Docker/fintech). ` +
@@ -148,7 +165,7 @@ async function enrichSingle(
     `Why it matches: ${matchReasons.slice(0, 3).join('; ')}\n` +
     `Description: ${job.description.slice(0, 1200)}`;
 
-  const response = await model.generateContent(prompt);
+  const response = await generativeModel.generateContent(prompt);
   const raw = JSON.parse(response.response.text()) as {
     fraudScore?: number;
     companyQualityScore?: number;
