@@ -48,11 +48,21 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     'data engineer', 'data scientist', 'data analyst', 'nlp engineer', 'llm engineer',
     'prompt engineer', 'computer vision engineer',
     // DevOps / Infra
-    'devops engineer', 'site reliability engineer', 'sre engineer',
+    'devops engineer', 'site reliability engineer', 'site reliability', 'sre engineer', 'sre',
     'infrastructure engineer', 'platform engineer', 'cloud engineer',
   ];
   if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => normalizedTitle.includes(keyword))) {
     return null;
+  }
+
+  // Safety net for sources (e.g. HackerNews) where the title field may be location/work-mode
+  // metadata rather than the actual role name. When the title contains no role indicator,
+  // also check the first line of the description.
+  if (!/\b(?:engineer|developer|architect|programmer|scientist|analyst|designer|lead)\b/i.test(job.title)) {
+    const firstDescLine = (job.description.split('\n')[0] ?? '').toLowerCase();
+    if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => firstDescLine.includes(keyword))) {
+      return null;
+    }
   }
 
   const locationScore = scoreLocation(
