@@ -2,10 +2,9 @@ import { GoogleGenAI } from '@google/genai';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
 // Free tier: 15 RPM, 1500 req/day per key. One combined call per job.
-// Model list: first working model is cached for the session.
-// gemini-1.5-flash-latest and gemini-1.5-flash-8b-latest were removed from v1beta.
-// Use explicit versioned names that are stable in v1beta.
-const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-002'];
+// All gemini-1.5 variants (including -002) were removed from v1beta in 2025.
+// Only 2.0 models are valid on the v1beta endpoint used by @google/genai SDK.
+const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 
 let _cachedKeys: string[] | null = null;
 let _currentKeyIndex = 0;
