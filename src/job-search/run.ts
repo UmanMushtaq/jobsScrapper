@@ -227,10 +227,12 @@ export async function runJobSearchOnce(
     console.log(`[notify] ${rawMatches.length} scored → ${unseenRaw.length} not yet sent (${alreadySentCount} already sent before)`);
 
     const newMatches: MatchResult[] = [];
+    const suspiciousMatches: MatchResult[] = [];
     for (const match of unseenRaw) {
       const ai = await enrichMatch(match, profile);
       if (ai && ai.isSuspicious) {
         console.log(`[notify] SUSPICIOUS — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]`);
+        suspiciousMatches.push(match);
         continue;
       }
       newMatches.push(
@@ -252,6 +254,7 @@ export async function runJobSearchOnce(
     }
 
     // All scored matches (new + already-sent) for the report and seenUrls tracking
+    // Suspicious matches are included in seenUrls so they are not re-enriched on the next run.
     const matches: MatchResult[] = [...newMatches, ...rawMatches.filter((m) => sentUrls.has(safeNorm(m.job.canonicalUrl)))];
 
     const effectiveFreshJobs = freshJobs;
@@ -284,12 +287,14 @@ export async function runJobSearchOnce(
       console.error('[followup] check failed:', err instanceof Error ? err.message : String(err));
     });
 
-    await addUrlsToStore(
-      seenFile,
-      'seen_urls',
-      matches.map((match) => match.job.canonicalUrl),
-      { ttlMs: seenTtlMs },
-    );
+    // Mark suspicious jobs as seen (same TTL) so they are not re-enriched on every run
+    // until they age out. Without this, each suspicious job triggers a Gemini call on
+    // every run for up to 72 hours (maxAgeHours / checkIntervalHours = 24 extra calls each).
+    const allSeen = [
+      ...matches.map((m) => m.job.canonicalUrl),
+      ...suspiciousMatches.map((m) => m.job.canonicalUrl),
+    ];
+    await addUrlsToStore(seenFile, 'seen_urls', allSeen, { ttlMs: seenTtlMs });
 
     const summary: RunSummary = {
       reportPath: resolve(reportLocation),
