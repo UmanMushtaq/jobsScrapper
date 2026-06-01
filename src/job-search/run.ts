@@ -147,11 +147,30 @@ export async function runJobSearchOnce(
     const rawMatches = freshJobs
       .map((job) => scoreJob(job, profile))
       .filter((match): match is MatchResult => match !== null)
-      .sort(sortMatches)
-      .slice(0, maxResults);
+      .sort(sortMatches);
 
-    console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${rawMatches.length} passed scoring`);
-    if (rawMatches.length === 0 && freshJobs.length > 0) {
+    // Deduplicate: job aggregators (Adzuna) post the same role across many cities.
+    // Keep only the highest-scoring instance per company + base role (text before first "|").
+    const seenCompanyRole = new Map<string, number>();
+    const dedupedMatches: MatchResult[] = [];
+    for (const match of rawMatches) {
+      const baseTitle = match.job.title.split('|')[0].trim().toLowerCase().replace(/\s+/g, ' ');
+      const key = `${match.job.company.toLowerCase()}::${baseTitle}`;
+      const existing = seenCompanyRole.get(key);
+      if (existing === undefined) {
+        seenCompanyRole.set(key, dedupedMatches.length);
+        dedupedMatches.push(match);
+      }
+      // else: lower-scored duplicate (already sorted) — silently skip
+    }
+    const dupCount = rawMatches.length - dedupedMatches.length;
+    if (dupCount > 0) {
+      console.log(`[scorer] deduplicated ${dupCount} same-company/role listings (job aggregator multi-city posts)`);
+    }
+    const slicedMatches = dedupedMatches.slice(0, maxResults);
+
+    console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} passed scoring (${dupCount} dupes removed)`);
+    if (slicedMatches.length === 0 && freshJobs.length > 0) {
       const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','site reliability','sre engineer','sre','infrastructure engineer','platform engineer','cloud engineer'];
       const desiredLang = (profile.search.language ?? 'en').toLowerCase();
       const expMin = profile.search.experience.min;
@@ -222,9 +241,9 @@ export async function runJobSearchOnce(
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
     // Enrichment is sequential across jobs: each job's 3 parallel calls complete before the next
     // job starts, so we never fire 60 simultaneous requests that exhaust all keys at once.
-    const unseenRaw = rawMatches.filter((m) => !sentUrls.has(safeNorm(m.job.canonicalUrl)));
-    const alreadySentCount = rawMatches.length - unseenRaw.length;
-    console.log(`[notify] ${rawMatches.length} scored → ${unseenRaw.length} not yet sent (${alreadySentCount} already sent before)`);
+    const unseenRaw = slicedMatches.filter((m) => !sentUrls.has(safeNorm(m.job.canonicalUrl)));
+    const alreadySentCount = slicedMatches.length - unseenRaw.length;
+    console.log(`[notify] ${slicedMatches.length} scored → ${unseenRaw.length} not yet sent (${alreadySentCount} already sent before)`);
 
     const newMatches: MatchResult[] = [];
     const suspiciousMatches: MatchResult[] = [];
@@ -255,7 +274,7 @@ export async function runJobSearchOnce(
 
     // All scored matches (new + already-sent) for the report and seenUrls tracking
     // Suspicious matches are included in seenUrls so they are not re-enriched on the next run.
-    const matches: MatchResult[] = [...newMatches, ...rawMatches.filter((m) => sentUrls.has(safeNorm(m.job.canonicalUrl)))];
+    const matches: MatchResult[] = [...newMatches, ...slicedMatches.filter((m) => sentUrls.has(safeNorm(m.job.canonicalUrl)))];
 
     const effectiveFreshJobs = freshJobs;
 
