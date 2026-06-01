@@ -76,7 +76,10 @@ async function fetchJobs(tag: string, settings: SearchSettings): Promise<JobPost
     },
   });
 
-  if (response.status === 403 || response.status === 429) return [];
+  if (response.status === 403 || response.status === 429) {
+    console.log(`[jobicy] blocked by ${response.status} for tag="${tag}" — cloud IP or rate limit`);
+    return [];
+  }
   if (!response.ok) throw new Error(`Jobicy API ${response.status}`);
 
   const data = (await response.json()) as JobicyResponse;

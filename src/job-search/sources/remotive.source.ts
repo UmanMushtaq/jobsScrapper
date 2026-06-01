@@ -60,11 +60,14 @@ async function fetchRemotive(query: string, settings: SearchSettings): Promise<J
   }
 
   const data = (await response.json()) as RemotiveResponse;
-  const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+  // Remotive is a slow-posting board: use 7-day lookback so low-volume queries
+  // don't always return zero results. sentUrls prevents re-sending already-sent jobs.
+  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
   const fresh = data.jobs.filter((job) => new Date(job.publication_date).getTime() >= cutoff);
 
   if (data.jobs.length > 0 && fresh.length === 0) {
-    console.log(`[remotive] "${query}": ${data.jobs.length} total jobs but none posted in last ${settings.maxAgeHours}h`);
+    console.log(`[remotive] "${query}": ${data.jobs.length} total jobs but none posted in last ${lookbackHours}h`);
   }
 
   return fresh.map(mapJob);

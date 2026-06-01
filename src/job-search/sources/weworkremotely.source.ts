@@ -49,7 +49,10 @@ async function fetchFeed(feedUrl: string, settings: SearchSettings): Promise<Job
     },
   });
 
-  if (response.status === 403 || response.status === 429 || response.status === 530) return [];
+  if (response.status === 403 || response.status === 429 || response.status === 530) {
+    console.log(`[weworkremotely] blocked by ${response.status} — cloud IP likely rejected`);
+    return [];
+  }
   if (!response.ok) throw new Error(`WeWorkRemotely feed ${response.status}`);
 
   const xml = await response.text();
