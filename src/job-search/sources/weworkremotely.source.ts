@@ -57,7 +57,9 @@ async function fetchFeed(feedUrl: string, settings: SearchSettings): Promise<Job
 
   const xml = await response.text();
   const items = parseRssItems(xml);
-  const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+  // Use 7-day minimum so low-volume feeds don't always return 0.
+  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return items
     .filter((item) => item.pubDate >= cutoff)

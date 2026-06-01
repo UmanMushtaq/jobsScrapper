@@ -124,7 +124,7 @@ export async function runJobSearchOnce(
       if (list.length > 0) {
         console.log(`[source] ${sources[i].name}: ${list.length} jobs`);
       } else {
-        console.log(`[source] ${sources[i].name}: 0 jobs (blocked, error, or no results)`);
+        console.log(`[source] ${sources[i].name}: 0 jobs — blocked or no results`);
       }
       for (const job of list) {
         jobMap.set(job.canonicalUrl, job);

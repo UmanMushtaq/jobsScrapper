@@ -87,7 +87,9 @@ async function fetchJobs(tag: string, settings: SearchSettings): Promise<JobPost
 
   if (!Array.isArray(jobList)) return [];
 
-  const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+  // Use 7-day minimum so low-volume tags don't always return 0.
+  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return jobList
     .filter((job) => {
