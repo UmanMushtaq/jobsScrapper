@@ -134,6 +134,7 @@ export async function redisGet(key: string): Promise<string | null> {
     return null;
   }
 }
+export async function redisSetJson<T>(redisKey: string, value: T): Promise<void> {
   const r = getClient();
   if (!r) return;
   try {
