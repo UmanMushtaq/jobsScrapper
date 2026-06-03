@@ -11,6 +11,12 @@ import {
   readJobSearchState,
   runJobSearchOnce,
 } from './job-search/run';
+import {
+  answerCallbackQuery,
+  editTelegramMessage,
+  registerWebhook,
+  resolveJobRef,
+} from './job-search/telegram';
 import { JobSearchState } from './job-search/types';
 
 @Injectable()
@@ -28,6 +34,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     this.intervalMinutes = envMinutes > 0 ? envMinutes : profileMinutes;
 
     this.startSelfPing();
+    void this.registerTelegramWebhook();
 
     if (!shouldEnableScheduler()) {
       this.logger.log('Scheduler disabled; web app is running in health/dashboard mode only.');
@@ -88,6 +95,56 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   async runNow(): Promise<void> {
     await this.safeRun('manual');
+  }
+
+  private async registerTelegramWebhook(): Promise<void> {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const externalUrl = process.env.RENDER_EXTERNAL_URL;
+    if (!botToken || !externalUrl) return;
+    try {
+      await registerWebhook(botToken, `${externalUrl}/telegram/webhook`);
+    } catch (err) {
+      this.logger.warn(`[telegram] webhook registration failed: ${(err as Error).message}`);
+    }
+  }
+
+  async handleTelegramWebhook(update: Record<string, unknown>, secret: string): Promise<void> {
+    // Verify secret token if configured
+    const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (expectedSecret && secret !== expectedSecret) return;
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) return;
+
+    const cbq = update.callback_query as {
+      id: string;
+      data?: string;
+      message?: { message_id: number; chat: { id: number }; text?: string };
+    } | undefined;
+
+    if (!cbq?.data || !cbq.message) return;
+
+    const [action, hash] = cbq.data.split(':');
+    if (!hash || (action !== 'a' && action !== 'd')) return;
+
+    const url = await resolveJobRef(hash);
+    if (!url) {
+      await answerCallbackQuery(botToken, cbq.id, 'Job not found — may have expired');
+      return;
+    }
+
+    const decision = action === 'a' ? 'applied' : 'dismissed';
+    await markJobDecision(decision, url);
+
+    const label = action === 'a' ? '✅ Applied' : '❌ Rejected';
+    const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const currentText = cbq.message.text ?? '';
+    const newText = currentText.endsWith(`\n${label} on ${date}`)
+      ? currentText
+      : `${currentText}\n\n${label} on ${date}`;
+
+    await editTelegramMessage(botToken, cbq.message.chat.id, cbq.message.message_id, newText);
+    await answerCallbackQuery(botToken, cbq.id, `${label} — saved!`);
   }
 
   async markApplied(url: string): Promise<void> {

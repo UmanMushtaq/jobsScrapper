@@ -31,7 +31,7 @@ import {
   writeJsonFile,
 } from './storage';
 import { isRedisAvailable } from './redis-store';
-import { sendTelegramMessages } from './telegram';
+import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
 
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
@@ -297,7 +297,7 @@ export async function runJobSearchOnce(
     } else if (newMatches.length > 0) {
       console.log(`[notify] URL check: all ${newMatches.length} URL(s) alive → sending to Telegram`);
     }
-    const messages = buildTelegramPayload(liveNewMatches, reportLocation, profile);
+    const messages = await buildTelegramPayload(liveNewMatches, reportLocation, profile);
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -406,22 +406,24 @@ export async function readJobSearchState(): Promise<JobSearchState> {
   return readJsonFile<JobSearchState>(stateFile, buildEmptyState());
 }
 
-function buildTelegramPayload(
+async function buildTelegramPayload(
   matches: MatchResult[],
   reportPath: string,
   profile: SearchProfile,
-): string[] {
+): Promise<TelegramOutgoingMessage[]> {
   if (matches.length === 0) {
     return [
-      [
-        `No new strong matches for ${profile.candidate.name} in this run.`,
-        `Active sources: ${ACTIVE_SOURCES.join(', ')}`,
-        `Blocked sources: ${BLOCKED_SOURCES.join(', ')}`,
-      ].join('\n'),
+      {
+        text: [
+          `No new strong matches for ${profile.candidate.name} in this run.`,
+          `Active sources: ${ACTIVE_SOURCES.join(', ')}`,
+          `Blocked sources: ${BLOCKED_SOURCES.join(', ')}`,
+        ].join('\n'),
+      },
     ];
   }
 
-  const messages: string[] = [];
+  const messages: TelegramOutgoingMessage[] = [];
 
   // Message 1: quick overview of all matches
   const summaryLines = [
@@ -434,9 +436,9 @@ function buildTelegramPayload(
       `   ${match.job.locationLabel} | ${match.job.workMode} | ${match.salaryLabel} | ${match.score}%`,
     );
   }
-  messages.push(summaryLines.join('\n'));
+  messages.push({ text: summaryLines.join('\n') });
 
-  // One message per job with full details + cover letter
+  // One message per job with full details + cover letter + action buttons
   for (const [i, match] of matches.entries()) {
     const bd = match.scoreBreakdown;
     const scoreDetail = bd
@@ -468,7 +470,17 @@ function buildTelegramPayload(
     }
 
     lines.push('', '--- Cover letter ---', '', match.coverLetter);
-    messages.push(lines.join('\n'));
+
+    // Store hash → URL for button callbacks (fire-and-forget, non-blocking)
+    const hash = await storeJobRef(match.job.canonicalUrl);
+
+    messages.push({
+      text: lines.join('\n'),
+      inlineKeyboard: [[
+        { text: '✅ Applied', callback_data: `a:${hash}` },
+        { text: '❌ Reject', callback_data: `d:${hash}` },
+      ]],
+    });
   }
 
   return messages;

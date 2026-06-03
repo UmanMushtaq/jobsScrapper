@@ -114,7 +114,26 @@ export async function redisGetJson<T>(redisKey: string, fallback: T): Promise<T>
   }
 }
 
-export async function redisSetJson<T>(redisKey: string, value: T): Promise<void> {
+export async function redisSetEx(key: string, value: string, ttlSeconds: number): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await r.set(key, value, { ex: ttlSeconds });
+  } catch (err) {
+    console.error('[redis] setEx failed:', (err as Error).message);
+  }
+}
+
+export async function redisGet(key: string): Promise<string | null> {
+  const r = getClient();
+  if (!r) return null;
+  try {
+    return await r.get<string>(key);
+  } catch (err) {
+    console.error('[redis] get failed:', (err as Error).message);
+    return null;
+  }
+}
   const r = getClient();
   if (!r) return;
   try {
