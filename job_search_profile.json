@@ -62,7 +62,9 @@
       "FR",
       "BE",
       "DE",
-      "LU"
+      "LU",
+      "NL",
+      "IE"
     ],
     "acceptRemote": true,
     "acceptHybrid": true,

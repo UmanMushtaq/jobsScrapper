@@ -146,11 +146,23 @@ function mapJob(job: HimalayasJob): JobPosting {
 
 function inferCountryCode(location: string, countries?: string[]): string | null {
   if (countries?.includes('FR')) return 'FR';
+  if (countries?.includes('DE')) return 'DE';
+  if (countries?.includes('BE')) return 'BE';
+  if (countries?.includes('NL')) return 'NL';
+  if (countries?.includes('IE')) return 'IE';
+  if (countries?.includes('LU')) return 'LU';
   const l = location.toLowerCase();
   if (l.includes('france') || l.includes('paris')) return 'FR';
-  if (l.includes('europe') || l.includes('eu') || l.includes('worldwide') || l.includes('anywhere') || l.includes('remote')) return 'FR';
+  if (l.includes('germany') || l.includes('berlin') || l.includes('munich')) return 'DE';
+  if (l.includes('belgium') || l.includes('brussels')) return 'BE';
+  if (l.includes('luxembourg')) return 'LU';
+  if (l.includes('netherlands') || l.includes('amsterdam')) return 'NL';
+  if (l.includes('ireland') || l.includes('dublin')) return 'IE';
+  if (l.includes('sweden') || l.includes('stockholm')) return 'SE';
+  if (l.includes('denmark') || l.includes('copenhagen')) return 'DK';
+  if (l.includes('portugal') || l.includes('lisbon')) return 'PT';
   if (l.includes('uk') || l.includes('united kingdom') || l.includes('london')) return 'GB';
-  if (l.includes('germany') || l.includes('berlin')) return 'DE';
+  if (l.includes('europe') || l.includes('eu') || l.includes('worldwide') || l.includes('anywhere') || l.includes('remote')) return 'FR';
   return null;
 }
 
