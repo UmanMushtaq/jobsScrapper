@@ -8,6 +8,8 @@ import { writeReport } from './report';
 import { AdzunaJobsSource } from './sources/adzuna.source';
 import { ApecJobsSource } from './sources/apec.source';
 import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
+import { BerlinStartupJobsSource } from './sources/berlinstartupjobs.source';
+import { BundesagenturJobsSource } from './sources/bundesagentur.source';
 import { FranceTravailJobsSource } from './sources/france-travail.source';
 import { GreenhouseJobsSource } from './sources/greenhouse.source';
 import { HackerNewsJobsSource } from './sources/hackernews.source';
@@ -16,6 +18,7 @@ import { JobicyJobsSource } from './sources/jobicy.source';
 import { LeverJobsSource } from './sources/lever.source';
 import { RemoteOKJobsSource } from './sources/remoteok.source';
 import { RemotiveJobsSource } from './sources/remotive.source';
+import { StartupJobsSource } from './sources/startupjobs.source';
 import { WeWorkRemotelyJobsSource } from './sources/weworkremotely.source';
 import { WellfoundJobsSource } from './sources/wellfound.source';
 import { WttjJobsSource } from './sources/wttj.source';
@@ -107,6 +110,9 @@ export async function runJobSearchOnce(
       new RemotiveJobsSource(),
       new RemoteOKJobsSource(),
       new ArbeitnowJobsSource(),
+      new BerlinStartupJobsSource(),
+      new BundesagenturJobsSource(),
+      new StartupJobsSource(),
       new HackerNewsJobsSource(),
     ];
     const jobLists = await Promise.all(

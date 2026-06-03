@@ -112,7 +112,10 @@ function mapJob(job: RemotiveJob): JobPosting {
 function inferCountryCode(location: string): string | null {
   const loc = location.toLowerCase();
   if (loc.includes('france') || loc.includes('paris')) return 'FR';
-  if (loc.includes('germany') || loc.includes('berlin')) return 'DE';
+  if (loc.includes('germany') || loc.includes('berlin') || loc.includes('munich') || loc.includes('hamburg')) return 'DE';
+  if (loc.includes('belgium') || loc.includes('brussels')) return 'BE';
+  if (loc.includes('luxembourg')) return 'LU';
+  if (loc.includes('netherlands') || loc.includes('amsterdam')) return 'NL';
   if (loc.includes('uk') || loc.includes('united kingdom') || loc.includes('london')) return 'GB';
   if (loc.includes('europe') || loc.includes('eu') || loc.includes('worldwide') || loc.includes('anywhere')) return 'FR';
   return null;

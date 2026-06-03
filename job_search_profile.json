@@ -59,7 +59,10 @@
     "seenTtlHours": 48,
     "willingToRelocate": true,
     "preferredCountries": [
-      "FR"
+      "FR",
+      "BE",
+      "DE",
+      "LU"
     ],
     "acceptRemote": true,
     "acceptHybrid": true,

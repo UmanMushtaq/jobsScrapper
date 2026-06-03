@@ -2,17 +2,17 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
-const SOURCE = 'weworkremotely.com';
+const SOURCE = 'startup.jobs';
 
-// Programming & DevOps RSS feeds
+// startup.jobs RSS feeds by category
 const FEED_URLS = [
-  'https://weworkremotely.com/categories/remote-programming-jobs.rss',
-  'https://weworkremotely.com/categories/remote-back-end-programming-jobs.rss',
+  'https://startup.jobs/backend-jobs.rss',
+  'https://startup.jobs/node-jobs.rss',
 ];
 
-export class WeWorkRemotelyJobsSource implements JobSource {
+export class StartupJobsSource implements JobSource {
   name = SOURCE;
-  priority = 4;
+  priority = 3;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
@@ -26,15 +26,15 @@ export class WeWorkRemotelyJobsSource implements JobSource {
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (!msg.includes('fetch failed') && !msg.includes('403') && !msg.includes('530')) {
-          console.error(`[weworkremotely] error for ${feedUrl}: ${msg}`);
+          console.error(`[startup.jobs] error for ${feedUrl}: ${msg}`);
         }
       }
     }
 
     if (jobs.size === 0) {
-      console.log('[weworkremotely] 0 jobs — feed blocked or no results');
+      console.log('[startup.jobs] 0 jobs — feed blocked or no results');
     } else {
-      console.log(`[weworkremotely] ${jobs.size} jobs from RSS feeds`);
+      console.log(`[startup.jobs] ${jobs.size} jobs from RSS feeds`);
     }
 
     return Array.from(jobs.values());
@@ -44,20 +44,19 @@ export class WeWorkRemotelyJobsSource implements JobSource {
 async function fetchFeed(feedUrl: string, settings: SearchSettings): Promise<JobPosting[]> {
   const response = await fetch(feedUrl, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
       'Accept': 'application/rss+xml, application/xml, text/xml',
     },
   });
 
   if (response.status === 403 || response.status === 429 || response.status === 530) {
-    console.log(`[weworkremotely] blocked by ${response.status} — cloud IP likely rejected`);
+    console.log(`[startup.jobs] blocked by ${response.status}`);
     return [];
   }
-  if (!response.ok) throw new Error(`WeWorkRemotely feed ${response.status}`);
+  if (!response.ok) throw new Error(`startup.jobs feed ${response.status}`);
 
   const xml = await response.text();
   const items = parseRssItems(xml);
-  // Use 7-day minimum so low-volume feeds don't always return 0.
   const lookbackHours = Math.max(settings.maxAgeHours, 168);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
@@ -73,7 +72,7 @@ interface RssItem {
   link: string;
   description: string;
   pubDate: number;
-  region: string;
+  location: string;
 }
 
 function parseRssItems(xml: string): RssItem[] {
@@ -83,18 +82,18 @@ function parseRssItems(xml: string): RssItem[] {
 
   while ((match = itemRegex.exec(xml)) !== null) {
     const block = match[1];
-    const title = extractTag(block, 'title');
-    const link = extractTag(block, 'link') || extractTag(block, 'guid');
-    const description = extractTag(block, 'description');
+    const title = cleanCdata(extractTag(block, 'title'));
+    const link = cleanCdata(extractTag(block, 'link') || extractTag(block, 'guid'));
+    const description = cleanCdata(extractTag(block, 'description'));
     const pubDateStr = extractTag(block, 'pubDate');
-    const region = extractTag(block, 'region') || extractTag(block, 'category');
+    const location = cleanCdata(extractTag(block, 'location') || extractTag(block, 'category'));
 
     if (!title || !link) continue;
 
     const pubDate = pubDateStr ? new Date(pubDateStr).getTime() : Date.now();
     if (isNaN(pubDate)) continue;
 
-    items.push({ title: cleanCdata(title), link: cleanCdata(link), description: cleanCdata(description), pubDate, region: cleanCdata(region) });
+    items.push({ title, link, description, pubDate, location });
   }
 
   return items;
@@ -102,8 +101,8 @@ function parseRssItems(xml: string): RssItem[] {
 
 function extractTag(xml: string, tag: string): string {
   const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
-  const match = xml.match(regex);
-  return match ? match[1].trim() : '';
+  const m = xml.match(regex);
+  return m ? m[1].trim() : '';
 }
 
 function cleanCdata(str: string): string {
@@ -112,44 +111,41 @@ function cleanCdata(str: string): string {
 
 function isRelevant(title: string): boolean {
   const t = title.toLowerCase();
-  const relevant = ['backend', 'back-end', 'node', 'typescript', 'javascript', 'software engineer', 'fullstack', 'full stack', 'full-stack', 'api engineer', 'web developer'];
-  const excluded = ['frontend', 'front-end', 'react', 'vue', 'angular', 'ios', 'android', 'mobile', 'devops', 'data engineer', 'machine learning', 'ai engineer'];
+  const relevant = ['backend', 'back-end', 'node', 'typescript', 'javascript', 'software engineer', 'fullstack', 'full stack', 'full-stack', 'api engineer'];
+  const excluded = ['frontend', 'front-end', 'react', 'vue', 'angular', 'ios', 'android', 'mobile', 'devops', 'data engineer', 'machine learning', 'ai engineer', 'site reliability', 'sre'];
   if (excluded.some((k) => t.includes(k))) return false;
   return relevant.some((k) => t.includes(k));
 }
 
 function mapItem(item: RssItem): JobPosting | null {
-  // WWR title format: "Company: Job Title at Company" or "Company | Job Title"
-  const rawTitle = item.title;
-  let jobTitle = rawTitle;
+  if (!item.link || !item.title) return null;
+
+  // startup.jobs titles: "Job Title at Company" or "Job Title — Company"
+  let jobTitle = item.title;
   let companyName = 'Unknown';
 
-  const pipeIdx = rawTitle.indexOf('|');
-  const colonIdx = rawTitle.indexOf(':');
-
-  if (pipeIdx > 0) {
-    companyName = rawTitle.slice(0, pipeIdx).trim();
-    jobTitle = rawTitle.slice(pipeIdx + 1).trim();
-  } else if (colonIdx > 0 && colonIdx < 40) {
-    companyName = rawTitle.slice(0, colonIdx).trim();
-    jobTitle = rawTitle.slice(colonIdx + 1).trim();
+  const atIdx = item.title.lastIndexOf(' at ');
+  if (atIdx > 0) {
+    jobTitle = item.title.slice(0, atIdx).trim();
+    companyName = item.title.slice(atIdx + 4).trim();
   }
 
   const description = stripHtml(item.description);
-  const text = `${jobTitle} ${description}`.toLowerCase();
+  const text = `${jobTitle} ${description} ${item.location}`.toLowerCase();
+  const countryCode = inferCountryCode(item.location);
 
   return {
     source: SOURCE,
-    sourcePriority: 4,
+    sourcePriority: 3,
     canonicalUrl: item.link,
     title: jobTitle,
     company: companyName,
     companySummary: '',
     companySlug: companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    locationLabel: item.region || 'Remote',
-    countryCode: inferCountryCode(item.region),
+    locationLabel: item.location || 'Remote',
+    countryCode,
     city: null,
-    workMode: 'remote',
+    workMode: inferWorkMode(text),
     language: detectLanguage(`${jobTitle} ${description}`),
     description,
     keyMissions: [],
@@ -161,25 +157,33 @@ function mapItem(item: RssItem): JobPosting | null {
     salaryYearlyMinimum: null,
     publishedAt: new Date(item.pubDate).toISOString(),
     publishedAtTimestamp: Math.floor(item.pubDate / 1000),
-    startupSignals: [],
+    startupSignals: ['startup'],
     applyUrl: item.link,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsorship']),
-    isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
+    offersRelocation: containsAny(text, ['relocation', 'visa sponsorship', 'visa sponsor', 'work permit']),
+    isStartup: true,
     employeeCount: null,
     companyCreationYear: null,
   };
 }
 
-function inferCountryCode(region: string): string | null {
-  const r = region.toLowerCase();
-  if (r.includes('france') || r.includes('paris')) return 'FR';
-  if (r.includes('germany') || r.includes('berlin') || r.includes('munich')) return 'DE';
-  if (r.includes('belgium') || r.includes('brussels')) return 'BE';
-  if (r.includes('luxembourg')) return 'LU';
-  if (r.includes('uk') || r.includes('united kingdom') || r.includes('london')) return 'GB';
-  if (r.includes('usa') || r.includes('united states') || r.includes('us only')) return 'US';
-  if (r.includes('europe') || r.includes('eu') || r.includes('worldwide') || r.includes('anywhere') || r === '' || r.includes('remote')) return 'FR';
+function inferCountryCode(location: string): string | null {
+  const l = location.toLowerCase();
+  if (l.includes('france') || l.includes('paris')) return 'FR';
+  if (l.includes('germany') || l.includes('berlin') || l.includes('munich') || l.includes('hamburg')) return 'DE';
+  if (l.includes('belgium') || l.includes('brussels')) return 'BE';
+  if (l.includes('luxembourg')) return 'LU';
+  if (l.includes('netherlands') || l.includes('amsterdam')) return 'NL';
+  if (l.includes('uk') || l.includes('united kingdom') || l.includes('london')) return 'GB';
+  if (l.includes('europe') || l.includes('eu') || l.includes('worldwide') || l.includes('anywhere') || l.includes('remote') || l === '') return 'FR';
   return null;
+}
+
+function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {
+  if (text.includes('fully remote') || text.includes('100% remote') || text.includes('remote only')) return 'remote';
+  if (text.includes('remote') && text.includes('hybrid')) return 'hybrid';
+  if (text.includes('hybrid')) return 'hybrid';
+  if (text.includes('remote')) return 'remote';
+  return 'on-site';
 }
 
 function extractExperienceMinimum(text: string): number | null {

@@ -151,9 +151,12 @@ function mapJob(job: JobicyJob): JobPosting | null {
 function inferCountryCode(location: string): string | null {
   const l = location.toLowerCase();
   if (l.includes('france') || l.includes('paris')) return 'FR';
-  if (l.includes('europe') || l.includes('eu') || l.includes('worldwide') || l.includes('anywhere') || l.includes('remote') || l === 'global') return 'FR';
+  if (l.includes('germany') || l.includes('berlin') || l.includes('munich') || l.includes('hamburg')) return 'DE';
+  if (l.includes('belgium') || l.includes('brussels')) return 'BE';
+  if (l.includes('luxembourg')) return 'LU';
+  if (l.includes('netherlands') || l.includes('amsterdam')) return 'NL';
   if (l.includes('uk') || l.includes('united kingdom') || l.includes('london')) return 'GB';
-  if (l.includes('germany') || l.includes('berlin')) return 'DE';
+  if (l.includes('europe') || l.includes('eu') || l.includes('worldwide') || l.includes('anywhere') || l.includes('remote') || l === 'global') return 'FR';
   return null;
 }
 
