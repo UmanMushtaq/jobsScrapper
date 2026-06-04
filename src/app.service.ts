@@ -129,7 +129,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
     const url = await resolveJobRef(hash);
     if (!url) {
-      await answerCallbackQuery(botToken, cbq.id, 'Job not found — may have expired');
+      await answerCallbackQuery(botToken, cbq.id, 'Job not found (may have expired)');
       return;
     }
 
@@ -144,7 +144,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       : `${currentText}\n\n${label} on ${date}`;
 
     await editTelegramMessage(botToken, cbq.message.chat.id, cbq.message.message_id, newText);
-    await answerCallbackQuery(botToken, cbq.id, `${label} — saved!`);
+    await answerCallbackQuery(botToken, cbq.id, `${label} saved!`);
   }
 
   async markApplied(url: string): Promise<void> {
@@ -211,7 +211,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       const result = await enrichMatch(fakeMatch, profile);
       const elapsed = Date.now() - start;
       if (!result) {
-        return { ok: false, error: lastGeminiError || 'enrichMatch returned null — all keys/models failed', keysConfigured: keys.length };
+        return { ok: false, error: lastGeminiError || 'enrichMatch returned null (all keys/models failed)', keysConfigured: keys.length };
       }
       return {
         ok: true,
@@ -258,7 +258,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
           key: keyPreview,
           status: 'invalid_format',
           model: null,
-          error: 'Not a valid Gemini API key — keys must start with "AIzaSy". Remove this from env vars.',
+          error: 'Not a valid Gemini API key. Keys must start with "AIzaSy". Remove this from env vars.',
         });
         continue;
       }
@@ -282,11 +282,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
             break;
           } else if (msg.includes('api_key_invalid') || msg.includes('invalid api key') || msg.includes('401')) {
             status = 'invalid_key';
-            error = 'Key is invalid or revoked — delete it from env vars';
+            error = 'Key is invalid or revoked. Delete it from env vars.';
             break;
           } else if (msg.includes('403')) {
             status = 'permission_denied';
-            error = 'Gemini API not enabled for this project — enable it at console.cloud.google.com';
+            error = 'Gemini API not enabled for this project. Enable it at console.cloud.google.com.';
             break;
           } else {
             error = msg.slice(0, 120);
@@ -307,10 +307,10 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const advice: string[] = [];
 
     if (invalidCount > 0) {
-      advice.push(`${invalidCount} key(s) have wrong format or are revoked — remove them from Render env vars.`);
+      advice.push(`${invalidCount} key(s) have wrong format or are revoked. Remove them from Render env vars.`);
     }
     if (permCount > 0) {
-      advice.push(`${permCount} key(s) have Gemini API not enabled — go to console.cloud.google.com, select the project, and enable the Gemini API.`);
+      advice.push(`${permCount} key(s) have Gemini API not enabled. Go to console.cloud.google.com, select the project, and enable the Gemini API.`);
     }
 
     if (exhaustedCount > 0 && okCount === 0) {
@@ -318,12 +318,12 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       advice.push(
         `All ${exhaustedCount} valid key(s) are quota-exhausted.` +
         (likelySameAccount
-          ? ' If they all appeared on the same aistudio.google.com/apikey page, they share one quota pool — add a key from a different Google account.'
+          ? ' If they all appeared on the same aistudio.google.com/apikey page, they share one quota pool. Add a key from a different Google account.'
           : ' Quota resets at midnight Pacific time. No action needed if keys are from different accounts.'),
       );
       advice.push(
         'Each Google account gives 1,500 free requests/day. ' +
-        'To check which account a key belongs to: open aistudio.google.com/apikey in a browser, log in with each Gmail one at a time — the keys shown belong to that account.',
+        'To check which account a key belongs to: open aistudio.google.com/apikey in a browser and log in with each Gmail one at a time. The keys shown belong to that account.',
       );
     } else if (exhaustedCount > 0) {
       advice.push(`${exhaustedCount} key(s) exhausted, ${okCount} still working. Bot is using the working ones.`);
@@ -339,7 +339,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (advice.length === 0) {
-      advice.push('To verify accounts: open aistudio.google.com/apikey in a browser and log in with each Gmail — the keys listed belong to that account.');
+      advice.push('To verify accounts: open aistudio.google.com/apikey in a browser and log in with each Gmail. The keys listed belong to that account.');
     }
 
     return {
@@ -474,7 +474,7 @@ function renderHtml(state: JobSearchState): string {
           })
           .join('\n')
       : `<tr><td colspan="8" style="text-align:center;padding:40px;color:#6b7280;">
-           No current matches — the bot will check again at the next scheduled run.
+           No current matches. The bot will check again at the next scheduled run.
          </td></tr>`;
 
   const statusLabel = state.lastRunStatus === 'running' ? 'Running…' : state.lastRunStatus;
@@ -484,7 +484,7 @@ function renderHtml(state: JobSearchState): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Job Search — Uman Mushtaq</title>
+    <title>Job Search: Uman Mushtaq</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; }
       body {
@@ -560,7 +560,7 @@ function renderHtml(state: JobSearchState): string {
         <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
             <h1>Job Search Bot</h1>
-            <p class="subtitle">Uman Mushtaq — Node.js / NestJS Backend Engineer, Paris</p>
+            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris</p>
           </div>
           <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
             ${statusDot(state.lastRunStatus)}
@@ -571,15 +571,15 @@ function renderHtml(state: JobSearchState): string {
         <div class="meta-grid">
           <div class="meta-item">
             <label>Last run</label>
-            <span class="ts" data-utc="${escapeHtml(state.lastRunAt ?? '')}">${escapeHtml(state.lastRunAt ?? '—')}</span>
+            <span class="ts" data-utc="${escapeHtml(state.lastRunAt ?? '')}">${escapeHtml(state.lastRunAt ?? 'n/a')}</span>
           </div>
           <div class="meta-item">
             <label>Last success</label>
-            <span class="ts" data-utc="${escapeHtml(state.lastSuccessAt ?? '')}">${escapeHtml(state.lastSuccessAt ?? '—')}</span>
+            <span class="ts" data-utc="${escapeHtml(state.lastSuccessAt ?? '')}">${escapeHtml(state.lastSuccessAt ?? 'n/a')}</span>
           </div>
           <div class="meta-item">
             <label>Next run</label>
-            <span class="ts" data-utc="${escapeHtml(state.nextRunAt ?? '')}">${escapeHtml(state.nextRunAt ?? '—')}</span>
+            <span class="ts" data-utc="${escapeHtml(state.nextRunAt ?? '')}">${escapeHtml(state.nextRunAt ?? 'n/a')}</span>
           </div>
           <div class="meta-item">
             <label>Interval</label>
@@ -591,7 +591,7 @@ function renderHtml(state: JobSearchState): string {
           </div>
           <div class="meta-item">
             <label>Fresh jobs scanned</label>
-            <span>${state.stats.freshJobsCount ?? '—'}</span>
+            <span>${state.stats.freshJobsCount ?? 'n/a'}</span>
           </div>
         </div>
 

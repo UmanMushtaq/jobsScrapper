@@ -1,6 +1,6 @@
 # Job Search Bot
 
-A personal backend job search automation tool built for **Uman Mushtaq** — Paris-based Node.js / NestJS engineer. Runs as a NestJS web service on Render, scans **18 job boards** across Europe every 3 hours, filters by language, experience, location and tech stack, and sends matching jobs with AI-generated cover letters and ATS analysis directly to Telegram.
+A personal backend job search automation tool built for **Uman Mushtaq**, Paris-based Node.js / NestJS engineer. Runs as a NestJS web service on Render, scans **18 job boards** across Europe every 3 hours, filters by language, experience, location and tech stack, and sends matching jobs with AI-generated cover letters and ATS analysis directly to Telegram.
 
 ---
 
@@ -9,23 +9,23 @@ A personal backend job search automation tool built for **Uman Mushtaq** — Par
 Every 3 hours the bot:
 
 1. Fetches jobs from 18 sources across Europe and globally (remote)
-2. Filters by language (English), experience (2–5 yrs), location, salary, and keywords
-3. Scores each job 0–100 against your profile
+2. Filters by language (English), experience (2-5 yrs), location, salary, and keywords
+3. Scores each job 0-100 against your profile
 4. Runs AI enrichment via Google Gemini (one call per job):
-   - **Relevance score** — 0–100, drops jobs below 55
-   - **Fraud detection** — drops jobs scoring 72+
-   - **Company quality score** — flags red-flag employers
-   - **APS visa compatibility** — checks if your French post-study permit works for this role
-   - **ATS keyword gap analysis** — lists up to 8 keywords missing from your CV and where to add them
-   - **Cover letter** — 3-paragraph, tailored to this company and role
-   - **Email extraction** — if the job description includes a hiring manager email, generates a subject line and email body
-   - **Salary estimate** — realistic monthly range in local currency + EUR equivalent
+   - **Relevance score**: 0-100, drops jobs below 55
+   - **Fraud detection**: drops jobs scoring 72+
+   - **Company quality score**: flags red-flag employers
+   - **APS visa compatibility**: checks if your French post-study permit works for this role
+   - **ATS keyword gap analysis**: lists up to 8 keywords missing from your CV and where to add them
+   - **Cover letter**: 3-paragraph, tailored to this company and role
+   - **Email extraction**: if the job description includes a hiring manager email, generates a subject line and email body
+   - **Salary estimate**: realistic monthly range in local currency + EUR equivalent
 5. Checks every apply URL is still live (drops dead/filled positions)
-6. Sends one Telegram message per matching job with full details and ✅ Applied / ❌ Reject buttons
+6. Sends one Telegram message per matching job with full details and Applied / Reject buttons
 
 ### Dashboard
 
-`GET /` — live web dashboard showing last run status, next run time, current matches, and buttons to mark jobs as Applied or Dismissed.
+`GET /` — live web dashboard showing last run status, next run time, current matches, and Gemini key health. Mark jobs as Applied or Dismissed from here.
 
 `GET /health` — Render healthcheck endpoint.
 
@@ -67,15 +67,15 @@ Every 3 hours the bot:
 | Filter | Rule |
 |---|---|
 | Language | English only |
-| Experience | 2–5 years. "5+ years" → treated as exactly 5 |
+| Experience | 2-5 years. "5+ years" treated as exactly 5 |
 | Title exclusions | intern, senior, staff, lead, principal, head of, manager |
 | Role exclusions | frontend, react developer, flutter, iOS, Android, AI/ML, DevOps, SRE |
-| Salary | Minimum €3,000/month EUR equivalent (skipped if not listed) |
+| Salary | Minimum 3,000 EUR/month equivalent (skipped if not listed) |
 | Score threshold | Adaptive: 58 (short desc) / 65 (medium) / 70 (long) |
 
 ### Mandatory scoring
 
-A job must score **≥ 42** on the mandatory checks or it is rejected immediately:
+A job must score **42 or higher** on the mandatory checks or it is rejected immediately:
 
 | Signal | Points |
 |---|---|
@@ -83,7 +83,7 @@ A job must score **≥ 42** on the mandatory checks or it is rejected immediatel
 | TypeScript or JavaScript present | +18 |
 | Backend / API / microservice role | +18 |
 
-A job with TypeScript + backend but no Node.js (score 36) is rejected — this pattern matches .NET/Java full-stack postings.
+A job with TypeScript + backend but no Node.js scores 36 and is rejected. That pattern matches .NET/Java full-stack postings that only mention TypeScript for their React frontend.
 
 ### Location rules
 
@@ -91,16 +91,16 @@ A job with TypeScript + backend but no Node.js (score 36) is rejected — this p
 |---|---|---|
 | France | any | Accepted |
 | Anywhere | remote | Accepted |
-| Europe (outside FR) | on-site or hybrid + relocation offered | Accepted |
+| Europe (outside FR) | on-site or hybrid, relocation offered | Accepted |
 | Europe (outside FR) | on-site or hybrid, no relocation | Rejected |
-| USA | remote | Rejected (`usaJobs: false`) |
+| USA | remote | Rejected (usaJobs: false) |
 | Excluded countries | any | Rejected (RO, BG, LT, CY, LV, HR) |
 
 ---
 
-## AI enrichment (Google Gemini — free tier)
+## AI enrichment (Google Gemini, free tier)
 
-Requires at least one `GEMINI_API_KEY`. Up to 10 keys can be configured (`GEMINI_API_KEY_1` … `GEMINI_API_KEY_10`). Keys from different Google accounts have independent 1,500 req/day quotas.
+Requires at least one `GEMINI_API_KEY`. Up to 10 keys can be configured (`GEMINI_API_KEY_1` through `GEMINI_API_KEY_10`). Keys from different Google accounts have independent 1,500 req/day quotas.
 
 If Gemini is unavailable, jobs are still sent using a fallback cover letter template.
 
@@ -108,36 +108,36 @@ If Gemini is unavailable, jobs are still sent using a fallback cover letter temp
 
 | Field | Description |
 |---|---|
-| `relevanceScore` | 0–100. Jobs below 55 are dropped. |
+| `relevanceScore` | 0-100. Jobs below 55 are dropped. |
 | `visaFriendly` | true/false/null. Based on APS visa rules for FR, remote, or relocation. |
-| `fraudScore` | 0–100. Jobs at 72+ are dropped. |
-| `companyQualityScore` | 0–100. Flags rockstar/ninja culture, no salary, etc. |
+| `fraudScore` | 0-100. Jobs at 72+ are dropped. |
+| `companyQualityScore` | 0-100. Flags rockstar/ninja culture, no salary listed, etc. |
 | `atsMissingKeywords` | Up to 8 technical keywords from the job not clearly in your CV. |
 | `atsPlacementSuggestions` | Where to add those keywords in your CV. |
-| `coverLetter` | 3 paragraphs, 140–175 words. Mentions NexusPay, OptimusFox or Swiss Block as relevant. No dashes. |
+| `coverLetter` | 3 paragraphs, 140-175 words. Mentions NexusPay, OptimusFox or Swiss Block as relevant. No dashes. |
 | `hiringEmail` | Hiring manager email if explicitly in job description. |
 | `emailSubject` / `emailBody` | Ready-to-send email if hiring email found. |
 | `suggestedSalary` | Estimated gross monthly in local currency + EUR. |
 
 ### Quota behaviour
 
-When a key returns a daily quota error it is blacklisted for the rest of the process run. Once all keys are exhausted, Gemini is skipped entirely for remaining jobs — no wasted API calls.
+When a key returns a daily quota error it is blacklisted for the rest of the process run. Once all keys are exhausted, Gemini is skipped entirely for remaining jobs with no wasted API calls.
 
 ---
 
 ## Telegram message format
 
-**Message 1 — summary:**
+**Message 1 (summary):**
 ```
 3 new matches for Uman Mushtaq:
 
-1. Backend Engineer — Paace Ltd
-   London, UK | hybrid | ~€6,767/month | 100%
-2. Node.js Developer — Studocu
+1. Backend Engineer at Paace Ltd
+   London, UK | hybrid | ~6,767 EUR/month | 100%
+2. Node.js Developer at Studocu
    Amsterdam, NL | hybrid | salary not listed | 96%
 ```
 
-**Messages 2…N — one per job:**
+**Messages 2 to N (one per job):**
 ```
 [1/3] Backend Engineer
 Company: Paace Ltd
@@ -145,18 +145,18 @@ Location: London, UK | hybrid
 Score: 100% [Tech:60 | KW:20 | Loc:10 | Startup:10]
 Apply: https://...
 Why: Node.js explicitly required; TypeScript stack match
-AI relevance: 82/100 ✓
-APS visa: compatible ✓
-Fraud risk: 8% ✓
-Company quality: 85/100 ✓
-Salary to quote: GBP 4,200–5,000/month (~€4,900–5,800/month)
+AI relevance: 82/100
+APS visa: compatible
+Fraud risk: 8%
+Company quality: 85/100
+Salary to quote: GBP 4,200-5,000/month (~4,900-5,800 EUR/month)
 ATS gaps: Jest, Kafka, OpenAPI
-Tip: Add 'Jest' to Skills > Tools
+Tip: Add Jest to Skills > Tools
 
---- Cover letter ---
+Cover letter:
 ...
 
-[✅ Applied] [❌ Reject]
+[Applied] [Reject]
 ```
 
 ---
@@ -212,7 +212,7 @@ TELEGRAM_CHAT_ID=your_chat_id
 UPSTASH_REDIS_REST_URL=your_url
 UPSTASH_REDIS_REST_TOKEN=your_token
 
-# Google Gemini — free tier (1 key minimum, up to 10 keys from different accounts)
+# Google Gemini (free tier, 1 key minimum, up to 10 keys from different accounts)
 GEMINI_API_KEY_1=AIzaSy...
 GEMINI_API_KEY_2=AIzaSy...
 GEMINI_API_KEY_3=AIzaSy...
@@ -222,7 +222,7 @@ GEMINI_API_KEY_4=AIzaSy...
 ADZUNA_APP_ID=your_app_id
 ADZUNA_APP_KEY=your_app_key
 
-# France Travail (https://francetravail.io — subscribe to "Offres d'emploi v2")
+# France Travail (https://francetravail.io, subscribe to "Offres d'emploi v2")
 FRANCE_TRAVAIL_CLIENT_ID=your_client_id
 FRANCE_TRAVAIL_CLIENT_SECRET=your_client_secret
 
@@ -242,14 +242,14 @@ Point Render healthcheck to `/health`.
 Edit `job_search_profile.json` to update search preferences:
 
 - `candidate.name` / `candidate.location` / `candidate.experienceYears`
-- `candidate.cvText` — full CV text fed to Gemini for tailored cover letters and ATS analysis
-- `search.titles` — job titles to boost score
-- `search.queries` — keywords sent to each source API
-- `search.requiredKeywords` — keywords that add to score
-- `search.preferredKeywordGroups` — keyword groups (each group that matches adds 6 pts)
-- `search.minimumSalaryMonthlyEur` — minimum salary in EUR/month
-- `search.maxAgeHours` — how old a job can be (default 72h)
-- `search.checkIntervalHours` — fallback interval if env var not set
-- `search.experience.min` / `search.experience.max` — experience filter bounds
-- `search.excludedTitleKeywords` — title words that disqualify a job
-- `search.excludedCountries` — country codes to always reject
+- `candidate.cvText`: full CV text fed to Gemini for tailored cover letters and ATS analysis
+- `search.titles`: job titles to boost score
+- `search.queries`: keywords sent to each source API
+- `search.requiredKeywords`: keywords that add to score
+- `search.preferredKeywordGroups`: keyword groups (each group that matches adds 6 pts)
+- `search.minimumSalaryMonthlyEur`: minimum salary in EUR/month
+- `search.maxAgeHours`: how old a job can be (default 72h)
+- `search.checkIntervalHours`: fallback interval if env var not set
+- `search.experience.min` / `search.experience.max`: experience filter bounds
+- `search.excludedTitleKeywords`: title words that disqualify a job
+- `search.excludedCountries`: country codes to always reject
