@@ -22,13 +22,13 @@ interface AdzunaResponse {
 }
 
 const COUNTRY_CURRENCY: Record<string, string> = {
-  fr: 'EUR', de: 'EUR', nl: 'EUR', be: 'EUR',
+  fr: 'EUR', de: 'EUR', nl: 'EUR', be: 'EUR', lu: 'EUR', ie: 'EUR',
   ch: 'CHF', at: 'EUR', it: 'EUR', es: 'EUR',
   pl: 'EUR', se: 'SEK', no: 'NOK', gb: 'GBP',
 };
 
 const COUNTRY_CODE_MAP: Record<string, string> = {
-  fr: 'FR', de: 'DE', nl: 'NL', be: 'BE',
+  fr: 'FR', de: 'DE', nl: 'NL', be: 'BE', lu: 'LU', ie: 'IE',
   ch: 'CH', at: 'AT', it: 'IT', es: 'ES',
   pl: 'PL', se: 'SE', no: 'NO', gb: 'GB',
 };
@@ -46,7 +46,7 @@ export class AdzunaJobsSource implements JobSource {
       return [];
     }
 
-    const countries = (process.env.ADZUNA_COUNTRIES ?? 'fr,gb,de,nl,be,at,pl')
+    const countries = (process.env.ADZUNA_COUNTRIES ?? 'fr,gb,de,nl,be,lu,ie,at,pl')
       .split(',')
       .map((c) => c.trim().toLowerCase());
     const maxPages = Number(process.env.ADZUNA_MAX_PAGES ?? 2);

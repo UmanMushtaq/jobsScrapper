@@ -48,11 +48,21 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     'data engineer', 'data scientist', 'data analyst', 'nlp engineer', 'llm engineer',
     'prompt engineer', 'computer vision engineer',
     // DevOps / Infra
-    'devops engineer', 'site reliability engineer', 'sre engineer',
+    'devops engineer', 'site reliability engineer', 'site reliability', 'sre engineer', 'sre',
     'infrastructure engineer', 'platform engineer', 'cloud engineer',
   ];
   if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => normalizedTitle.includes(keyword))) {
     return null;
+  }
+
+  // Safety net for sources (e.g. HackerNews) where the title field may be location/work-mode
+  // metadata rather than the actual role name. When the title contains no role indicator,
+  // also check the first line of the description.
+  if (!/\b(?:engineer|developer|architect|programmer|scientist|analyst|designer|lead)\b/i.test(job.title)) {
+    const firstDescLine = (job.description.split('\n')[0] ?? '').toLowerCase();
+    if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => firstDescLine.includes(keyword))) {
+      return null;
+    }
   }
 
   const locationScore = scoreLocation(
@@ -88,8 +98,22 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     return sum + (check.matched(text) ? check.weight : 0);
   }, 0);
 
-  if (mandatoryScore < 36) {
+  // 42 = Node.js(24) + either TypeScript(18) or backend(18).
+  // 36 (TypeScript + backend without Node.js) is no longer enough —
+  // that pattern matches C#/.NET/Java full-stack jobs that mention TypeScript for their React frontend.
+  if (mandatoryScore < 42) {
     return null;
+  }
+
+  // Reject jobs where a non-JS backend language is explicitly required and Node.js is absent.
+  // Catches "Experience with C# is required" / "Java is required" etc. when Node.js never appears.
+  const hasNodeJs = containsAny(text, ['node.js', 'nodejs', 'nestjs', 'nest.js', 'express.js']);
+  if (!hasNodeJs) {
+    const nonJsRequiredPattern = /\b(?:c#|\.net|java(?!script)|golang|go\s+lang|ruby|php|kotlin|scala)\b.{0,60}(?:required|is\s+a\s+must|mandatory|must\s+have)/i;
+    const requiredNonJs = nonJsRequiredPattern.test(text);
+    if (requiredNonJs) {
+      return null;
+    }
   }
 
   const matchedReasons = BASE_REQUIRED_WEIGHTS.filter((check) => check.matched(text)).map(
@@ -117,7 +141,12 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore,
   );
 
-  if (score < 78) {
+  // Adaptive threshold based on description length:
+  // Short descriptions can't physically contain many keywords — don't penalise them for it.
+  const wordCount = job.description.trim().split(/\s+/).length;
+  const threshold = wordCount < 120 ? 58 : wordCount < 350 ? 65 : 70;
+
+  if (score < threshold) {
     return null;
   }
 

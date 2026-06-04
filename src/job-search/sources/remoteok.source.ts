@@ -48,11 +48,21 @@ export class RemoteOKJobsSource implements JobSource {
       const data = (await response.json()) as RemoteOKJob[];
       const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
 
-      return data
-        .filter((job) => !job.legal)
-        .filter((job) => job.epoch * 1000 >= cutoff)
-        .filter((job) => isRelevant(job))
-        .map(mapJob);
+      const nonLegal = data.filter((job) => !job.legal);
+      const fresh = nonLegal.filter((job) => job.epoch * 1000 >= cutoff);
+      const relevant = fresh.filter((job) => isRelevant(job));
+
+      if (nonLegal.length === 0) {
+        console.log('[remoteok] API returned empty or blocked response');
+      } else if (fresh.length === 0) {
+        console.log(`[remoteok] ${nonLegal.length} total jobs but none posted in last ${settings.maxAgeHours}h`);
+      } else if (relevant.length === 0) {
+        console.log(`[remoteok] ${fresh.length} fresh jobs but none match Node.js/TS/backend tags`);
+      } else {
+        console.log(`[remoteok] ${relevant.length} relevant jobs from ${fresh.length} fresh / ${nonLegal.length} total`);
+      }
+
+      return relevant.map(mapJob);
     } catch (error) {
       console.error('[remoteok] error:', error instanceof Error ? error.message : String(error));
       return [];

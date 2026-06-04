@@ -117,6 +117,7 @@ function inferCountryCode(location: string): string | null {
   if (loc.includes('switzerland') || loc.includes('zürich') || loc.includes('zurich')) return 'CH';
   if (loc.includes('austria') || loc.includes('vienna') || loc.includes('wien')) return 'AT';
   if (loc.includes('belgium') || loc.includes('brussels')) return 'BE';
+  if (loc.includes('luxembourg')) return 'LU';
   if (loc.includes('uk') || loc.includes('london')) return 'GB';
   return 'DE';
 }

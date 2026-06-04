@@ -127,14 +127,30 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
     urlMatches.map((m) => decodeUrlEntities(m[1])).find((u) => u.startsWith('http') && !u.includes('news.ycombinator.com'))
     ?? `https://news.ycombinator.com/item?id=${hit.objectID}`;
 
-  // Title: look for role keywords in the text
-  const titleMatch =
-    plain.match(/\b(?:backend|full.?stack|software|node\.?js|typescript)\s+engineer\b/i) ??
-    plain.match(/\b(?:senior\s+)?(?:backend|software|fullstack)\s+developer\b/i) ??
-    parts[2] ?? null;
-  const title = titleMatch
-    ? (typeof titleMatch === 'string' ? titleMatch : titleMatch[0])
-    : 'Backend Engineer';
+  // Title: scan full text for any recognizable engineer/developer role first
+  const titleRegexMatch =
+    plain.match(/\b(?:backend|back-end|full.?stack|fullstack|software|node\.?js|typescript|api|platform|data)\s+engineer\b/i) ??
+    plain.match(/\b(?:site\s+reliability|devops|cloud|infrastructure|security)\s+engineer\b/i) ??
+    plain.match(/\b(?:backend|back-end|full.?stack|fullstack|software|web|frontend|front-end)\s+developer\b/i) ??
+    plain.match(/\bsoftware\s+architect\b/i) ??
+    null;
+
+  let extractedTitle: string | null = titleRegexMatch
+    ? (typeof titleRegexMatch === 'string' ? titleRegexMatch : titleRegexMatch[0])
+    : null;
+
+  // If no regex match, scan pipe-parts for a part that looks like a job title
+  if (!extractedTitle) {
+    for (let i = 1; i < Math.min(parts.length, 5); i++) {
+      const part = parts[i].trim();
+      if (part.length > 2 && part.length < 60 && /\b(?:engineer|developer|architect|programmer|analyst|designer|sre|devops)\b/i.test(part)) {
+        extractedTitle = part;
+        break;
+      }
+    }
+  }
+
+  const title = extractedTitle ?? 'Backend Engineer';
 
   // Salary: "$100k-$150k" or "$100,000-$150,000"
   const salaryMatch = plain.match(/\$\s*([\d,]+)\s*[kK]?\s*(?:[-–])\s*\$?\s*([\d,]+)\s*[kK]?/);

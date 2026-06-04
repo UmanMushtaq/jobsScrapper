@@ -4,12 +4,19 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { enrichMatch, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
   markJobDecision,
   readJobSearchState,
   runJobSearchOnce,
 } from './job-search/run';
+import {
+  answerCallbackQuery,
+  editTelegramMessage,
+  registerWebhook,
+  resolveJobRef,
+} from './job-search/telegram';
 import { JobSearchState } from './job-search/types';
 
 @Injectable()
@@ -27,6 +34,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     this.intervalMinutes = envMinutes > 0 ? envMinutes : profileMinutes;
 
     this.startSelfPing();
+    void this.registerTelegramWebhook();
 
     if (!shouldEnableScheduler()) {
       this.logger.log('Scheduler disabled; web app is running in health/dashboard mode only.');
@@ -89,6 +97,56 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     await this.safeRun('manual');
   }
 
+  private async registerTelegramWebhook(): Promise<void> {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const externalUrl = process.env.RENDER_EXTERNAL_URL;
+    if (!botToken || !externalUrl) return;
+    try {
+      await registerWebhook(botToken, `${externalUrl}/telegram/webhook`);
+    } catch (err) {
+      this.logger.warn(`[telegram] webhook registration failed: ${(err as Error).message}`);
+    }
+  }
+
+  async handleTelegramWebhook(update: Record<string, unknown>, secret: string): Promise<void> {
+    // Verify secret token if configured
+    const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (expectedSecret && secret !== expectedSecret) return;
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) return;
+
+    const cbq = update.callback_query as {
+      id: string;
+      data?: string;
+      message?: { message_id: number; chat: { id: number }; text?: string };
+    } | undefined;
+
+    if (!cbq?.data || !cbq.message) return;
+
+    const [action, hash] = cbq.data.split(':');
+    if (!hash || (action !== 'a' && action !== 'd')) return;
+
+    const url = await resolveJobRef(hash);
+    if (!url) {
+      await answerCallbackQuery(botToken, cbq.id, 'Job not found — may have expired');
+      return;
+    }
+
+    const decision = action === 'a' ? 'applied' : 'dismissed';
+    await markJobDecision(decision, url);
+
+    const label = action === 'a' ? '✅ Applied' : '❌ Rejected';
+    const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const currentText = cbq.message.text ?? '';
+    const newText = currentText.endsWith(`\n${label} on ${date}`)
+      ? currentText
+      : `${currentText}\n\n${label} on ${date}`;
+
+    await editTelegramMessage(botToken, cbq.message.chat.id, cbq.message.message_id, newText);
+    await answerCallbackQuery(botToken, cbq.id, `${label} — saved!`);
+  }
+
   async markApplied(url: string): Promise<void> {
     if (!url) {
       return;
@@ -117,6 +175,56 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       matches: state.stats.matchCount,
       error: state.lastError,
     };
+  }
+
+  async testGemini(): Promise<Record<string, unknown>> {
+    const keys = (process.env.GEMINI_API_KEY ?? '').split(',').filter(Boolean);
+    for (let i = 1; i <= 10; i++) {
+      const k = process.env[`GEMINI_API_KEY_${i}`];
+      if (k?.trim()) keys.push(k.trim());
+    }
+    if (!keys.length) {
+      return { ok: false, error: 'No GEMINI_API_KEY set in environment variables' };
+    }
+    const profile = await loadSearchProfile();
+    const fakeMatch = {
+      job: {
+        source: 'test', sourcePriority: 1, canonicalUrl: 'https://test.com/job/1',
+        title: 'Backend Engineer', company: 'Test Company',
+        companySummary: 'A product company building SaaS tools.',
+        companySlug: 'test-company', locationLabel: 'Remote', countryCode: null,
+        city: null, workMode: 'remote' as const,
+        language: 'en',
+        description: 'We are looking for a Backend Engineer with Node.js, TypeScript, PostgreSQL and REST API experience. You will build microservices and work with Docker in a remote team.',
+        keyMissions: [], experienceLevelMinimum: 3,
+        salaryCurrency: null, salaryPeriod: null, salaryMinimum: null, salaryMaximum: null, salaryYearlyMinimum: null,
+        publishedAt: new Date().toISOString(), publishedAtTimestamp: Math.floor(Date.now() / 1000),
+        startupSignals: [], applyUrl: 'https://test.com/apply',
+        offersRelocation: false, isStartup: false, employeeCount: null, companyCreationYear: null,
+      },
+      score: 85, scoreBreakdown: { mandatory: 60, keywords: 12, location: 9, startup: 0 },
+      reasons: ['Node.js is explicitly required', 'TypeScript/JavaScript matches your backend stack'],
+      startupScore: 0, salaryLabel: 'salary not listed', coverLetter: '', shortAnswers: [],
+    };
+    try {
+      const start = Date.now();
+      const result = await enrichMatch(fakeMatch, profile);
+      const elapsed = Date.now() - start;
+      if (!result) {
+        return { ok: false, error: lastGeminiError || 'enrichMatch returned null — all keys/models failed', keysConfigured: keys.length };
+      }
+      return {
+        ok: true,
+        keysConfigured: keys.length,
+        elapsedMs: elapsed,
+        fraudScore: result.fraudScore,
+        isSuspicious: result.isSuspicious,
+        companyQualityScore: result.companyQualityScore,
+        coverLetterPreview: result.coverLetter.slice(0, 120) + '…',
+      };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err), keysConfigured: keys.length };
+    }
   }
 
   async renderDashboard(): Promise<string> {

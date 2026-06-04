@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { sendTelegramMessages } from './telegram';
+import { TelegramOutgoingMessage, sendTelegramMessages } from './telegram';
 
 const FOLLOWUP_DAYS = 7;
 const WINDOW_HOURS = 20; // send reminder once within ±20h of the 7-day mark
@@ -57,17 +57,18 @@ export async function checkFollowups(): Promise<void> {
 
   if (due.length === 0) return;
 
-  const messages = due.map((e) => {
+  const messages: TelegramOutgoingMessage[] = due.map((e) => {
     const appliedDate = new Date(e.timestamp).toLocaleDateString('en-GB', {
       day: 'numeric',
       month: 'short',
     });
-    return (
-      `⏰ Follow-up reminder\n` +
-      `You applied ${FOLLOWUP_DAYS} days ago (${appliedDate}).\n` +
-      `\nJob: ${e.url}\n` +
-      `\nConsider sending a short follow-up email to the hiring manager: confirm your application is complete and express continued interest. Keep it under 3 sentences.`
-    );
+    return {
+      text:
+        `⏰ Follow-up reminder\n` +
+        `You applied ${FOLLOWUP_DAYS} days ago (${appliedDate}).\n` +
+        `\nJob: ${e.url}\n` +
+        `\nConsider sending a short follow-up email to the hiring manager: confirm your application is complete and express continued interest. Keep it under 3 sentences.`,
+    };
   });
 
   await sendTelegramMessages(botToken, chatId, messages);

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  Headers,
   Post,
   Res,
 } from '@nestjs/common';
@@ -22,6 +23,11 @@ export class AppController {
   @Get('health')
   async health() {
     return this.appService.getHealth();
+  }
+
+  @Get('test-gemini')
+  async testGemini() {
+    return this.appService.testGemini();
   }
 
   @Post('run-now')
@@ -46,6 +52,15 @@ export class AppController {
   ): Promise<void> {
     await this.appService.markDismissed(url);
     response.redirect('/');
+  }
+
+  @Post('telegram/webhook')
+  async telegramWebhook(
+    @Body() update: Record<string, unknown>,
+    @Headers('x-telegram-bot-api-secret-token') secret: string,
+  ): Promise<{ ok: boolean }> {
+    await this.appService.handleTelegramWebhook(update, secret);
+    return { ok: true };
   }
 }
 

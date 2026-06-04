@@ -8,11 +8,18 @@ import { writeReport } from './report';
 import { AdzunaJobsSource } from './sources/adzuna.source';
 import { ApecJobsSource } from './sources/apec.source';
 import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
+import { BerlinStartupJobsSource } from './sources/berlinstartupjobs.source';
+import { BundesagenturJobsSource } from './sources/bundesagentur.source';
 import { FranceTravailJobsSource } from './sources/france-travail.source';
 import { GreenhouseJobsSource } from './sources/greenhouse.source';
 import { HackerNewsJobsSource } from './sources/hackernews.source';
+import { HimalayasJobsSource } from './sources/himalayas.source';
+import { JobicyJobsSource } from './sources/jobicy.source';
+import { LeverJobsSource } from './sources/lever.source';
 import { RemoteOKJobsSource } from './sources/remoteok.source';
 import { RemotiveJobsSource } from './sources/remotive.source';
+import { StartupJobsSource } from './sources/startupjobs.source';
+import { WeWorkRemotelyJobsSource } from './sources/weworkremotely.source';
 import { WellfoundJobsSource } from './sources/wellfound.source';
 import { WttjJobsSource } from './sources/wttj.source';
 import {
@@ -24,7 +31,7 @@ import {
   writeJsonFile,
 } from './storage';
 import { isRedisAvailable } from './redis-store';
-import { sendTelegramMessages } from './telegram';
+import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
 
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
@@ -35,7 +42,8 @@ const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
 const ACTIVE_SOURCES = [
   'welcometothejungle.com', 'wellfound.com', 'adzuna.com', 'francetravail.fr',
-  'apec.fr', 'greenhouse.io', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
+  'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'himalayas.app', 'jobicy.com',
+  'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
   'news.ycombinator.com',
 ];
 const BLOCKED_SOURCES = ['startup.jobs', 'indeed.com', 'linkedin.com'];
@@ -86,6 +94,7 @@ export async function runJobSearchOnce(
       readUrlSet(dismissedFile, 'dismissed_urls'),
       readUrlSet(sentFile, 'sent_urls'),
     ]);
+    console.log(`[storage] seen=${seenUrls.size} applied=${appliedUrls.size} dismissed=${dismissedUrls.size} sent=${sentUrls.size}`);
 
     const sources = [
       new WttjJobsSource(),
@@ -94,9 +103,16 @@ export async function runJobSearchOnce(
       new FranceTravailJobsSource(),
       new ApecJobsSource(),
       new GreenhouseJobsSource(),
+      new LeverJobsSource(),
+      new HimalayasJobsSource(),
+      new JobicyJobsSource(),
+      new WeWorkRemotelyJobsSource(),
       new RemotiveJobsSource(),
       new RemoteOKJobsSource(),
       new ArbeitnowJobsSource(),
+      new BerlinStartupJobsSource(),
+      new BundesagenturJobsSource(),
+      new StartupJobsSource(),
       new HackerNewsJobsSource(),
     ];
     const jobLists = await Promise.all(
@@ -114,7 +130,7 @@ export async function runJobSearchOnce(
       if (list.length > 0) {
         console.log(`[source] ${sources[i].name}: ${list.length} jobs`);
       } else {
-        console.log(`[source] ${sources[i].name}: 0 jobs (blocked, error, or no results)`);
+        console.log(`[source] ${sources[i].name}: 0 jobs — blocked or no results`);
       }
       for (const job of list) {
         jobMap.set(job.canonicalUrl, job);
@@ -137,12 +153,31 @@ export async function runJobSearchOnce(
     const rawMatches = freshJobs
       .map((job) => scoreJob(job, profile))
       .filter((match): match is MatchResult => match !== null)
-      .sort(sortMatches)
-      .slice(0, maxResults);
+      .sort(sortMatches);
 
-    console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${rawMatches.length} passed scoring`);
-    if (rawMatches.length === 0 && freshJobs.length > 0) {
-      const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','sre engineer','infrastructure engineer','platform engineer','cloud engineer'];
+    // Deduplicate: job aggregators (Adzuna) post the same role across many cities.
+    // Keep only the highest-scoring instance per company + base role (text before first "|").
+    const seenCompanyRole = new Map<string, number>();
+    const dedupedMatches: MatchResult[] = [];
+    for (const match of rawMatches) {
+      const baseTitle = match.job.title.split('|')[0].trim().toLowerCase().replace(/\s+/g, ' ');
+      const key = `${match.job.company.toLowerCase()}::${baseTitle}`;
+      const existing = seenCompanyRole.get(key);
+      if (existing === undefined) {
+        seenCompanyRole.set(key, dedupedMatches.length);
+        dedupedMatches.push(match);
+      }
+      // else: lower-scored duplicate (already sorted) — silently skip
+    }
+    const dupCount = rawMatches.length - dedupedMatches.length;
+    if (dupCount > 0) {
+      console.log(`[scorer] deduplicated ${dupCount} same-company/role listings (job aggregator multi-city posts)`);
+    }
+    const slicedMatches = dedupedMatches.slice(0, maxResults);
+
+    console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} passed scoring (${dupCount} dupes removed)`);
+    if (slicedMatches.length === 0 && freshJobs.length > 0) {
+      const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','site reliability','sre engineer','sre','infrastructure engineer','platform engineer','cloud engineer'];
       const desiredLang = (profile.search.language ?? 'en').toLowerCase();
       const expMin = profile.search.experience.min;
       const expMax = profile.search.experience.max;
@@ -181,7 +216,7 @@ export async function runJobSearchOnce(
         const hasTs = txt.includes('typescript') || txt.includes('javascript');
         const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
         const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
-        if (mandatory < 36) {
+        if (mandatory < 42) {
           counts.mandatory++;
           if (!hasNode && !hasTs && !hasBackend) mandBreak.none++;
           else if (hasNode) mandBreak.nodeOnly++;
@@ -199,7 +234,7 @@ export async function runJobSearchOnce(
       console.log(`  lang=${counts.lang} | titleExcl=${counts.title} | roleExcl=${counts.role}`);
       console.log(`  location=${counts.location} (usa-remote=${locBreak.usaRemote} eu-onsite=${locBreak.euOnsite} eu-hybrid=${locBreak.euHybrid} other=${locBreak.other})`);
       console.log(`  exp=${counts.exp} | mandatory=${counts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
-      console.log(`  score<78=${counts.score}`);
+      console.log(`  score<threshold=${counts.score} (adaptive: <120w→58, 120-350w→65, >350w→70)`);
 
       if (nearMisses.length > 0) {
         console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed mandatory but scored <78 — top 5:`);
@@ -212,11 +247,19 @@ export async function runJobSearchOnce(
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
     // Enrichment is sequential across jobs: each job's 3 parallel calls complete before the next
     // job starts, so we never fire 60 simultaneous requests that exhaust all keys at once.
-    const unseenRaw = rawMatches.filter((m) => !sentUrls.has(safeNorm(m.job.canonicalUrl)));
+    const unseenRaw = slicedMatches.filter((m) => !sentUrls.has(safeNorm(m.job.canonicalUrl)));
+    const alreadySentCount = slicedMatches.length - unseenRaw.length;
+    console.log(`[notify] ${slicedMatches.length} scored → ${unseenRaw.length} not yet sent (${alreadySentCount} already sent before)`);
+
     const newMatches: MatchResult[] = [];
+    const suspiciousMatches: MatchResult[] = [];
     for (const match of unseenRaw) {
       const ai = await enrichMatch(match, profile);
-      if (ai && ai.isSuspicious) continue;
+      if (ai && ai.isSuspicious) {
+        console.log(`[notify] SUSPICIOUS — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]`);
+        suspiciousMatches.push(match);
+        continue;
+      }
       newMatches.push(
         ai
           ? {
@@ -231,16 +274,30 @@ export async function runJobSearchOnce(
           : match,
       );
     }
+    if (unseenRaw.length > 0) {
+      console.log(`[notify] AI enrichment done: ${newMatches.length}/${unseenRaw.length} passed`);
+    }
 
     // All scored matches (new + already-sent) for the report and seenUrls tracking
-    const matches: MatchResult[] = [...newMatches, ...rawMatches.filter((m) => sentUrls.has(safeNorm(m.job.canonicalUrl)))];
+    // Suspicious matches are included in seenUrls so they are not re-enriched on the next run.
+    const matches: MatchResult[] = [...newMatches, ...slicedMatches.filter((m) => sentUrls.has(safeNorm(m.job.canonicalUrl)))];
 
     const effectiveFreshJobs = freshJobs;
 
     const reportLocation = await writeReport(reportPath, matches, BLOCKED_SOURCES);
 
     const liveNewMatches = await filterDeadUrls(newMatches);
-    const messages = buildTelegramPayload(liveNewMatches, reportLocation, profile);
+    if (newMatches.length > liveNewMatches.length) {
+      const deadCount = newMatches.length - liveNewMatches.length;
+      const deadJobs = newMatches.filter((m) => !liveNewMatches.includes(m));
+      console.log(`[notify] URL check: ${deadCount} dead URL(s) filtered out, ${liveNewMatches.length} live`);
+      for (const m of deadJobs) {
+        console.log(`  DEAD URL: "${m.job.title}" @ ${m.job.company} — ${m.job.applyUrl}`);
+      }
+    } else if (newMatches.length > 0) {
+      console.log(`[notify] URL check: all ${newMatches.length} URL(s) alive → sending to Telegram`);
+    }
+    const messages = await buildTelegramPayload(liveNewMatches, reportLocation, profile);
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -255,12 +312,14 @@ export async function runJobSearchOnce(
       console.error('[followup] check failed:', err instanceof Error ? err.message : String(err));
     });
 
-    await addUrlsToStore(
-      seenFile,
-      'seen_urls',
-      matches.map((match) => match.job.canonicalUrl),
-      { ttlMs: seenTtlMs },
-    );
+    // Mark suspicious jobs as seen (same TTL) so they are not re-enriched on every run
+    // until they age out. Without this, each suspicious job triggers a Gemini call on
+    // every run for up to 72 hours (maxAgeHours / checkIntervalHours = 24 extra calls each).
+    const allSeen = [
+      ...matches.map((m) => m.job.canonicalUrl),
+      ...suspiciousMatches.map((m) => m.job.canonicalUrl),
+    ];
+    await addUrlsToStore(seenFile, 'seen_urls', allSeen, { ttlMs: seenTtlMs });
 
     const summary: RunSummary = {
       reportPath: resolve(reportLocation),
@@ -347,22 +406,24 @@ export async function readJobSearchState(): Promise<JobSearchState> {
   return readJsonFile<JobSearchState>(stateFile, buildEmptyState());
 }
 
-function buildTelegramPayload(
+async function buildTelegramPayload(
   matches: MatchResult[],
   reportPath: string,
   profile: SearchProfile,
-): string[] {
+): Promise<TelegramOutgoingMessage[]> {
   if (matches.length === 0) {
     return [
-      [
-        `No new strong matches for ${profile.candidate.name} in this run.`,
-        `Active sources: ${ACTIVE_SOURCES.join(', ')}`,
-        `Blocked sources: ${BLOCKED_SOURCES.join(', ')}`,
-      ].join('\n'),
+      {
+        text: [
+          `No new strong matches for ${profile.candidate.name} in this run.`,
+          `Active sources: ${ACTIVE_SOURCES.join(', ')}`,
+          `Blocked sources: ${BLOCKED_SOURCES.join(', ')}`,
+        ].join('\n'),
+      },
     ];
   }
 
-  const messages: string[] = [];
+  const messages: TelegramOutgoingMessage[] = [];
 
   // Message 1: quick overview of all matches
   const summaryLines = [
@@ -375,9 +436,9 @@ function buildTelegramPayload(
       `   ${match.job.locationLabel} | ${match.job.workMode} | ${match.salaryLabel} | ${match.score}%`,
     );
   }
-  messages.push(summaryLines.join('\n'));
+  messages.push({ text: summaryLines.join('\n') });
 
-  // One message per job with full details + cover letter
+  // One message per job with full details + cover letter + action buttons
   for (const [i, match] of matches.entries()) {
     const bd = match.scoreBreakdown;
     const scoreDetail = bd
@@ -409,7 +470,17 @@ function buildTelegramPayload(
     }
 
     lines.push('', '--- Cover letter ---', '', match.coverLetter);
-    messages.push(lines.join('\n'));
+
+    // Store hash → URL for button callbacks (fire-and-forget, non-blocking)
+    const hash = await storeJobRef(match.job.canonicalUrl);
+
+    messages.push({
+      text: lines.join('\n'),
+      inlineKeyboard: [[
+        { text: '✅ Applied', callback_data: `a:${hash}` },
+        { text: '❌ Reject', callback_data: `d:${hash}` },
+      ]],
+    });
   }
 
   return messages;

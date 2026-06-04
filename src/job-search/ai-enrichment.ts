@@ -1,20 +1,23 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
-// gemini-2.0-flash free tier: 15 RPM, 1 500 req/day, 1 M tokens/day per key.
-// One combined call per job (fraud + cover letter + salary) instead of 3 parallel
-// calls — cuts RPM usage by 3× and eliminates the burst that exhausted all keys.
-const MODEL = 'gemini-2.0-flash';
+// Free tier: 15 RPM, 1500 req/day per key. One combined call per job.
+// All gemini-1.5 variants (including -002) were removed from v1beta in 2025.
+// Only 2.0 models are valid on the v1beta endpoint used by @google/genai SDK.
+const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 
 let _cachedKeys: string[] | null = null;
 let _currentKeyIndex = 0;
+let _workingModel: string | null = null;
+
+export let lastGeminiError = '';
 
 function getApiKeys(): string[] {
   if (_cachedKeys) return _cachedKeys;
   const keys: string[] = [];
   const main = process.env.GEMINI_API_KEY;
   if (main) keys.push(...main.split(',').map((k) => k.trim()).filter(Boolean));
-  for (let i = 1; i <= 5; i++) {
+  for (let i = 1; i <= 10; i++) {
     const k = process.env[`GEMINI_API_KEY_${i}`];
     if (k?.trim()) keys.push(k.trim());
   }
@@ -22,45 +25,54 @@ function getApiKeys(): string[] {
   return _cachedKeys;
 }
 
-function isQuotaError(err: unknown): boolean {
+function isRetryableError(err: unknown): boolean {
   const msg = String(err instanceof Error ? err.message : err).toLowerCase();
   return (
     msg.includes('429') ||
     msg.includes('quota') ||
     msg.includes('rate_limit') ||
     msg.includes('resource_exhausted') ||
-    msg.includes('too many requests')
+    msg.includes('too many requests') ||
+    msg.includes('api_key_invalid') ||
+    msg.includes('invalid api key') ||
+    msg.includes('403') ||
+    msg.includes('401')
   );
 }
 
 async function callWithRotation<T>(
-  fn: (ai: GoogleGenerativeAI) => Promise<T>,
+  fn: (ai: GoogleGenAI, model: string) => Promise<T>,
   label: string,
 ): Promise<T | null> {
   const keys = getApiKeys();
   if (!keys.length) return null;
 
-  for (let attempt = 0; attempt < keys.length; attempt++) {
-    const idx = (_currentKeyIndex + attempt) % keys.length;
-    const ai = new GoogleGenerativeAI(keys[idx]);
-    try {
-      const result = await fn(ai);
-      _currentKeyIndex = idx;
-      return result;
-    } catch (err) {
-      if (isQuotaError(err)) {
-        _currentKeyIndex = (idx + 1) % keys.length;
-        console.warn(
-          `[gemini] ${label}: key ${idx + 1}/${keys.length} quota exceeded — trying next key`,
-        );
-      } else {
-        console.error(`[gemini] ${label} failed:`, err instanceof Error ? err.message : String(err));
-        return null;
+  const modelsToTry = _workingModel ? [_workingModel] : MODELS;
+
+  for (const model of modelsToTry) {
+    for (let attempt = 0; attempt < keys.length; attempt++) {
+      const idx = (_currentKeyIndex + attempt) % keys.length;
+      const ai = new GoogleGenAI({ apiKey: keys[idx] });
+      try {
+        const result = await fn(ai, model);
+        _currentKeyIndex = idx;
+        _workingModel = model;
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        lastGeminiError = msg;
+        if (isRetryableError(err)) {
+          console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} — ${msg.slice(0, 100)} — trying next`);
+          _currentKeyIndex = (idx + 1) % keys.length;
+        } else {
+          console.error(`[gemini] ${label}: model=${model} error — ${msg.slice(0, 150)}`);
+          break;
+        }
       }
     }
   }
 
-  console.error(`[gemini] ${label}: all ${keys.length} key(s) exhausted`);
+  console.error(`[gemini] ${label}: all keys/models failed — sending job without AI enrichment`);
   return null;
 }
 
@@ -80,12 +92,11 @@ export async function enrichMatch(
 ): Promise<AiEnrichment | null> {
   if (!getApiKeys().length) return null;
   return callWithRotation(
-    (ai) => enrichSingle(ai, match.job, profile, match.reasons),
+    (ai, model) => enrichSingle(ai, model, match.job, profile, match.reasons),
     match.job.company,
   );
 }
 
-// Hardcoded monthly gross → EUR conversion rates (close enough for salary hints)
 const EUR_RATES: Record<string, number> = {
   EUR: 1, USD: 0.88, GBP: 1.16, CHF: 1.04,
   PLN: 0.23, SEK: 0.087, NOK: 0.086, DKK: 0.134, CZK: 0.041,
@@ -95,8 +106,32 @@ function fmt(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
+const SYSTEM_INSTRUCTION = (name: string, expYears: number) =>
+  `You are helping ${name}, a Paris-based backend engineer ` +
+  `(${expYears} yrs exp, Node.js/NestJS/TypeScript/PostgreSQL/Docker/fintech). ` +
+  `Analyse a job posting and return a single JSON object with ALL fields below. No markdown.\n\n` +
+  `Required JSON fields:\n` +
+  `  fraudScore: integer 0-100 (how suspicious is this posting?)\n` +
+  `  companyQualityScore: integer 0-100 (how healthy does the role/company appear?)\n` +
+  `  fraudReasons: array of up to 3 short strings\n` +
+  `  companyRedFlags: array of up to 3 short strings\n` +
+  `  coverLetter: string — 3 paragraphs, 140-175 words total.\n` +
+  `    Para 1 (2-3 sentences): Open with a specific fact about what THIS company builds or does. Do NOT start with "I".\n` +
+  `    Para 2 (3-4 sentences): Concrete backend experience — REST APIs, NestJS services, PostgreSQL schemas, Docker, fintech backends. Connect to the role.\n` +
+  `    Para 3 (2 sentences): What you bring to their team. Close simply.\n` +
+  `    End with exactly: "Best regards,\\n${name}"\n` +
+  `    Rules: no dashes (use commas/periods). No: passionate, leverage, synergy, excited, contribute, dynamic.\n` +
+  `  salaryMin: monthly gross integer in local currency, or null\n` +
+  `  salaryMax: monthly gross integer in local currency, or null\n` +
+  `  salaryCurrency: ISO 4217 currency code string, or null\n\n` +
+  `Fraud signals: vague description, no real company info, requests personal info upfront, grammar errors, ` +
+  `unrealistic salary, no specific tech requirements for a tech role.\n` +
+  `Quality red flags: "wear many hats", "we are a family", no salary listed, rockstar/ninja, ` +
+  `unlimited PTO as only perk, high-pressure language, vague title.`;
+
 async function enrichSingle(
-  ai: GoogleGenerativeAI,
+  ai: GoogleGenAI,
+  model: string,
   job: JobPosting,
   profile: SearchProfile,
   matchReasons: string[],
@@ -113,33 +148,6 @@ async function enrichSingle(
     job.companySummary ? `About: ${job.companySummary.slice(0, 300)}` : '',
   ].filter(Boolean).join('\n');
 
-  const model = ai.getGenerativeModel({
-    model: MODEL,
-    systemInstruction:
-      `You are helping ${profile.candidate.name}, a Paris-based backend engineer ` +
-      `(${profile.candidate.experienceYears} yrs exp, Node.js/NestJS/TypeScript/PostgreSQL/Docker/fintech). ` +
-      `Analyse a job posting and return a single JSON object with ALL fields below. No markdown.\n\n` +
-      `Required JSON fields:\n` +
-      `  fraudScore: integer 0-100 (how suspicious is this posting?)\n` +
-      `  companyQualityScore: integer 0-100 (how healthy does the role/company appear?)\n` +
-      `  fraudReasons: array of up to 3 short strings\n` +
-      `  companyRedFlags: array of up to 3 short strings\n` +
-      `  coverLetter: string — 3 paragraphs, 140-175 words total.\n` +
-      `    Para 1 (2-3 sentences): Open with a specific fact about what THIS company builds or does. Do NOT start with "I".\n` +
-      `    Para 2 (3-4 sentences): Concrete backend experience — REST APIs, NestJS services, PostgreSQL schemas, Docker, fintech backends. Connect to the role.\n` +
-      `    Para 3 (2 sentences): What you bring to their team. Close simply.\n` +
-      `    End with exactly: "Best regards,\\n${profile.candidate.name}"\n` +
-      `    Rules: no dashes (use commas/periods). No: passionate, leverage, synergy, excited, contribute, dynamic.\n` +
-      `  salaryMin: monthly gross integer in local currency, or null\n` +
-      `  salaryMax: monthly gross integer in local currency, or null\n` +
-      `  salaryCurrency: ISO 4217 currency code string, or null\n\n` +
-      `Fraud signals: vague description, no real company info, requests personal info upfront, grammar errors, ` +
-      `unrealistic salary, no specific tech requirements for a tech role.\n` +
-      `Quality red flags: "wear many hats", "we are a family", no salary listed, rockstar/ninja, ` +
-      `unlimited PTO as only perk, high-pressure language, vague title.`,
-    generationConfig: { responseMimeType: 'application/json' },
-  });
-
   const prompt =
     `${companyInfo}\n` +
     `Role: ${job.title}\n` +
@@ -148,8 +156,16 @@ async function enrichSingle(
     `Why it matches: ${matchReasons.slice(0, 3).join('; ')}\n` +
     `Description: ${job.description.slice(0, 1200)}`;
 
-  const response = await model.generateContent(prompt);
-  const raw = JSON.parse(response.response.text()) as {
+  const response = await ai.models.generateContent({
+    model,
+    config: {
+      systemInstruction: SYSTEM_INSTRUCTION(profile.candidate.name, profile.candidate.experienceYears),
+      responseMimeType: 'application/json',
+    },
+    contents: prompt,
+  });
+
+  const raw = JSON.parse(response.text ?? '{}') as {
     fraudScore?: number;
     companyQualityScore?: number;
     fraudReasons?: string[];
@@ -162,12 +178,13 @@ async function enrichSingle(
 
   const fraudScore = Math.min(100, Math.max(0, Number(raw.fraudScore ?? 0)));
   const companyQualityScore = Math.min(100, Math.max(0, Number(raw.companyQualityScore ?? 70)));
+  console.log(`[gemini] "${job.title}" @ ${job.company} — fraud=${fraudScore} quality=${companyQualityScore} model=${model}`);
 
   let suggestedSalary: string | null = null;
   if (raw.salaryMin && raw.salaryMax && raw.salaryCurrency) {
     const currency = raw.salaryCurrency.toUpperCase();
-    const min = Math.round((raw.salaryMin) / 100) * 100;
-    const max = Math.round((raw.salaryMax) / 100) * 100;
+    const min = Math.round(raw.salaryMin / 100) * 100;
+    const max = Math.round(raw.salaryMax / 100) * 100;
     const localStr = `${currency} ${fmt(min)}–${fmt(max)}/month`;
     const rate = EUR_RATES[currency];
     if (rate && currency !== 'EUR') {
@@ -182,7 +199,7 @@ async function enrichSingle(
   return {
     fraudScore,
     fraudReasons: (raw.fraudReasons ?? []).slice(0, 3),
-    isSuspicious: fraudScore >= 60,
+    isSuspicious: fraudScore >= 72,
     companyQualityScore,
     companyRedFlags: (raw.companyRedFlags ?? []).slice(0, 3),
     coverLetter: raw.coverLetter?.trim() || buildFallbackCoverLetter(job, profile, matchReasons),
