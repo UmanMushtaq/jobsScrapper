@@ -240,7 +240,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!rawKeys.length) {
-      return { ok: false, error: 'No keys configured', advice: 'Add GEMINI_API_KEY or GEMINI_API_KEY_1..10 env vars' };
+      return { ok: false, error: 'No keys configured', advice: ['Add GEMINI_API_KEY or GEMINI_API_KEY_1..10 in Render env vars'] };
     }
 
     const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
@@ -249,6 +249,20 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
     for (const { key, source } of rawKeys) {
       const keyPreview = `${key.slice(0, 8)}...${key.slice(-4)}`;
+
+      // Gemini REST API keys always start with "AIzaSy". Any other format
+      // (OAuth tokens, service account JSON, etc.) will never work here.
+      if (!key.startsWith('AIzaSy')) {
+        results.push({
+          source,
+          key: keyPreview,
+          status: 'invalid_format',
+          model: null,
+          error: 'Not a valid Gemini API key — keys must start with "AIzaSy". Remove this from env vars.',
+        });
+        continue;
+      }
+
       let status = 'unknown';
       let model = '';
       let error = '';
@@ -262,20 +276,20 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
           break;
         } catch (err) {
           const msg = String(err instanceof Error ? err.message : err).toLowerCase();
-          if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted')) {
+          if (msg.includes('resource_exhausted') || msg.includes('quota') || msg.includes('429')) {
             status = 'quota_exhausted';
-            error = 'Daily quota used up — this key needs to be from a different Google account';
+            error = 'Daily quota used up';
             break;
           } else if (msg.includes('api_key_invalid') || msg.includes('invalid api key') || msg.includes('401')) {
             status = 'invalid_key';
-            error = 'Key is invalid or revoked';
+            error = 'Key is invalid or revoked — delete it from env vars';
             break;
           } else if (msg.includes('403')) {
             status = 'permission_denied';
-            error = 'Gemini API not enabled for this key/project';
+            error = 'Gemini API not enabled for this project — enable it at console.cloud.google.com';
             break;
           } else {
-            error = msg.slice(0, 100);
+            error = msg.slice(0, 120);
           }
         }
       }
@@ -285,36 +299,47 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
     const okCount = results.filter((r) => r.status === 'ok').length;
     const exhaustedCount = results.filter((r) => r.status === 'quota_exhausted').length;
-    const invalidCount = results.filter((r) => r.status === 'invalid_key').length;
+    const invalidCount = results.filter((r) => r.status === 'invalid_key' || r.status === 'invalid_format').length;
+    const permCount = results.filter((r) => r.status === 'permission_denied').length;
+    const validKeyCount = results.filter((r) => r.status !== 'invalid_format').length;
+    const dailyCapacity = okCount * 1500;
 
     const advice: string[] = [];
 
-    // Email detection is impossible via the API — API keys contain no identity info.
-    // Explain clearly how to manually verify.
-    advice.push(
-      'IMPORTANT: The Gemini API does not expose which Gmail account a key belongs to. ' +
-      'To find out: open https://aistudio.google.com/apikey in a browser. ' +
-      'Log into each Gmail account one by one — the keys listed on that page belong to THAT account. ' +
-      'If all your keys appear under the same Gmail, they all share one 1500 req/day quota regardless of how many keys there are.',
-    );
+    if (invalidCount > 0) {
+      advice.push(`${invalidCount} key(s) have wrong format or are revoked — remove them from Render env vars.`);
+    }
+    if (permCount > 0) {
+      advice.push(`${permCount} key(s) have Gemini API not enabled — go to console.cloud.google.com, select the project, and enable the Gemini API.`);
+    }
 
     if (exhaustedCount > 0 && okCount === 0) {
+      const likelySameAccount = exhaustedCount === validKeyCount && validKeyCount > 1;
       advice.push(
-        `All ${exhaustedCount} keys are quota-exhausted simultaneously. This almost certainly means they all belong to the same Google account. ` +
-        'Fix: go to aistudio.google.com with a different Gmail (friend\'s account, new account) and create a new API key there. ' +
-        'That gives an independent 1500 req/day quota. 2 different accounts is more than enough for this bot (~60-100 calls/day).',
+        `All ${exhaustedCount} valid key(s) are quota-exhausted.` +
+        (likelySameAccount
+          ? ' If they all appeared on the same aistudio.google.com/apikey page, they share one quota pool — add a key from a different Google account.'
+          : ' Quota resets at midnight Pacific time. No action needed if keys are from different accounts.'),
+      );
+      advice.push(
+        'Each Google account gives 1,500 free requests/day. ' +
+        'To check which account a key belongs to: open aistudio.google.com/apikey in a browser, log in with each Gmail one at a time — the keys shown belong to that account.',
       );
     } else if (exhaustedCount > 0) {
-      advice.push(`${exhaustedCount} key(s) exhausted, ${okCount} still working. Bot will use the working ones.`);
+      advice.push(`${exhaustedCount} key(s) exhausted, ${okCount} still working. Bot is using the working ones.`);
     }
-    if (invalidCount > 0) {
-      advice.push(`${invalidCount} key(s) are invalid or revoked — remove them from env vars to reduce noise.`);
-    }
-    if (okCount > 0 && exhaustedCount === 0 && invalidCount === 0) {
+
+    if (okCount > 0 && exhaustedCount === 0 && invalidCount === 0 && permCount === 0) {
       advice.push(
-        `All ${okCount} keys are working. Daily capacity estimate: ${okCount * 1500} req/day IF each key is from a different Google account. ` +
-        'If they are all from the same account, real capacity is 1500 req/day total.',
+        `All ${okCount} key(s) working. ` +
+        (okCount > 1
+          ? `Estimated capacity: ${okCount.toLocaleString()} × 1,500 = ${dailyCapacity.toLocaleString()} req/day if each key is from a different Google account; 1,500 req/day total if they all share one account.`
+          : 'Capacity: 1,500 req/day on the free tier.'),
       );
+    }
+
+    if (advice.length === 0) {
+      advice.push('To verify accounts: open aistudio.google.com/apikey in a browser and log in with each Gmail — the keys listed belong to that account.');
     }
 
     return {
@@ -323,7 +348,6 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       working: okCount,
       quotaExhausted: exhaustedCount,
       invalid: invalidCount,
-      howToFindEmail: 'Go to https://aistudio.google.com/apikey — log in with each Gmail one at a time. Keys shown = keys owned by that account.',
       advice,
       keys: results,
     };
@@ -598,6 +622,17 @@ function renderHtml(state: JobSearchState): string {
         </div>
       </div>
 
+      <div class="card" id="gemini-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <h2 style="margin:0;">Gemini API keys</h2>
+          <button onclick="loadKeyStatus()" id="key-refresh-btn"
+            style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:#374151;">
+            Refresh
+          </button>
+        </div>
+        <div id="key-status" style="color:#9ca3af;font-size:13px;">Loading key status…</div>
+      </div>
+
       <div class="card">
         <h2>Current matches <span style="font-size:14px;font-weight:400;color:#6b7280;">(${state.latestMatches.length})</span></h2>
         <div class="table-wrap">
@@ -630,6 +665,80 @@ function renderHtml(state: JobSearchState): string {
         if (isNaN(d.getTime())) return;
         el.textContent = d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
       });
+
+      var STATUS_STYLE = {
+        ok:               { dot: '#16a34a', label: 'Working',          bg: '#f0fdf4', text: '#15803d' },
+        quota_exhausted:  { dot: '#d97706', label: 'Quota exhausted',  bg: '#fffbeb', text: '#b45309' },
+        invalid_key:      { dot: '#dc2626', label: 'Invalid key',      bg: '#fef2f2', text: '#b91c1c' },
+        invalid_format:   { dot: '#dc2626', label: 'Wrong format',     bg: '#fef2f2', text: '#b91c1c' },
+        permission_denied:{ dot: '#7c3aed', label: 'API not enabled',  bg: '#f5f3ff', text: '#5b21b6' },
+        unknown:          { dot: '#9ca3af', label: 'Unknown',          bg: '#f9fafb', text: '#6b7280' },
+      };
+
+      function dot(color) {
+        return '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + color + ';margin-right:6px;vertical-align:middle;flex-shrink:0;"></span>';
+      }
+
+      function renderKeyStatus(data) {
+        if (data.error) {
+          return '<span style="color:#b91c1c;">' + data.error + '</span>';
+        }
+
+        var keys = data.keys || [];
+        var working = data.working || 0;
+        var total = data.totalKeys || 0;
+        var exhausted = data.quotaExhausted || 0;
+        var invalid = data.invalid || 0;
+
+        var summaryColor = working === total ? '#15803d' : working > 0 ? '#b45309' : '#b91c1c';
+        var summaryText = working + '/' + total + ' keys working';
+        if (exhausted > 0) summaryText += ' · ' + exhausted + ' quota-exhausted';
+        if (invalid > 0) summaryText += ' · ' + invalid + ' invalid';
+
+        var testedAt = data.testedAt ? new Date(data.testedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+
+        var html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">';
+        html += '<span style="font-weight:600;font-size:14px;color:' + summaryColor + ';">' + summaryText + '</span>';
+        if (testedAt) html += '<span style="font-size:12px;color:#9ca3af;">Checked ' + testedAt + '</span>';
+        html += '</div>';
+
+        html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">';
+        keys.forEach(function(k) {
+          var s = STATUS_STYLE[k.status] || STATUS_STYLE.unknown;
+          html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:' + s.bg + ';border-radius:8px;font-size:13px;flex-wrap:wrap;">';
+          html += '<span style="display:flex;align-items:center;min-width:150px;font-weight:500;color:#374151;">' + dot(s.dot) + k.source + '</span>';
+          html += '<code style="color:#6b7280;font-size:12px;">' + k.key + '</code>';
+          html += '<span style="margin-left:auto;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600;color:' + s.text + ';background:white;border:1px solid ' + s.dot + '40;">' + s.label + (k.model ? ' · ' + k.model : '') + '</span>';
+          if (k.error) html += '<span style="width:100%;font-size:12px;color:' + s.text + ';padding-left:22px;">' + k.error + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+
+        var advice = data.advice || [];
+        if (advice.length) {
+          html += '<div style="background:#f8fafc;border-radius:8px;padding:12px 14px;font-size:13px;color:#374151;line-height:1.6;">';
+          advice.forEach(function(line) {
+            html += '<p style="margin:0 0 6px;">' + line + '</p>';
+          });
+          html += '</div>';
+        }
+
+        return html;
+      }
+
+      function loadKeyStatus() {
+        var el = document.getElementById('key-status');
+        var btn = document.getElementById('key-refresh-btn');
+        el.textContent = 'Checking keys…';
+        if (btn) btn.disabled = true;
+        fetch('/debug/keys')
+          .then(function(r) { return r.json(); })
+          .then(function(data) { el.innerHTML = renderKeyStatus(data); })
+          .catch(function() { el.textContent = 'Could not load key status.'; })
+          .finally(function() { if (btn) btn.disabled = false; });
+      }
+
+      loadKeyStatus();
     </script>
   </body>
 </html>`;
