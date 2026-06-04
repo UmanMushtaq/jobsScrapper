@@ -13,6 +13,7 @@ import { BundesagenturJobsSource } from './sources/bundesagentur.source';
 import { FranceTravailJobsSource } from './sources/france-travail.source';
 import { GreenhouseJobsSource } from './sources/greenhouse.source';
 import { HackerNewsJobsSource } from './sources/hackernews.source';
+import { IndeedJobsSource } from './sources/indeed.source';
 import { HimalayasJobsSource } from './sources/himalayas.source';
 import { JobicyJobsSource } from './sources/jobicy.source';
 import { LeverJobsSource } from './sources/lever.source';
@@ -44,9 +45,11 @@ const ACTIVE_SOURCES = [
   'welcometothejungle.com', 'wellfound.com', 'adzuna.com', 'francetravail.fr',
   'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'himalayas.app', 'jobicy.com',
   'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
-  'news.ycombinator.com',
+  'berlinstartupjobs.com', 'bundesagentur.de', 'startup.jobs',
+  'indeed.com', 'news.ycombinator.com',
 ];
-const BLOCKED_SOURCES = ['startup.jobs', 'indeed.com', 'linkedin.com'];
+// linkedin.com has no public API — requires a paid partner integration
+const BLOCKED_SOURCES = ['linkedin.com'];
 
 export async function runJobSearchOnce(
   overrideProfile?: SearchProfile,
@@ -117,6 +120,7 @@ export async function runJobSearchOnce(
       new BerlinStartupJobsSource(),
       new BundesagenturJobsSource(),
       new StartupJobsSource(),
+      new IndeedJobsSource(),
       new HackerNewsJobsSource(),
     ];
     const jobLists = await Promise.all(

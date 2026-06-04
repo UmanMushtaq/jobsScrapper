@@ -9,6 +9,10 @@ const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 let _cachedKeys: string[] | null = null;
 let _currentKeyIndex = 0;
 let _workingModel: string | null = null;
+// Keys confirmed to have daily quota exhausted this process lifetime — skip immediately.
+const _quotaExhaustedKeyIndices = new Set<number>();
+// Once every available key is quota-exhausted, skip Gemini for the rest of this run.
+let _allKeysDown = false;
 
 export let lastGeminiError = '';
 
@@ -25,13 +29,23 @@ function getApiKeys(): string[] {
   return _cachedKeys;
 }
 
+// Daily quota exhausted — no value retrying with the same key in this process lifetime.
+function isDailyQuotaError(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : err).toLowerCase();
+  return (
+    msg.includes('resource_exhausted') ||
+    msg.includes('quota') ||
+    (msg.includes('429') && (msg.includes('quota') || msg.includes('billing') || msg.includes('exceeded')))
+  );
+}
+
+// Temporary rate limit (per-minute) — rotating keys may help.
 function isRetryableError(err: unknown): boolean {
+  if (isDailyQuotaError(err)) return true; // still rotate to another key
   const msg = String(err instanceof Error ? err.message : err).toLowerCase();
   return (
     msg.includes('429') ||
-    msg.includes('quota') ||
     msg.includes('rate_limit') ||
-    msg.includes('resource_exhausted') ||
     msg.includes('too many requests') ||
     msg.includes('api_key_invalid') ||
     msg.includes('invalid api key') ||
@@ -47,11 +61,22 @@ async function callWithRotation<T>(
   const keys = getApiKeys();
   if (!keys.length) return null;
 
+  // All keys previously confirmed quota-exhausted — skip immediately, no API calls wasted.
+  if (_allKeysDown) {
+    return null;
+  }
+
   const modelsToTry = _workingModel ? [_workingModel] : MODELS;
 
   for (const model of modelsToTry) {
     for (let attempt = 0; attempt < keys.length; attempt++) {
       const idx = (_currentKeyIndex + attempt) % keys.length;
+
+      // Skip keys already confirmed quota-exhausted
+      if (_quotaExhaustedKeyIndices.has(idx)) {
+        continue;
+      }
+
       const ai = new GoogleGenAI({ apiKey: keys[idx] });
       try {
         const result = await fn(ai, model);
@@ -62,7 +87,12 @@ async function callWithRotation<T>(
         const msg = err instanceof Error ? err.message : String(err);
         lastGeminiError = msg;
         if (isRetryableError(err)) {
-          console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} — ${msg.slice(0, 100)} — trying next`);
+          if (isDailyQuotaError(err)) {
+            _quotaExhaustedKeyIndices.add(idx);
+            console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} — daily quota exhausted, blacklisting key for this run`);
+          } else {
+            console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} — ${msg.slice(0, 100)} — trying next`);
+          }
           _currentKeyIndex = (idx + 1) % keys.length;
         } else {
           console.error(`[gemini] ${label}: model=${model} error — ${msg.slice(0, 150)}`);
@@ -72,7 +102,14 @@ async function callWithRotation<T>(
     }
   }
 
-  console.error(`[gemini] ${label}: all keys/models failed — sending job without AI enrichment`);
+  // If every key is now confirmed quota-exhausted, set the run-level flag so
+  // subsequent jobs skip Gemini immediately without burning any more API calls.
+  if (_quotaExhaustedKeyIndices.size >= keys.length) {
+    _allKeysDown = true;
+    console.error('[gemini] all keys quota-exhausted — skipping Gemini for remaining jobs in this run');
+  } else {
+    console.error(`[gemini] ${label}: all keys/models failed — sending job without AI enrichment`);
+  }
   return null;
 }
 
