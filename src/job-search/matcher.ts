@@ -352,13 +352,21 @@ function buildSalaryLabel(job: JobPosting): string {
 
 function buildCoverLetter(job: JobPosting, profile: SearchProfile, reasons: string[]): string {
   const reasonLine = reasons[0] ?? 'the backend ownership in the role';
+  const locationLine =
+    job.workMode === 'remote'
+      ? 'Working from Paris, I can join your distributed team from day one.'
+      : job.countryCode === 'FR'
+        ? 'Based in Paris, I can join your team on-site without relocation.'
+        : 'I am open to relocation within Europe and happy to work through the logistics.';
 
   return [
     `Hello ${job.company} team,`,
     '',
-    `I am a Paris-based backend engineer with ${profile.candidate.experienceYears} years building production systems with Node.js, NestJS, and TypeScript.`,
-    `What caught my attention here is ${reasonLine.toLowerCase()}, along with the focus on APIs and PostgreSQL-backed services where reliability matters every day.`,
-    `My recent work spans REST APIs, Docker deployments, and backend services for fintech platforms where performance was critical. I would be glad to bring that same practical approach to ${job.company}.`,
+    `Your work caught my attention — and ${reasonLine.toLowerCase()} is exactly the kind of challenge I have been building towards.`,
+    '',
+    `I am a Paris-based Node.js / NestJS backend engineer with ${profile.candidate.experienceYears}+ years of production experience. At OptimusFox I designed and delivered 3-5 microservices across fintech and crypto platforms, integrating Stripe, PayPal, and blockchain APIs while maintaining PostgreSQL-backed services for reliability at scale. My current project, NexusPay, is an event-driven fintech platform targeting 10,000+ TPS built with NestJS, RabbitMQ, Kafka, Redis, and Clean Architecture across 7 independent services.`,
+    '',
+    `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',
     'Best regards,',
     profile.candidate.name,

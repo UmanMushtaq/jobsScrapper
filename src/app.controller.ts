@@ -30,6 +30,11 @@ export class AppController {
     return this.appService.testGemini();
   }
 
+  @Get('debug/keys')
+  async validateKeys() {
+    return this.appService.validateGeminiKeys();
+  }
+
   @Post('run-now')
   async runNow(@Res() response: Response): Promise<void> {
     await this.appService.runNow();

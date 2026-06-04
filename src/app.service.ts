@@ -227,6 +227,90 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async validateGeminiKeys(): Promise<Record<string, unknown>> {
+    const { GoogleGenAI } = await import('@google/genai');
+    const rawKeys: Array<{ key: string; source: string }> = [];
+    const main = process.env.GEMINI_API_KEY ?? '';
+    main.split(',').filter(Boolean).forEach((k, i) =>
+      rawKeys.push({ key: k.trim(), source: i === 0 ? 'GEMINI_API_KEY' : `GEMINI_API_KEY (slot ${i + 1})` }),
+    );
+    for (let i = 1; i <= 10; i++) {
+      const k = process.env[`GEMINI_API_KEY_${i}`];
+      if (k?.trim()) rawKeys.push({ key: k.trim(), source: `GEMINI_API_KEY_${i}` });
+    }
+
+    if (!rawKeys.length) {
+      return { ok: false, error: 'No keys configured', advice: 'Add GEMINI_API_KEY or GEMINI_API_KEY_1..10 env vars' };
+    }
+
+    const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+    const MINI_PROMPT = 'Reply with the single word: OK';
+    const results: Array<Record<string, unknown>> = [];
+
+    for (const { key, source } of rawKeys) {
+      const keyPreview = `${key.slice(0, 8)}...${key.slice(-4)}`;
+      let status = 'unknown';
+      let model = '';
+      let error = '';
+
+      for (const m of MODELS) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: key });
+          await ai.models.generateContent({ model: m, contents: MINI_PROMPT });
+          status = 'ok';
+          model = m;
+          break;
+        } catch (err) {
+          const msg = String(err instanceof Error ? err.message : err).toLowerCase();
+          if (msg.includes('429') || msg.includes('quota') || msg.includes('resource_exhausted')) {
+            status = 'quota_exhausted';
+            error = 'Daily quota used up — this key needs to be from a different Google account';
+            break;
+          } else if (msg.includes('api_key_invalid') || msg.includes('invalid api key') || msg.includes('401')) {
+            status = 'invalid_key';
+            error = 'Key is invalid or revoked';
+            break;
+          } else if (msg.includes('403')) {
+            status = 'permission_denied';
+            error = 'Gemini API not enabled for this key/project';
+            break;
+          } else {
+            error = msg.slice(0, 100);
+          }
+        }
+      }
+
+      results.push({ source, key: keyPreview, status, model: model || null, error: error || null });
+    }
+
+    const okCount = results.filter((r) => r.status === 'ok').length;
+    const exhaustedCount = results.filter((r) => r.status === 'quota_exhausted').length;
+    const invalidCount = results.filter((r) => r.status === 'invalid_key').length;
+
+    const advice: string[] = [];
+    if (exhaustedCount > 0 && okCount === 0) {
+      advice.push('ALL keys are quota-exhausted. If multiple keys return 429 at the same time, they likely belong to the same Google account and share one quota pool (1500 req/day per account).');
+      advice.push('Fix: create keys from completely different Gmail accounts. Each account has its own independent 1500 req/day quota. 2-3 separate accounts is enough for this bot.');
+    } else if (exhaustedCount > 0) {
+      advice.push(`${exhaustedCount} key(s) exhausted. The ${okCount} working key(s) will handle this run.`);
+    }
+    if (invalidCount > 0) {
+      advice.push(`${invalidCount} key(s) are invalid — remove them from env vars.`);
+    }
+    if (okCount === rawKeys.length) {
+      advice.push(`All ${okCount} keys are working. Estimated daily capacity: ${okCount * 1500} req/day (only if each key is from a different Google account).`);
+    }
+
+    return {
+      totalKeys: rawKeys.length,
+      working: okCount,
+      quotaExhausted: exhaustedCount,
+      invalid: invalidCount,
+      advice,
+      keys: results,
+    };
+  }
+
   async renderDashboard(): Promise<string> {
     const state = await readJobSearchState();
     return renderHtml(state);
