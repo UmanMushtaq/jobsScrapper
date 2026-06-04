@@ -179,7 +179,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   async testGemini(): Promise<Record<string, unknown>> {
     const keys = (process.env.GEMINI_API_KEY ?? '').split(',').filter(Boolean);
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 10; i++) {
       const k = process.env[`GEMINI_API_KEY_${i}`];
       if (k?.trim()) keys.push(k.trim());
     }

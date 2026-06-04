@@ -98,8 +98,22 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     return sum + (check.matched(text) ? check.weight : 0);
   }, 0);
 
-  if (mandatoryScore < 36) {
+  // 42 = Node.js(24) + either TypeScript(18) or backend(18).
+  // 36 (TypeScript + backend without Node.js) is no longer enough —
+  // that pattern matches C#/.NET/Java full-stack jobs that mention TypeScript for their React frontend.
+  if (mandatoryScore < 42) {
     return null;
+  }
+
+  // Reject jobs where a non-JS backend language is explicitly required and Node.js is absent.
+  // Catches "Experience with C# is required" / "Java is required" etc. when Node.js never appears.
+  const hasNodeJs = containsAny(text, ['node.js', 'nodejs', 'nestjs', 'nest.js', 'express.js']);
+  if (!hasNodeJs) {
+    const nonJsRequiredPattern = /\b(?:c#|\.net|java(?!script)|golang|go\s+lang|ruby|php|kotlin|scala)\b.{0,60}(?:required|is\s+a\s+must|mandatory|must\s+have)/i;
+    const requiredNonJs = nonJsRequiredPattern.test(text);
+    if (requiredNonJs) {
+      return null;
+    }
   }
 
   const matchedReasons = BASE_REQUIRED_WEIGHTS.filter((check) => check.matched(text)).map(

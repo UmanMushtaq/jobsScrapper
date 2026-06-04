@@ -17,7 +17,7 @@ function getApiKeys(): string[] {
   const keys: string[] = [];
   const main = process.env.GEMINI_API_KEY;
   if (main) keys.push(...main.split(',').map((k) => k.trim()).filter(Boolean));
-  for (let i = 1; i <= 5; i++) {
+  for (let i = 1; i <= 10; i++) {
     const k = process.env[`GEMINI_API_KEY_${i}`];
     if (k?.trim()) keys.push(k.trim());
   }

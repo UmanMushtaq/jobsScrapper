@@ -216,7 +216,7 @@ export async function runJobSearchOnce(
         const hasTs = txt.includes('typescript') || txt.includes('javascript');
         const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
         const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
-        if (mandatory < 36) {
+        if (mandatory < 42) {
           counts.mandatory++;
           if (!hasNode && !hasTs && !hasBackend) mandBreak.none++;
           else if (hasNode) mandBreak.nodeOnly++;
