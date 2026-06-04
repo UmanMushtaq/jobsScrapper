@@ -131,6 +131,9 @@ export interface AiEnrichment {
   relevanceIssues: string[];
   visaFriendly: boolean | null;
   visaNote: string | null;
+  // Null when salary is above the threshold or unknown.
+  // Non-null when estimated salary is below the €39,582/yr (€3,299/mo) Talent permit floor.
+  visaRisk: string | null;
   atsMissingKeywords: string[];
   atsPlacementSuggestions: string[];
   hiringEmail: string | null;
@@ -158,10 +161,13 @@ function fmt(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
+// To convert RECE to a long-term Talent (salarié qualifié) permit: flat €39,582/yr from Aug 2025 decree.
+const TALENT_THRESHOLD_MONTHLY_EUR = Math.ceil(39582 / 12); // 3299
+
 const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null) =>
   `You are acting as a senior recruiter scanning a job for ${name}.\n\n` +
   `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
-  `Visa: French APS (post-study permit) — valid for work in France only.\n` +
+  `Visa: French RECE (post-study work permit, 12-month one-shot, successor to the old APS).\n` +
   `  Remote roles: always compatible (candidate works from Paris for any EU company).\n` +
   `  On-site/hybrid in France: compatible.\n` +
   `  On-site/hybrid outside France: only compatible if employer explicitly mentions visa sponsorship or relocation support.\n\n` +
@@ -193,7 +199,9 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `    Format: 3 paragraphs, 140-175 words total.\n` +
   `    Para 1 (2-3 sentences): Specific fact about what THIS company builds or does. Do NOT start with "I".\n` +
   `    Para 2 (3-4 sentences): Reference specific projects/achievements from the CV that match this role.\n` +
-  `      Draw on NexusPay, Swiss Block, OptimusFox, or Teams.pk as relevant. Be concrete.\n` +
+  `      PRIMARY proof: OptimusFox (4 years production, NestJS/Node.js microservices, fintech + crypto platforms, real cross-functional team). Since EU recruiters will not know OptimusFox, name the concrete output: what was built, specific integrations (Stripe, PayPal, Web3 APIs), scale hints (team of ~10, Dockerized services, CI/CD), to make the work legible.\n` +
+  `      SUPPORTING proof only: NexusPay may be cited as evidence of current technical depth — e.g. "I am applying these patterns in NexusPay, an event-driven fintech platform I am building" — never as the primary proof of experience. Swiss Block or Teams.pk may be cited if directly relevant to the role.\n` +
+  `      Do NOT open Para 2 with NexusPay.\n` +
   `    Para 3 (2 sentences): Mention location fit naturally.\n` +
   `      If workMode="${workMode}" and countryCode="${countryCode ?? 'null'}":\n` +
   `      - remote: "Working from Paris, I can join your distributed team from day one."\n` +
@@ -296,11 +304,28 @@ async function enrichSingle(
     ? raw.hiringEmail.trim()
     : null;
 
+  // Server-side Talent permit salary check — more reliable than asking the AI to do the maths.
+  // Threshold: €39,582/yr = €3,299/mo (Aug 2025 decree, decoupled from SMIC).
+  let visaRisk: string | null = null;
+  if (raw.salaryMin && raw.salaryCurrency) {
+    const rate = EUR_RATES[(raw.salaryCurrency ?? '').toUpperCase()];
+    if (rate) {
+      const monthlyEur = Math.round(raw.salaryMin * rate);
+      if (monthlyEur < TALENT_THRESHOLD_MONTHLY_EUR) {
+        visaRisk =
+          `Salary (est. ~${fmt(monthlyEur)} EUR/mo) is below the ${fmt(TALENT_THRESHOLD_MONTHLY_EUR)} EUR/mo (${fmt(39582)} EUR/yr) ` +
+          `minimum to convert your RECE to a Talent permit. You can start this job but negotiate ` +
+          `to at least ${fmt(TALENT_THRESHOLD_MONTHLY_EUR + 50)} EUR/mo before or at signing to secure your stay.`;
+      }
+    }
+  }
+
   return {
     relevanceScore,
     relevanceIssues: (raw.relevanceIssues ?? []).slice(0, 3),
     visaFriendly: raw.visaFriendly ?? null,
     visaNote: raw.visaNote?.trim() || null,
+    visaRisk,
     fraudScore,
     fraudReasons: (raw.fraudReasons ?? []).slice(0, 3),
     isSuspicious: fraudScore >= 72,
@@ -336,7 +361,7 @@ function buildFallbackCoverLetter(
     '',
     `${reasonLine.charAt(0).toUpperCase() + reasonLine.slice(1)} is exactly what drew me to this role.`,
     '',
-    `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears} years of production experience. At OptimusFox I designed and delivered production microservices across fintech and crypto platforms, integrating Stripe, PayPal, and blockchain APIs while maintaining PostgreSQL-backed services for reliability at scale. My current project, NexusPay, is an event-driven fintech platform targeting 10,000 TPS built with NestJS, RabbitMQ, Kafka, Redis, and Clean Architecture across seven independent microservices.`,
+    `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears} years of production experience. At OptimusFox I designed and delivered production microservices across fintech and crypto platforms for a cross-functional team of roughly ten engineers, integrating Stripe, PayPal, and blockchain APIs, Dockerizing backend services, and building GitHub Actions CI/CD pipelines from scratch. I am applying these architecture patterns in NexusPay, an event-driven fintech platform I am building with NestJS, RabbitMQ, Kafka, and Clean Architecture.`,
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',

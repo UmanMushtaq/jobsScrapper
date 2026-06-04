@@ -132,13 +132,24 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
       : 0;
 
   const startupScore = computeStartupScore(job, text, profile);
+  // Boost jobs where the employer mentions visa sponsorship or relocation support.
+  // These are the minority of postings that can actually proceed with a non-EU hire.
+  const SPONSOR_SIGNALS = [
+    'visa sponsor', 'visa sponsorship', 'sponsorship provided', 'can sponsor', 'we sponsor',
+    'work permit', 'relocation support', 'relocation assistance', 'relocation package',
+    'relocation bonus', 'non-eu welcome', 'non-eu candidates', 'open to sponsoring',
+    'willing to sponsor', 'support visa', 'immigration support', 'we support relocation',
+  ];
+  const hasSponsorSignal = job.offersRelocation || SPONSOR_SIGNALS.some((s) => text.includes(s));
+  const sponsorScore = hasSponsorSignal ? 6 : 0;
+
   const kwScore = Math.min(requiredKeywordMatches * 3, 18);
   const locScore = Math.round(locationScore.score / 10);
   const keywordsTotal = kwScore + preferredGroupScore + titleScore;
 
   const score = Math.min(
     100,
-    mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore,
+    mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore,
   );
 
   // Adaptive threshold based on description length:
@@ -155,11 +166,13 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     keywords: keywordsTotal,
     location: locScore,
     startup: startupScore,
+    sponsor: sponsorScore,
   };
 
   const salaryLabel = buildSalaryLabel(job);
   const reasons = [
     ...matchedReasons,
+    ...(hasSponsorSignal ? ['Visa/relocation support mentioned in posting'] : []),
     `Location fit: ${locationScore.reason}`,
     ...buildPreferredReasons(text, profile),
   ].slice(0, 5);
@@ -364,7 +377,7 @@ function buildCoverLetter(job: JobPosting, profile: SearchProfile, reasons: stri
     '',
     `${reasonLine.charAt(0).toUpperCase() + reasonLine.slice(1)} is exactly what drew me to this role.`,
     '',
-    `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears} years of production experience. At OptimusFox I designed and delivered production microservices across fintech and crypto platforms, integrating Stripe, PayPal, and blockchain APIs while maintaining PostgreSQL-backed services for reliability at scale. My current project, NexusPay, is an event-driven fintech platform targeting 10,000 TPS built with NestJS, RabbitMQ, Kafka, Redis, and Clean Architecture across seven independent microservices.`,
+    `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears} years of production experience. At OptimusFox I designed and delivered production microservices across fintech and crypto platforms for a cross-functional team of roughly ten engineers, integrating Stripe, PayPal, and blockchain APIs, Dockerizing backend services, and building GitHub Actions CI/CD pipelines from scratch. I am applying these architecture patterns in NexusPay, an event-driven fintech platform I am building with NestJS, RabbitMQ, Kafka, and Clean Architecture.`,
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',

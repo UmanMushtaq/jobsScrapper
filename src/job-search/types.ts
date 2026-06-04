@@ -78,6 +78,7 @@ export interface ScoreBreakdown {
   keywords: number;
   location: number;
   startup: number;
+  sponsor?: number;
 }
 
 export interface MatchResult {
@@ -97,6 +98,7 @@ export interface MatchResult {
   relevanceScore?: number;
   visaFriendly?: boolean | null;
   visaNote?: string | null;
+  visaRisk?: string | null;
   atsMissingKeywords?: string[];
   atsPlacementSuggestions?: string[];
   hiringEmail?: string | null;

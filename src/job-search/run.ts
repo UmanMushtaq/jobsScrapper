@@ -290,6 +290,7 @@ export async function runJobSearchOnce(
               relevanceScore: ai.relevanceScore,
               visaFriendly: ai.visaFriendly,
               visaNote: ai.visaNote,
+              visaRisk: ai.visaRisk,
               atsMissingKeywords: ai.atsMissingKeywords,
               atsPlacementSuggestions: ai.atsPlacementSuggestions,
               hiringEmail: ai.hiringEmail,
@@ -478,7 +479,7 @@ async function buildTelegramPayload(
   for (const [i, match] of matches.entries()) {
     const bd = match.scoreBreakdown;
     const scoreDetail = bd
-      ? ` [Tech:${bd.mandatory} | KW:${bd.keywords} | Loc:${bd.location} | Startup:${bd.startup}]`
+      ? ` [Tech:${bd.mandatory} | KW:${bd.keywords} | Loc:${bd.location} | Startup:${bd.startup}${bd.sponsor ? ` | Sponsor:${bd.sponsor}` : ''}]`
       : '';
 
     const lines: string[] = [
@@ -496,10 +497,18 @@ async function buildTelegramPayload(
       lines.push(`AI relevance: ${r}/100 ${rIcon}`);
     }
 
+    if (match.job.offersRelocation) {
+      lines.push('Sponsor/relocation: mentioned in posting ✓');
+    }
+
     if (match.visaFriendly !== undefined && match.visaFriendly !== null) {
       const visaIcon = match.visaFriendly ? '✓' : '⚠️';
-      const note = match.visaNote ? ` — ${match.visaNote}` : '';
-      lines.push(`APS visa: ${match.visaFriendly ? 'compatible' : 'sponsorship needed'}${note} ${visaIcon}`);
+      const note = match.visaNote ? ` (${match.visaNote})` : '';
+      lines.push(`RECE visa: ${match.visaFriendly ? 'compatible' : 'sponsorship needed'}${note} ${visaIcon}`);
+    }
+
+    if (match.visaRisk) {
+      lines.push(`Permit risk: ${match.visaRisk}`);
     }
 
     if (match.fraudScore !== undefined) {

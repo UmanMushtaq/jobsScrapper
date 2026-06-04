@@ -57,7 +57,7 @@
       "min": 2,
       "max": 5
     },
-    "minimumSalaryMonthlyEur": 3000,
+    "minimumSalaryMonthlyEur": 3300,
     "language": "en",
     "maxResults": 20,
     "maxAgeHours": 72,
