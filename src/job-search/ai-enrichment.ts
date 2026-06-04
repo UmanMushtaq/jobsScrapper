@@ -84,6 +84,10 @@ export interface AiEnrichment {
   suggestedSalary: string | null;
   companyQualityScore: number;
   companyRedFlags: string[];
+  relevanceScore: number;
+  relevanceIssues: string[];
+  visaFriendly: boolean | null;
+  visaNote: string | null;
 }
 
 export async function enrichMatch(
@@ -107,27 +111,44 @@ function fmt(n: number): string {
 }
 
 const SYSTEM_INSTRUCTION = (name: string, expYears: number) =>
-  `You are helping ${name}, a Paris-based backend engineer ` +
-  `(${expYears} yrs exp, Node.js/NestJS/TypeScript/PostgreSQL/Docker/fintech). ` +
-  `Analyse a job posting and return a single JSON object with ALL fields below. No markdown.\n\n` +
-  `Required JSON fields:\n` +
-  `  fraudScore: integer 0-100 (how suspicious is this posting?)\n` +
-  `  companyQualityScore: integer 0-100 (how healthy does the role/company appear?)\n` +
-  `  fraudReasons: array of up to 3 short strings\n` +
-  `  companyRedFlags: array of up to 3 short strings\n` +
-  `  coverLetter: string — 3 paragraphs, 140-175 words total.\n` +
-  `    Para 1 (2-3 sentences): Open with a specific fact about what THIS company builds or does. Do NOT start with "I".\n` +
-  `    Para 2 (3-4 sentences): Concrete backend experience — REST APIs, NestJS services, PostgreSQL schemas, Docker, fintech backends. Connect to the role.\n` +
-  `    Para 3 (2 sentences): What you bring to their team. Close simply.\n` +
+  `You are acting as a senior recruiter scanning a job for ${name}.\n` +
+  `Candidate profile:\n` +
+  `  Name: ${name}\n` +
+  `  Location: Paris, France\n` +
+  `  Experience: ${expYears} years backend engineering\n` +
+  `  Core stack: Node.js, NestJS, TypeScript, PostgreSQL, Docker, REST APIs, microservices, fintech\n` +
+  `  Visa: French APS (Autorisation Provisoire de Séjour) — post-study work permit valid in France only.\n` +
+  `        For other EU countries, the employer must offer visa sponsorship or relocation support.\n` +
+  `        For remote roles: can work from France for any EU company on this visa.\n\n` +
+  `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
+  `FIELD DEFINITIONS:\n` +
+  `  relevanceScore: integer 0-100.\n` +
+  `    Score HOW WELL this specific job matches this candidate.\n` +
+  `    Penalise heavily if: primary backend is NOT Node.js (e.g. C#/.NET, Java, Go, PHP required without Node.js).\n` +
+  `    Penalise if: role is frontend/fullstack where C# or Java dominates.\n` +
+  `    Penalise if: requires skills the candidate clearly lacks (AI/ML, DevOps, mobile, data engineering).\n` +
+  `    Reward if: Node.js/NestJS/TypeScript is the primary stack, fintech/payments domain, remote-friendly.\n` +
+  `  relevanceIssues: array of up to 3 short strings explaining deductions (e.g. "Primary stack is C#/.NET, not Node.js").\n` +
+  `  visaFriendly: true if the candidate can legally take this job on an APS visa (remote jobs = always true; ` +
+  `    on-site/hybrid outside France = true only if job explicitly mentions visa sponsorship or relocation support; ` +
+  `    on-site/hybrid in France = true). Return null if genuinely unclear.\n` +
+  `  visaNote: one short sentence explaining the visa assessment, or null.\n` +
+  `  fraudScore: integer 0-100 (0=clean, 100=scam). Signals: vague description, no real company info, ` +
+  `    personal info requested upfront, grammar errors, unrealistic salary, no specific tech stack for a tech role.\n` +
+  `  fraudReasons: array of up to 3 short strings.\n` +
+  `  companyQualityScore: integer 0-100 (company/role health). Red flags: "rockstar/ninja", "we are a family", ` +
+  `    "wear many hats", unlimited PTO as only perk, high-pressure language, vague title, no salary range.\n` +
+  `  companyRedFlags: array of up to 3 short strings.\n` +
+  `  coverLetter: string — write ONLY if relevanceScore >= 55. Otherwise return empty string.\n` +
+  `    Format: 3 paragraphs, 140-175 words total.\n` +
+  `    Para 1 (2-3 sentences): Specific fact about what THIS company builds. Do NOT start with "I".\n` +
+  `    Para 2 (3-4 sentences): Concrete backend experience (REST APIs, NestJS, PostgreSQL, Docker, fintech). Connect to this role.\n` +
+  `    Para 3 (2 sentences): What you bring. Close simply.\n` +
   `    End with exactly: "Best regards,\\n${name}"\n` +
-  `    Rules: no dashes (use commas/periods). No: passionate, leverage, synergy, excited, contribute, dynamic.\n` +
-  `  salaryMin: monthly gross integer in local currency, or null\n` +
-  `  salaryMax: monthly gross integer in local currency, or null\n` +
-  `  salaryCurrency: ISO 4217 currency code string, or null\n\n` +
-  `Fraud signals: vague description, no real company info, requests personal info upfront, grammar errors, ` +
-  `unrealistic salary, no specific tech requirements for a tech role.\n` +
-  `Quality red flags: "wear many hats", "we are a family", no salary listed, rockstar/ninja, ` +
-  `unlimited PTO as only perk, high-pressure language, vague title.`;
+  `    Rules: no dashes, no: passionate/leverage/synergy/excited/contribute/dynamic.\n` +
+  `  salaryMin: monthly gross integer in local currency, or null.\n` +
+  `  salaryMax: monthly gross integer in local currency, or null.\n` +
+  `  salaryCurrency: ISO 4217 string, or null.`;
 
 async function enrichSingle(
   ai: GoogleGenAI,
@@ -153,8 +174,9 @@ async function enrichSingle(
     `Role: ${job.title}\n` +
     `Location: ${job.locationLabel} (${job.workMode})\n` +
     `Salary listed: ${job.salaryMinimum ? `${job.salaryMinimum}–${job.salaryMaximum ?? '?'} ${job.salaryCurrency ?? ''}` : 'not listed'}\n` +
-    `Why it matches: ${matchReasons.slice(0, 3).join('; ')}\n` +
-    `Description: ${job.description.slice(0, 1200)}`;
+    `Relocation/visa sponsorship offered: ${job.offersRelocation ? 'yes' : 'not mentioned'}\n` +
+    `Why code filter matched: ${matchReasons.slice(0, 3).join('; ')}\n` +
+    `Full description:\n${job.description.slice(0, 1800)}`;
 
   const response = await ai.models.generateContent({
     model,
@@ -166,6 +188,10 @@ async function enrichSingle(
   });
 
   const raw = JSON.parse(response.text ?? '{}') as {
+    relevanceScore?: number;
+    relevanceIssues?: string[];
+    visaFriendly?: boolean | null;
+    visaNote?: string | null;
     fraudScore?: number;
     companyQualityScore?: number;
     fraudReasons?: string[];
@@ -176,9 +202,10 @@ async function enrichSingle(
     salaryCurrency?: string | null;
   };
 
+  const relevanceScore = Math.min(100, Math.max(0, Number(raw.relevanceScore ?? 50)));
   const fraudScore = Math.min(100, Math.max(0, Number(raw.fraudScore ?? 0)));
   const companyQualityScore = Math.min(100, Math.max(0, Number(raw.companyQualityScore ?? 70)));
-  console.log(`[gemini] "${job.title}" @ ${job.company} — fraud=${fraudScore} quality=${companyQualityScore} model=${model}`);
+  console.log(`[gemini] "${job.title}" @ ${job.company} — relevance=${relevanceScore} fraud=${fraudScore} quality=${companyQualityScore} visa=${raw.visaFriendly ?? 'unknown'} model=${model}`);
 
   let suggestedSalary: string | null = null;
   if (raw.salaryMin && raw.salaryMax && raw.salaryCurrency) {
@@ -197,12 +224,18 @@ async function enrichSingle(
   }
 
   return {
+    relevanceScore,
+    relevanceIssues: (raw.relevanceIssues ?? []).slice(0, 3),
+    visaFriendly: raw.visaFriendly ?? null,
+    visaNote: raw.visaNote?.trim() || null,
     fraudScore,
     fraudReasons: (raw.fraudReasons ?? []).slice(0, 3),
     isSuspicious: fraudScore >= 72,
     companyQualityScore,
     companyRedFlags: (raw.companyRedFlags ?? []).slice(0, 3),
-    coverLetter: raw.coverLetter?.trim() || buildFallbackCoverLetter(job, profile, matchReasons),
+    coverLetter: relevanceScore >= 55
+      ? (raw.coverLetter?.trim() || buildFallbackCoverLetter(job, profile, matchReasons))
+      : '',
     suggestedSalary,
   };
 }

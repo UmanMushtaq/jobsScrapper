@@ -93,6 +93,9 @@ export interface MatchResult {
   suggestedSalary?: string;
   companyQualityScore?: number;
   companyRedFlags?: string[];
+  relevanceScore?: number;
+  visaFriendly?: boolean | null;
+  visaNote?: string | null;
 }
 
 export interface RunSummary {

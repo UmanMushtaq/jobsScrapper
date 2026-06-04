@@ -252,12 +252,17 @@ export async function runJobSearchOnce(
     console.log(`[notify] ${slicedMatches.length} scored → ${unseenRaw.length} not yet sent (${alreadySentCount} already sent before)`);
 
     const newMatches: MatchResult[] = [];
-    const suspiciousMatches: MatchResult[] = [];
+    const rejectedByAi: MatchResult[] = [];
     for (const match of unseenRaw) {
       const ai = await enrichMatch(match, profile);
+      if (ai && ai.relevanceScore < 55) {
+        console.log(`[notify] LOW RELEVANCE (${ai.relevanceScore}/100) — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]${ai.relevanceIssues.length ? ` — ${ai.relevanceIssues[0]}` : ''}`);
+        rejectedByAi.push(match);
+        continue;
+      }
       if (ai && ai.isSuspicious) {
-        console.log(`[notify] SUSPICIOUS — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]`);
-        suspiciousMatches.push(match);
+        console.log(`[notify] SUSPICIOUS (fraud=${ai.fraudScore}) — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]`);
+        rejectedByAi.push(match);
         continue;
       }
       newMatches.push(
@@ -270,12 +275,15 @@ export async function runJobSearchOnce(
               suggestedSalary: ai.suggestedSalary ?? undefined,
               companyQualityScore: ai.companyQualityScore,
               companyRedFlags: ai.companyRedFlags,
+              relevanceScore: ai.relevanceScore,
+              visaFriendly: ai.visaFriendly,
+              visaNote: ai.visaNote,
             }
           : match,
       );
     }
     if (unseenRaw.length > 0) {
-      console.log(`[notify] AI enrichment done: ${newMatches.length}/${unseenRaw.length} passed`);
+      console.log(`[notify] AI enrichment done: ${newMatches.length}/${unseenRaw.length} passed (${rejectedByAi.length} rejected)`);
     }
 
     // All scored matches (new + already-sent) for the report and seenUrls tracking
@@ -312,12 +320,12 @@ export async function runJobSearchOnce(
       console.error('[followup] check failed:', err instanceof Error ? err.message : String(err));
     });
 
-    // Mark suspicious jobs as seen (same TTL) so they are not re-enriched on every run
-    // until they age out. Without this, each suspicious job triggers a Gemini call on
+    // Mark AI-rejected jobs as seen (same TTL) so they are not re-enriched on every run
+    // until they age out. Without this, each rejected job triggers a Gemini call on
     // every run for up to 72 hours (maxAgeHours / checkIntervalHours = 24 extra calls each).
     const allSeen = [
       ...matches.map((m) => m.job.canonicalUrl),
-      ...suspiciousMatches.map((m) => m.job.canonicalUrl),
+      ...rejectedByAi.map((m) => m.job.canonicalUrl),
     ];
     await addUrlsToStore(seenFile, 'seen_urls', allSeen, { ttlMs: seenTtlMs });
 
@@ -453,6 +461,18 @@ async function buildTelegramPayload(
       `Apply: ${match.job.applyUrl}`,
       `Why: ${match.reasons.slice(0, 2).join('; ')}`,
     ];
+
+    if (match.relevanceScore !== undefined) {
+      const r = match.relevanceScore;
+      const rIcon = r >= 80 ? '✓' : r >= 60 ? '~' : '⚠️';
+      lines.push(`AI relevance: ${r}/100 ${rIcon}`);
+    }
+
+    if (match.visaFriendly !== undefined && match.visaFriendly !== null) {
+      const visaIcon = match.visaFriendly ? '✓' : '⚠️';
+      const note = match.visaNote ? ` — ${match.visaNote}` : '';
+      lines.push(`APS visa: ${match.visaFriendly ? 'compatible' : 'sponsorship needed'}${note} ${visaIcon}`);
+    }
 
     if (match.fraudScore !== undefined) {
       lines.push(`Fraud risk: ${match.fraudScore}% ${match.fraudScore >= 40 ? '⚠️' : '✓'}`);
