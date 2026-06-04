@@ -9,6 +9,7 @@ export interface CandidateProfile {
   summary: string;
   coreSkills: string[];
   experienceYears: number;
+  cvText?: string;
 }
 
 export interface SearchSettings {
@@ -96,6 +97,11 @@ export interface MatchResult {
   relevanceScore?: number;
   visaFriendly?: boolean | null;
   visaNote?: string | null;
+  atsMissingKeywords?: string[];
+  atsPlacementSuggestions?: string[];
+  hiringEmail?: string | null;
+  emailSubject?: string | null;
+  emailBody?: string | null;
 }
 
 export interface RunSummary {

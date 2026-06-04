@@ -88,6 +88,11 @@ export interface AiEnrichment {
   relevanceIssues: string[];
   visaFriendly: boolean | null;
   visaNote: string | null;
+  atsMissingKeywords: string[];
+  atsPlacementSuggestions: string[];
+  hiringEmail: string | null;
+  emailSubject: string | null;
+  emailBody: string | null;
 }
 
 export async function enrichMatch(
@@ -110,40 +115,48 @@ function fmt(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
-const SYSTEM_INSTRUCTION = (name: string, expYears: number) =>
-  `You are acting as a senior recruiter scanning a job for ${name}.\n` +
-  `Candidate profile:\n` +
-  `  Name: ${name}\n` +
-  `  Location: Paris, France\n` +
-  `  Experience: ${expYears} years backend engineering\n` +
-  `  Core stack: Node.js, NestJS, TypeScript, PostgreSQL, Docker, REST APIs, microservices, fintech\n` +
-  `  Visa: French APS (Autorisation Provisoire de Séjour) — post-study work permit valid in France only.\n` +
-  `        For other EU countries, the employer must offer visa sponsorship or relocation support.\n` +
-  `        For remote roles: can work from France for any EU company on this visa.\n\n` +
+const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null) =>
+  `You are acting as a senior recruiter scanning a job for ${name}.\n\n` +
+  `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
+  `Visa: French APS (post-study permit) — valid for work in France only.\n` +
+  `  Remote roles: always compatible (candidate works from Paris for any EU company).\n` +
+  `  On-site/hybrid in France: compatible.\n` +
+  `  On-site/hybrid outside France: only compatible if employer explicitly mentions visa sponsorship or relocation support.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
-  `  relevanceScore: integer 0-100.\n` +
-  `    Score HOW WELL this specific job matches this candidate.\n` +
-  `    Penalise heavily if: primary backend is NOT Node.js (e.g. C#/.NET, Java, Go, PHP required without Node.js).\n` +
-  `    Penalise if: role is frontend/fullstack where C# or Java dominates.\n` +
-  `    Penalise if: requires skills the candidate clearly lacks (AI/ML, DevOps, mobile, data engineering).\n` +
-  `    Reward if: Node.js/NestJS/TypeScript is the primary stack, fintech/payments domain, remote-friendly.\n` +
-  `  relevanceIssues: array of up to 3 short strings explaining deductions (e.g. "Primary stack is C#/.NET, not Node.js").\n` +
-  `  visaFriendly: true if the candidate can legally take this job on an APS visa (remote jobs = always true; ` +
-  `    on-site/hybrid outside France = true only if job explicitly mentions visa sponsorship or relocation support; ` +
-  `    on-site/hybrid in France = true). Return null if genuinely unclear.\n` +
-  `  visaNote: one short sentence explaining the visa assessment, or null.\n` +
-  `  fraudScore: integer 0-100 (0=clean, 100=scam). Signals: vague description, no real company info, ` +
-  `    personal info requested upfront, grammar errors, unrealistic salary, no specific tech stack for a tech role.\n` +
+  `  relevanceScore: integer 0-100. How well does this job match the candidate's CV above?\n` +
+  `    Penalise heavily: primary backend NOT Node.js (C#/.NET, Java, Go, PHP) without Node.js.\n` +
+  `    Penalise: frontend/fullstack where non-JS dominates; requires skills clearly absent from CV (AI/ML, DevOps, mobile).\n` +
+  `    Reward: Node.js/NestJS/TypeScript primary stack; fintech/payments domain; event-driven/microservices.\n` +
+  `  relevanceIssues: array of up to 3 short strings explaining deductions.\n` +
+  `  visaFriendly: true/false/null — assess using visa rules above.\n` +
+  `  visaNote: one short sentence, or null.\n` +
+  `  fraudScore: integer 0-100 (0=clean). Signals: vague description, no company info, grammar errors, no tech stack for tech role.\n` +
   `  fraudReasons: array of up to 3 short strings.\n` +
-  `  companyQualityScore: integer 0-100 (company/role health). Red flags: "rockstar/ninja", "we are a family", ` +
-  `    "wear many hats", unlimited PTO as only perk, high-pressure language, vague title, no salary range.\n` +
+  `  companyQualityScore: integer 0-100. Red flags: rockstar/ninja, "wear many hats", no salary, unlimited PTO only perk.\n` +
   `  companyRedFlags: array of up to 3 short strings.\n` +
-  `  coverLetter: string — write ONLY if relevanceScore >= 55. Otherwise return empty string.\n` +
+  `  atsMissingKeywords: array of up to 8 technical keywords from the job description NOT clearly present in the candidate CV above.\n` +
+  `    Focus on: specific frameworks, databases, tools, protocols, testing frameworks, cloud services.\n` +
+  `    Do NOT list things clearly in the CV (NestJS, Docker, PostgreSQL, RabbitMQ, Kafka etc. are already there).\n` +
+  `  atsPlacementSuggestions: array of up to 3 short strings on WHERE to add the top missing keywords.\n` +
+  `    E.g. "Add 'Jest' to Skills > Tools — your NexusPay 85%+ test coverage shows this experience."\n` +
+  `    Only suggest if it makes genuine sense given the candidate's background.\n` +
+  `  hiringEmail: extract from job description text ONLY if an explicit email address for applications is written there. Return null otherwise — do NOT guess.\n` +
+  `  emailSubject: if hiringEmail found, subject line max 60 chars: "Application: [role title] — [company]". Else null.\n` +
+  `  emailBody: if hiringEmail found, 3-4 sentences for an email sent with CV attached.\n` +
+  `    Mention: specific interest in this company/role, one concrete experience highlight from CV, CV is attached, open to discuss.\n` +
+  `    Use first name if hiring manager name appears in description. Else "Dear Hiring Team". Else null.\n` +
+  `  coverLetter: write ONLY if relevanceScore >= 55. Otherwise return empty string.\n` +
   `    Format: 3 paragraphs, 140-175 words total.\n` +
-  `    Para 1 (2-3 sentences): Specific fact about what THIS company builds. Do NOT start with "I".\n` +
-  `    Para 2 (3-4 sentences): Concrete backend experience (REST APIs, NestJS, PostgreSQL, Docker, fintech). Connect to this role.\n` +
-  `    Para 3 (2 sentences): What you bring. Close simply.\n` +
+  `    Para 1 (2-3 sentences): Specific fact about what THIS company builds or does. Do NOT start with "I".\n` +
+  `    Para 2 (3-4 sentences): Reference specific projects/achievements from the CV that match this role.\n` +
+  `      Draw on NexusPay, Swiss Block, OptimusFox, or Teams.pk as relevant. Be concrete.\n` +
+  `    Para 3 (2 sentences): Mention location fit naturally.\n` +
+  `      If workMode="${workMode}" and countryCode="${countryCode ?? 'null'}":\n` +
+  `      - remote: "Working from Paris, I can join your distributed team from day one."\n` +
+  `      - on-site/hybrid in France (FR): "Based in Paris, I can join your team on-site without relocation."\n` +
+  `      - on-site/hybrid outside France: "I am open to relocation and happy to work through the logistics."\n` +
+  `      Then one closing sentence.\n` +
   `    End with exactly: "Best regards,\\n${name}"\n` +
   `    Rules: no dashes, no: passionate/leverage/synergy/excited/contribute/dynamic.\n` +
   `  salaryMin: monthly gross integer in local currency, or null.\n` +
@@ -178,10 +191,18 @@ async function enrichSingle(
     `Why code filter matched: ${matchReasons.slice(0, 3).join('; ')}\n` +
     `Full description:\n${job.description.slice(0, 1800)}`;
 
+  const cvText = profile.candidate.cvText ?? `${profile.candidate.name} | ${profile.candidate.experienceYears}yrs backend | Skills: ${profile.candidate.coreSkills.join(', ')}`;
+
   const response = await ai.models.generateContent({
     model,
     config: {
-      systemInstruction: SYSTEM_INSTRUCTION(profile.candidate.name, profile.candidate.experienceYears),
+      systemInstruction: SYSTEM_INSTRUCTION(
+        profile.candidate.name,
+        profile.candidate.experienceYears,
+        cvText,
+        job.workMode,
+        job.countryCode,
+      ),
       responseMimeType: 'application/json',
     },
     contents: prompt,
@@ -197,6 +218,11 @@ async function enrichSingle(
     fraudReasons?: string[];
     companyRedFlags?: string[];
     coverLetter?: string;
+    atsMissingKeywords?: string[];
+    atsPlacementSuggestions?: string[];
+    hiringEmail?: string | null;
+    emailSubject?: string | null;
+    emailBody?: string | null;
     salaryMin?: number | null;
     salaryMax?: number | null;
     salaryCurrency?: string | null;
@@ -223,6 +249,10 @@ async function enrichSingle(
     }
   }
 
+  const hiringEmail = typeof raw.hiringEmail === 'string' && raw.hiringEmail.includes('@')
+    ? raw.hiringEmail.trim()
+    : null;
+
   return {
     relevanceScore,
     relevanceIssues: (raw.relevanceIssues ?? []).slice(0, 3),
@@ -237,6 +267,11 @@ async function enrichSingle(
       ? (raw.coverLetter?.trim() || buildFallbackCoverLetter(job, profile, matchReasons))
       : '',
     suggestedSalary,
+    atsMissingKeywords: (raw.atsMissingKeywords ?? []).slice(0, 8),
+    atsPlacementSuggestions: (raw.atsPlacementSuggestions ?? []).slice(0, 3),
+    hiringEmail,
+    emailSubject: hiringEmail ? (raw.emailSubject?.trim() || null) : null,
+    emailBody: hiringEmail ? (raw.emailBody?.trim() || null) : null,
   };
 }
 
