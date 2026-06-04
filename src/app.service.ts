@@ -288,24 +288,42 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const invalidCount = results.filter((r) => r.status === 'invalid_key').length;
 
     const advice: string[] = [];
+
+    // Email detection is impossible via the API — API keys contain no identity info.
+    // Explain clearly how to manually verify.
+    advice.push(
+      'IMPORTANT: The Gemini API does not expose which Gmail account a key belongs to. ' +
+      'To find out: open https://aistudio.google.com/apikey in a browser. ' +
+      'Log into each Gmail account one by one — the keys listed on that page belong to THAT account. ' +
+      'If all your keys appear under the same Gmail, they all share one 1500 req/day quota regardless of how many keys there are.',
+    );
+
     if (exhaustedCount > 0 && okCount === 0) {
-      advice.push('ALL keys are quota-exhausted. If multiple keys return 429 at the same time, they likely belong to the same Google account and share one quota pool (1500 req/day per account).');
-      advice.push('Fix: create keys from completely different Gmail accounts. Each account has its own independent 1500 req/day quota. 2-3 separate accounts is enough for this bot.');
+      advice.push(
+        `All ${exhaustedCount} keys are quota-exhausted simultaneously. This almost certainly means they all belong to the same Google account. ` +
+        'Fix: go to aistudio.google.com with a different Gmail (friend\'s account, new account) and create a new API key there. ' +
+        'That gives an independent 1500 req/day quota. 2 different accounts is more than enough for this bot (~60-100 calls/day).',
+      );
     } else if (exhaustedCount > 0) {
-      advice.push(`${exhaustedCount} key(s) exhausted. The ${okCount} working key(s) will handle this run.`);
+      advice.push(`${exhaustedCount} key(s) exhausted, ${okCount} still working. Bot will use the working ones.`);
     }
     if (invalidCount > 0) {
-      advice.push(`${invalidCount} key(s) are invalid — remove them from env vars.`);
+      advice.push(`${invalidCount} key(s) are invalid or revoked — remove them from env vars to reduce noise.`);
     }
-    if (okCount === rawKeys.length) {
-      advice.push(`All ${okCount} keys are working. Estimated daily capacity: ${okCount * 1500} req/day (only if each key is from a different Google account).`);
+    if (okCount > 0 && exhaustedCount === 0 && invalidCount === 0) {
+      advice.push(
+        `All ${okCount} keys are working. Daily capacity estimate: ${okCount * 1500} req/day IF each key is from a different Google account. ` +
+        'If they are all from the same account, real capacity is 1500 req/day total.',
+      );
     }
 
     return {
+      testedAt: new Date().toISOString(),
       totalKeys: rawKeys.length,
       working: okCount,
       quotaExhausted: exhaustedCount,
       invalid: invalidCount,
+      howToFindEmail: 'Go to https://aistudio.google.com/apikey — log in with each Gmail one at a time. Keys shown = keys owned by that account.',
       advice,
       keys: results,
     };

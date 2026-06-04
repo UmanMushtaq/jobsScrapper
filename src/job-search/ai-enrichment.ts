@@ -158,7 +158,7 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `      - on-site/hybrid outside France: "I am open to relocation and happy to work through the logistics."\n` +
   `      Then one closing sentence.\n` +
   `    End with exactly: "Best regards,\\n${name}"\n` +
-  `    Rules: no dashes, no: passionate/leverage/synergy/excited/contribute/dynamic.\n` +
+  `    Rules: absolutely no dashes of any kind (no hyphen-punctuation, no em dash —, no en dash). Use commas or short sentences instead. No: passionate/leverage/synergy/excited/contribute/dynamic.\n` +
   `  salaryMin: monthly gross integer in local currency, or null.\n` +
   `  salaryMax: monthly gross integer in local currency, or null.\n` +
   `  salaryCurrency: ISO 4217 string, or null.`;
@@ -291,9 +291,9 @@ function buildFallbackCoverLetter(
   return [
     `Hello ${job.company} team,`,
     '',
-    `Your work caught my attention — and ${reasonLine.toLowerCase()} is exactly the kind of challenge I have been building towards.`,
+    `${reasonLine.charAt(0).toUpperCase() + reasonLine.slice(1)} is exactly what drew me to this role.`,
     '',
-    `I am a Paris-based Node.js / NestJS backend engineer with ${profile.candidate.experienceYears}+ years of production experience. At OptimusFox I designed and delivered 3-5 microservices across fintech and crypto platforms, integrating Stripe, PayPal, and blockchain APIs while maintaining PostgreSQL-backed services for reliability at scale. My current project, NexusPay, is an event-driven fintech platform targeting 10,000+ TPS built with NestJS, RabbitMQ, Kafka, Redis, and Clean Architecture across 7 independent services.`,
+    `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears} years of production experience. At OptimusFox I designed and delivered production microservices across fintech and crypto platforms, integrating Stripe, PayPal, and blockchain APIs while maintaining PostgreSQL-backed services for reliability at scale. My current project, NexusPay, is an event-driven fintech platform targeting 10,000 TPS built with NestJS, RabbitMQ, Kafka, Redis, and Clean Architecture across seven independent microservices.`,
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',
