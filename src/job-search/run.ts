@@ -337,14 +337,17 @@ export async function runJobSearchOnce(
       console.error('[followup] check failed:', err instanceof Error ? err.message : String(err));
     });
 
-    // Mark AI-rejected jobs as seen (same TTL) so they are not re-enriched on every run
-    // until they age out. Without this, each rejected job triggers a Gemini call on
-    // every run for up to 72 hours (maxAgeHours / checkIntervalHours = 24 extra calls each).
-    const allSeen = [
-      ...matches.map((m) => m.job.canonicalUrl),
-      ...rejectedByAi.map((m) => m.job.canonicalUrl),
-    ];
-    await addUrlsToStore(seenFile, 'seen_urls', allSeen, { ttlMs: seenTtlMs });
+    // Mark all scored matches as seen with the configured seenTtlMs.
+    // AI-rejected jobs use a longer TTL: max(seenTtlMs, maxAgeMs) so a rejected job
+    // stays in seenUrls for at least the full maxAgeHours window (e.g. 72h).
+    // Without this fix, a rejected job with seenTtlHours=48 expires after 48h but
+    // is still "fresh" until 72h, triggering 8 extra Gemini calls per rejected job.
+    const maxAgeMs = profile.search.maxAgeHours * 60 * 60 * 1000;
+    const rejectedTtlMs = Math.max(seenTtlMs, maxAgeMs);
+    await addUrlsToStore(seenFile, 'seen_urls', matches.map((m) => m.job.canonicalUrl), { ttlMs: seenTtlMs });
+    if (rejectedByAi.length > 0) {
+      await addUrlsToStore(seenFile, 'seen_urls', rejectedByAi.map((m) => m.job.canonicalUrl), { ttlMs: rejectedTtlMs });
+    }
 
     const summary: RunSummary = {
       reportPath: resolve(reportLocation),

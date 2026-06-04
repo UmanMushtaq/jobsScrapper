@@ -26,6 +26,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   private pingHandle: NodeJS.Timeout | null = null;
   private activeRun: Promise<void> | null = null;
   private intervalMinutes = 0;
+  private _keyStatusCache: { result: Record<string, unknown>; at: number } | null = null;
+  private readonly KEY_STATUS_CACHE_TTL_MS = 20 * 60 * 1000;
 
   async onModuleInit(): Promise<void> {
     const profile = await loadSearchProfile();
@@ -227,7 +229,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async validateGeminiKeys(): Promise<Record<string, unknown>> {
+  async validateGeminiKeys(force = false): Promise<Record<string, unknown>> {
+    if (!force && this._keyStatusCache && Date.now() - this._keyStatusCache.at < this.KEY_STATUS_CACHE_TTL_MS) {
+      return this._keyStatusCache.result;
+    }
+
     const { GoogleGenAI } = await import('@google/genai');
     const rawKeys: Array<{ key: string; source: string }> = [];
     const main = process.env.GEMINI_API_KEY ?? '';
@@ -342,7 +348,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       advice.push('To verify accounts: open aistudio.google.com/apikey in a browser and log in with each Gmail. The keys listed belong to that account.');
     }
 
-    return {
+    const response = {
       testedAt: new Date().toISOString(),
       totalKeys: rawKeys.length,
       working: okCount,
@@ -351,6 +357,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       advice,
       keys: results,
     };
+    this._keyStatusCache = { result: response, at: Date.now() };
+    return response;
   }
 
   async renderDashboard(): Promise<string> {
@@ -625,7 +633,7 @@ function renderHtml(state: JobSearchState): string {
       <div class="card" id="gemini-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
           <h2 style="margin:0;">Gemini API keys</h2>
-          <button onclick="loadKeyStatus()" id="key-refresh-btn"
+          <button onclick="loadKeyStatus(true)" id="key-refresh-btn"
             style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:#374151;">
             Refresh
           </button>
@@ -726,19 +734,19 @@ function renderHtml(state: JobSearchState): string {
         return html;
       }
 
-      function loadKeyStatus() {
+      function loadKeyStatus(force) {
         var el = document.getElementById('key-status');
         var btn = document.getElementById('key-refresh-btn');
-        el.textContent = 'Checking keys…';
+        el.textContent = force ? 'Checking keys…' : 'Loading key status…';
         if (btn) btn.disabled = true;
-        fetch('/debug/keys')
+        fetch('/debug/keys' + (force ? '?force=true' : ''))
           .then(function(r) { return r.json(); })
           .then(function(data) { el.innerHTML = renderKeyStatus(data); })
           .catch(function() { el.textContent = 'Could not load key status.'; })
           .finally(function() { if (btn) btn.disabled = false; });
       }
 
-      loadKeyStatus();
+      loadKeyStatus(false);
     </script>
   </body>
 </html>`;

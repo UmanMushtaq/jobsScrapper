@@ -5,6 +5,7 @@ import {
   Header,
   Headers,
   Post,
+  Query,
   Res,
 } from '@nestjs/common';
 import { Response } from 'express';
@@ -31,8 +32,8 @@ export class AppController {
   }
 
   @Get('debug/keys')
-  async validateKeys() {
-    return this.appService.validateGeminiKeys();
+  async validateKeys(@Query('force') force?: string) {
+    return this.appService.validateGeminiKeys(force === 'true');
   }
 
   @Post('run-now')

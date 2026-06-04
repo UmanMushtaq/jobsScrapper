@@ -69,10 +69,14 @@ async function callWithRotation<T>(
   const modelsToTry = _workingModel ? [_workingModel] : MODELS;
 
   for (const model of modelsToTry) {
-    for (let attempt = 0; attempt < keys.length; attempt++) {
-      const idx = (_currentKeyIndex + attempt) % keys.length;
+    // Capture startIdx ONCE before the loop — do NOT read _currentKeyIndex inside the loop.
+    // Bug: if _currentKeyIndex is mutated per-attempt, later iterations get a shifted base,
+    // causing the same key index to be computed twice and other keys to be skipped entirely.
+    const startIdx = _currentKeyIndex;
 
-      // Skip keys already confirmed quota-exhausted
+    for (let attempt = 0; attempt < keys.length; attempt++) {
+      const idx = (startIdx + attempt) % keys.length;
+
       if (_quotaExhaustedKeyIndices.has(idx)) {
         continue;
       }
@@ -89,17 +93,19 @@ async function callWithRotation<T>(
         if (isRetryableError(err)) {
           if (isDailyQuotaError(err)) {
             _quotaExhaustedKeyIndices.add(idx);
-            console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} — daily quota exhausted, blacklisting key for this run`);
+            console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} quota exhausted, blacklisting for this run`);
           } else {
-            console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} — ${msg.slice(0, 100)} — trying next`);
+            console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} ${msg.slice(0, 100)} trying next`);
           }
-          _currentKeyIndex = (idx + 1) % keys.length;
+          // Do NOT mutate _currentKeyIndex here — startIdx is fixed for this pass.
         } else {
-          console.error(`[gemini] ${label}: model=${model} error — ${msg.slice(0, 150)}`);
+          console.error(`[gemini] ${label}: model=${model} non-retryable error ${msg.slice(0, 150)}`);
           break;
         }
       }
     }
+    // Advance by 1 so the next call starts from the key after where this pass began.
+    _currentKeyIndex = (startIdx + 1) % keys.length;
   }
 
   // If every key is now confirmed quota-exhausted, set the run-level flag so
