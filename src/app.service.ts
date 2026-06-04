@@ -17,6 +17,7 @@ import {
   registerWebhook,
   resolveJobRef,
 } from './job-search/telegram';
+import { JobHistoryEntry, redisGetJobHistory } from './job-search/redis-store';
 import { JobSearchState } from './job-search/types';
 
 @Injectable()
@@ -366,6 +367,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return renderHtml(state);
   }
 
+  async getHistoryPage(): Promise<string> {
+    const entries = await redisGetJobHistory();
+    return renderHistoryHtml(entries);
+  }
+
   private async safeRun(trigger: 'startup' | 'interval' | 'manual'): Promise<void> {
     if (this.activeRun) {
       this.logger.warn(`Skipping ${trigger} run because another scan is still active.`);
@@ -431,6 +437,122 @@ function statusDot(status: string): string {
   const colors: Record<string, string> = { success: '#16a34a', error: '#dc2626', running: '#d97706', idle: '#9ca3af' };
   const color = colors[status] ?? colors['idle'];
   return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle;"></span>`;
+}
+
+function renderHistoryHtml(entries: JobHistoryEntry[]): string {
+  const applied = entries.filter((e) => e.type === 'applied');
+  const dismissed = entries.filter((e) => e.type === 'dismissed');
+
+  const fmtDate = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch { return iso; }
+  };
+
+  const tableRows = (rows: JobHistoryEntry[], type: 'applied' | 'dismissed') => {
+    if (!rows.length) {
+      return `<tr><td colspan="5" style="text-align:center;padding:32px;color:#6b7280;">
+        No ${type} jobs yet. ${type === 'applied' ? 'Use the "Applied" button on a job card to track it here.' : ''}
+      </td></tr>`;
+    }
+    return rows.map((e, i) => {
+      const bg = type === 'applied' ? '#f0fdf4' : '#fafafa';
+      const badge = type === 'applied'
+        ? `<span style="padding:2px 8px;border-radius:99px;background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;">APPLIED</span>`
+        : `<span style="padding:2px 8px;border-radius:99px;background:#f3f4f6;color:#6b7280;font-size:11px;font-weight:700;">DISMISSED</span>`;
+      const sc = e.score;
+      const scColor = sc >= 80 ? '#15803d' : sc >= 60 ? '#d97706' : '#6b7280';
+      const scBg = sc >= 80 ? '#dcfce7' : sc >= 60 ? '#fef3c7' : '#f3f4f6';
+      return `
+        <tr style="background:${i % 2 === 0 ? 'white' : bg};">
+          <td style="padding:10px 14px;font-size:13px;color:#6b7280;">${fmtDate(e.date)}</td>
+          <td style="padding:10px 14px;">
+            <div style="font-weight:600;font-size:14px;">${escapeHtml(e.title)}</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:2px;">${escapeHtml(e.source)}</div>
+          </td>
+          <td style="padding:10px 14px;font-weight:500;font-size:14px;">${escapeHtml(e.company)}</td>
+          <td style="padding:10px 14px;">
+            <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:${scColor};background:${scBg};">${sc}%</span>
+          </td>
+          <td style="padding:10px 14px;">${badge}</td>
+          <td style="padding:10px 14px;">
+            <a href="${escapeHtml(e.url)}" target="_blank" rel="noreferrer"
+               style="font-size:12px;color:#2563eb;text-decoration:none;">View posting →</a>
+          </td>
+        </tr>`;
+    }).join('');
+  };
+
+  const tabs = (active: 'applied' | 'dismissed') => `
+    <div style="display:flex;gap:4px;margin-bottom:20px;">
+      <a href="?tab=applied" style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;
+         ${active === 'applied' ? 'background:#2563eb;color:white;' : 'background:#f3f4f6;color:#374151;'}">
+        Applied (${applied.length})
+      </a>
+      <a href="?tab=dismissed" style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;
+         ${active === 'dismissed' ? 'background:#6b7280;color:white;' : 'background:#f3f4f6;color:#374151;'}">
+        Dismissed (${dismissed.length})
+      </a>
+    </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Application History — Uman Mushtaq</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
+      .page { max-width: 1100px; margin: 0 auto; }
+      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
+      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 24px; }
+      .card { background: white; border-radius: 14px; padding: 24px;
+              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 20px; }
+      .nav { margin-bottom: 20px; }
+      .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
+      table { width: 100%; border-collapse: collapse; }
+      thead th { background: #f8fafc; padding: 10px 14px; text-align: left;
+                 font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase;
+                 letter-spacing: .05em; border-bottom: 1px solid #e5e7eb; }
+      tbody tr:hover { background: #f8fafc !important; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="nav"><a href="/">← Back to Dashboard</a></div>
+      <h1>Application History</h1>
+      <p class="subtitle">${applied.length} applied · ${dismissed.length} dismissed</p>
+
+      <div class="card" id="applied-section">
+        <div style="font-size:17px;font-weight:600;margin-bottom:16px;">Applied (${applied.length})</div>
+        ${tabs('applied')}
+        <div id="tab-applied">
+          <table>
+            <thead><tr>
+              <th>Date</th><th>Job</th><th>Company</th><th>Score</th><th>Status</th><th>Link</th>
+            </tr></thead>
+            <tbody>${tableRows(applied, 'applied')}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="dismissed-section">
+        <div style="font-size:17px;font-weight:600;margin-bottom:16px;">Dismissed (${dismissed.length})</div>
+        ${tabs('dismissed')}
+        <div id="tab-dismissed">
+          <table>
+            <thead><tr>
+              <th>Date</th><th>Job</th><th>Company</th><th>Score</th><th>Status</th><th>Link</th>
+            </tr></thead>
+            <tbody>${tableRows(dismissed, 'dismissed')}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
 }
 
 function renderHtml(state: JobSearchState): string {
@@ -568,7 +690,7 @@ function renderHtml(state: JobSearchState): string {
         <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
             <h1>Job Search Bot</h1>
-            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris</p>
+            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a></p>
           </div>
           <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
             ${statusDot(state.lastRunStatus)}

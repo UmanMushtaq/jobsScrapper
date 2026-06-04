@@ -21,6 +21,12 @@ export class AppController {
     return this.appService.renderDashboard();
   }
 
+  @Get('history')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async history(): Promise<string> {
+    return this.appService.getHistoryPage();
+  }
+
   @Get('health')
   async health() {
     return this.appService.getHealth();

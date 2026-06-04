@@ -31,7 +31,7 @@ import {
   removeUrlsFromStore,
   writeJsonFile,
 } from './storage';
-import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetRoleSet } from './redis-store';
+import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetRoleSet, redisStoreJobHistory } from './redis-store';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
 
@@ -418,16 +418,27 @@ export async function markJobDecision(
 
   const normDecision = (url: string) => { try { return normalizeUrl(url); } catch { return url; } };
 
+  const state = await readJobSearchState();
+  const match = state.latestMatches.find((m) => normDecision(m.job.canonicalUrl) === normDecision(normalizedUrl));
+
   if (decision === 'applied') {
     await addUrlsToStore(appliedFile, 'applied_urls', [normalizedUrl], { ttlMs: 180 * 24 * 60 * 60 * 1000 });
-    const state = await readJobSearchState();
-    const match = state.latestMatches.find((m) => normDecision(m.job.canonicalUrl) === normDecision(normalizedUrl));
     if (match) await redisAddRoleKey('applied', buildRoleKey(match.job.company, match.job.title), 180 * 24 * 60 * 60 * 1000);
   } else {
     await addUrlsToStore(dismissedFile, 'dismissed_urls', [normalizedUrl], { ttlMs: 60 * 24 * 60 * 60 * 1000 });
-    const state = await readJobSearchState();
-    const match = state.latestMatches.find((m) => normDecision(m.job.canonicalUrl) === normDecision(normalizedUrl));
     if (match) await redisAddRoleKey('dismissed', buildRoleKey(match.job.company, match.job.title), 60 * 24 * 60 * 60 * 1000);
+  }
+
+  if (match) {
+    await redisStoreJobHistory({
+      type: decision,
+      title: match.job.title,
+      company: match.job.company,
+      url: match.job.canonicalUrl,
+      score: match.score,
+      source: match.job.source ?? '',
+      date: new Date().toISOString(),
+    });
   }
 
   await removeUrlsFromStore(seenFile, 'seen_urls', [normalizedUrl]);

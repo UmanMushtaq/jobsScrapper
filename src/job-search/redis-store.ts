@@ -216,6 +216,50 @@ export async function redisMarkFollowupSent(urls: string[]): Promise<void> {
   }
 }
 
+// --- Job history (applied / dismissed with metadata) ---
+
+export interface JobHistoryEntry {
+  type: 'applied' | 'dismissed';
+  title: string;
+  company: string;
+  url: string;
+  score: number;
+  source: string;
+  date: string; // ISO 8601
+}
+
+const HISTORY_KEY = 'job:history_z';
+const HISTORY_TTL_MS = 180 * 24 * 60 * 60 * 1000; // 180 days
+
+export async function redisStoreJobHistory(entry: JobHistoryEntry): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    const now = Date.now();
+    type SM = { score: number; member: string };
+    await r.zadd<string>(HISTORY_KEY, { score: now, member: JSON.stringify(entry) } as SM);
+    await r.zremrangebyscore(HISTORY_KEY, 0, now - HISTORY_TTL_MS);
+  } catch (err) {
+    console.error('[redis] storeJobHistory failed:', (err as Error).message);
+  }
+}
+
+export async function redisGetJobHistory(): Promise<JobHistoryEntry[]> {
+  const r = getClient();
+  if (!r) return [];
+  try {
+    const members = await r.zrange<string[]>(HISTORY_KEY, 0, -1);
+    const entries = members
+      .map((m) => { try { return JSON.parse(m) as JobHistoryEntry; } catch { return null; } })
+      .filter((e): e is JobHistoryEntry => e !== null);
+    // Most recent first
+    return entries.reverse();
+  } catch (err) {
+    console.error('[redis] getJobHistory failed:', (err as Error).message);
+    return [];
+  }
+}
+
 // --- JSON state operations ---
 // Use explicit JSON.stringify/parse to ensure reliable round-trip for nested objects.
 
