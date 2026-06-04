@@ -30,7 +30,7 @@ import {
   removeUrlsFromStore,
   writeJsonFile,
 } from './storage';
-import { isRedisAvailable } from './redis-store';
+import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetRoleSet } from './redis-store';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
 
@@ -90,11 +90,15 @@ export async function runJobSearchOnce(
   try {
     const [seenUrls, appliedUrls, dismissedUrls, sentUrls] = await Promise.all([
       readUrlSet(seenFile, 'seen_urls', { ttlMs: seenTtlMs }),
-      readUrlSet(appliedFile, 'applied_urls'),
-      readUrlSet(dismissedFile, 'dismissed_urls'),
-      readUrlSet(sentFile, 'sent_urls'),
+      readUrlSet(appliedFile, 'applied_urls', { ttlMs: 180 * 24 * 60 * 60 * 1000 }),
+      readUrlSet(dismissedFile, 'dismissed_urls', { ttlMs: 60 * 24 * 60 * 60 * 1000 }),
+      readUrlSet(sentFile, 'sent_urls', { ttlMs: 30 * 24 * 60 * 60 * 1000 }),
     ]);
-    console.log(`[storage] seen=${seenUrls.size} applied=${appliedUrls.size} dismissed=${dismissedUrls.size} sent=${sentUrls.size}`);
+    const [appliedRoles, dismissedRoles] = await Promise.all([
+      redisGetRoleSet('applied', 180 * 24 * 60 * 60 * 1000),
+      redisGetRoleSet('dismissed', 60 * 24 * 60 * 60 * 1000),
+    ]);
+    console.log(`[storage] seen=${seenUrls.size} applied=${appliedUrls.size} dismissed=${dismissedUrls.size} sent=${sentUrls.size} applied-roles=${appliedRoles.size} dismissed-roles=${dismissedRoles.size}`);
 
     const sources = [
       new WttjJobsSource(),
@@ -139,9 +143,13 @@ export async function runJobSearchOnce(
     const jobs = Array.from(jobMap.values());
 
     // Always compare normalized URLs — sources may return raw URLs while Redis stores normalized ones.
-    const baseFilter = (job: { canonicalUrl: string }) => {
+    // Also check company+title role keys to catch reposts of the same role with a new URL.
+    const baseFilter = (job: { canonicalUrl: string; company: string; title: string }) => {
       const url = safeNorm(job.canonicalUrl);
-      return !seenUrls.has(url) && !appliedUrls.has(url) && !dismissedUrls.has(url);
+      if (seenUrls.has(url) || appliedUrls.has(url) || dismissedUrls.has(url)) return false;
+      const roleKey = buildRoleKey(job.company, job.title);
+      if (appliedRoles.has(roleKey) || dismissedRoles.has(roleKey)) return false;
+      return true;
     };
 
     const freshJobs = jobs.filter(
@@ -252,12 +260,17 @@ export async function runJobSearchOnce(
     console.log(`[notify] ${slicedMatches.length} scored → ${unseenRaw.length} not yet sent (${alreadySentCount} already sent before)`);
 
     const newMatches: MatchResult[] = [];
-    const suspiciousMatches: MatchResult[] = [];
+    const rejectedByAi: MatchResult[] = [];
     for (const match of unseenRaw) {
       const ai = await enrichMatch(match, profile);
+      if (ai && ai.relevanceScore < 55) {
+        console.log(`[notify] LOW RELEVANCE (${ai.relevanceScore}/100) — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]${ai.relevanceIssues.length ? ` — ${ai.relevanceIssues[0]}` : ''}`);
+        rejectedByAi.push(match);
+        continue;
+      }
       if (ai && ai.isSuspicious) {
-        console.log(`[notify] SUSPICIOUS — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]`);
-        suspiciousMatches.push(match);
+        console.log(`[notify] SUSPICIOUS (fraud=${ai.fraudScore}) — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]`);
+        rejectedByAi.push(match);
         continue;
       }
       newMatches.push(
@@ -270,12 +283,20 @@ export async function runJobSearchOnce(
               suggestedSalary: ai.suggestedSalary ?? undefined,
               companyQualityScore: ai.companyQualityScore,
               companyRedFlags: ai.companyRedFlags,
+              relevanceScore: ai.relevanceScore,
+              visaFriendly: ai.visaFriendly,
+              visaNote: ai.visaNote,
+              atsMissingKeywords: ai.atsMissingKeywords,
+              atsPlacementSuggestions: ai.atsPlacementSuggestions,
+              hiringEmail: ai.hiringEmail,
+              emailSubject: ai.emailSubject,
+              emailBody: ai.emailBody,
             }
           : match,
       );
     }
     if (unseenRaw.length > 0) {
-      console.log(`[notify] AI enrichment done: ${newMatches.length}/${unseenRaw.length} passed`);
+      console.log(`[notify] AI enrichment done: ${newMatches.length}/${unseenRaw.length} passed (${rejectedByAi.length} rejected)`);
     }
 
     // All scored matches (new + already-sent) for the report and seenUrls tracking
@@ -312,12 +333,12 @@ export async function runJobSearchOnce(
       console.error('[followup] check failed:', err instanceof Error ? err.message : String(err));
     });
 
-    // Mark suspicious jobs as seen (same TTL) so they are not re-enriched on every run
-    // until they age out. Without this, each suspicious job triggers a Gemini call on
+    // Mark AI-rejected jobs as seen (same TTL) so they are not re-enriched on every run
+    // until they age out. Without this, each rejected job triggers a Gemini call on
     // every run for up to 72 hours (maxAgeHours / checkIntervalHours = 24 extra calls each).
     const allSeen = [
       ...matches.map((m) => m.job.canonicalUrl),
-      ...suspiciousMatches.map((m) => m.job.canonicalUrl),
+      ...rejectedByAi.map((m) => m.job.canonicalUrl),
     ];
     await addUrlsToStore(seenFile, 'seen_urls', allSeen, { ttlMs: seenTtlMs });
 
@@ -387,10 +408,18 @@ export async function markJobDecision(
   const seenFile = process.env.JOB_SEARCH_SEEN_FILE ?? DEFAULT_SEEN_FILE;
   const stateFile = process.env.JOB_SEARCH_STATE_FILE ?? DEFAULT_STATE_FILE;
 
+  const normDecision = (url: string) => { try { return normalizeUrl(url); } catch { return url; } };
+
   if (decision === 'applied') {
-    await addUrlsToStore(appliedFile, 'applied_urls', [normalizedUrl]);
+    await addUrlsToStore(appliedFile, 'applied_urls', [normalizedUrl], { ttlMs: 180 * 24 * 60 * 60 * 1000 });
+    const state = await readJobSearchState();
+    const match = state.latestMatches.find((m) => normDecision(m.job.canonicalUrl) === normDecision(normalizedUrl));
+    if (match) await redisAddRoleKey('applied', buildRoleKey(match.job.company, match.job.title), 180 * 24 * 60 * 60 * 1000);
   } else {
-    await addUrlsToStore(dismissedFile, 'dismissed_urls', [normalizedUrl]);
+    await addUrlsToStore(dismissedFile, 'dismissed_urls', [normalizedUrl], { ttlMs: 60 * 24 * 60 * 60 * 1000 });
+    const state = await readJobSearchState();
+    const match = state.latestMatches.find((m) => normDecision(m.job.canonicalUrl) === normDecision(normalizedUrl));
+    if (match) await redisAddRoleKey('dismissed', buildRoleKey(match.job.company, match.job.title), 60 * 24 * 60 * 60 * 1000);
   }
 
   await removeUrlsFromStore(seenFile, 'seen_urls', [normalizedUrl]);
@@ -454,6 +483,18 @@ async function buildTelegramPayload(
       `Why: ${match.reasons.slice(0, 2).join('; ')}`,
     ];
 
+    if (match.relevanceScore !== undefined) {
+      const r = match.relevanceScore;
+      const rIcon = r >= 80 ? '✓' : r >= 60 ? '~' : '⚠️';
+      lines.push(`AI relevance: ${r}/100 ${rIcon}`);
+    }
+
+    if (match.visaFriendly !== undefined && match.visaFriendly !== null) {
+      const visaIcon = match.visaFriendly ? '✓' : '⚠️';
+      const note = match.visaNote ? ` — ${match.visaNote}` : '';
+      lines.push(`APS visa: ${match.visaFriendly ? 'compatible' : 'sponsorship needed'}${note} ${visaIcon}`);
+    }
+
     if (match.fraudScore !== undefined) {
       lines.push(`Fraud risk: ${match.fraudScore}% ${match.fraudScore >= 40 ? '⚠️' : '✓'}`);
     }
@@ -469,7 +510,27 @@ async function buildTelegramPayload(
       lines.push(`Salary to quote: ${match.suggestedSalary}`);
     }
 
-    lines.push('', '--- Cover letter ---', '', match.coverLetter);
+    if (match.atsMissingKeywords?.length) {
+      lines.push(`ATS gaps: ${match.atsMissingKeywords.join(', ')}`);
+      if (match.atsPlacementSuggestions?.length) {
+        lines.push(`Tip: ${match.atsPlacementSuggestions[0]}`);
+      }
+    }
+
+    if (match.coverLetter) {
+      lines.push('', '--- Cover letter ---', '', match.coverLetter);
+    }
+
+    if (match.hiringEmail) {
+      lines.push(
+        '',
+        '--- Direct email to hiring manager ---',
+        `To: ${match.hiringEmail}`,
+        `Subject: ${match.emailSubject ?? `Application: ${match.job.title} — ${match.job.company}`}`,
+        '',
+        match.emailBody ?? '',
+      );
+    }
 
     // Store hash → URL for button callbacks (fire-and-forget, non-blocking)
     const hash = await storeJobRef(match.job.canonicalUrl);
@@ -602,6 +663,8 @@ function slimMatchesForState(matches: MatchResult[]): MatchResult[] {
     job: { ...m.job, description: '', companySummary: '', keyMissions: [] },
     coverLetter: '',
     shortAnswers: [],
+    emailBody: undefined,
+    atsPlacementSuggestions: undefined,
   }));
 }
 

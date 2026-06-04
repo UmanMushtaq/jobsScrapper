@@ -111,13 +111,42 @@ async function runQuery(
   return (await response.json()) as WttjResponse;
 }
 
+const USA_OFFICE_CITIES = [
+  'san francisco', 'new york', 'new york city', 'austin', 'seattle',
+  'boston', 'chicago', 'los angeles', 'denver', 'miami', 'portland',
+  'atlanta', 'dallas', 'san jose', 'silicon valley',
+];
+
 function mapHit(hit: WttjHit): JobPosting {
   const primaryOffice = hit.offices[0] ?? {};
   const city = primaryOffice.city ?? null;
   const country = primaryOffice.country ?? 'Unknown';
-  const countryCode = primaryOffice.country_code?.toUpperCase() ?? null;
+  let countryCode = primaryOffice.country_code?.toUpperCase() ?? null;
   const workMode =
     hit.remote === 'full' ? 'remote' : hit.has_remote ? 'hybrid' : 'on-site';
+
+  // For non-remote jobs: if any listed office is US-based, treat as US job.
+  // Catches companies (e.g. Finch, Crunchyroll) that list a Paris entity on WTTJ
+  // but whose job description requires physical presence in a US office.
+  if (workMode !== 'remote') {
+    const hasUsaOffice = hit.offices.some(
+      (o) => o.country_code?.toLowerCase() === 'us',
+    );
+    if (!hasUsaOffice) {
+      // Also scan description text for US city + office/in-person context
+      const descText = `${hit.summary ?? ''} ${hit.profile ?? ''}`.toLowerCase();
+      const mentionsUsaOffice = USA_OFFICE_CITIES.some((cityName) => {
+        const idx = descText.indexOf(cityName);
+        if (idx === -1) return false;
+        const surrounding = descText.slice(Math.max(0, idx - 120), idx + 120);
+        return /office|per week|days?\s+a\s+week|in[- ]person|on[- ]site/.test(surrounding);
+      });
+      if (mentionsUsaOffice) countryCode = 'US';
+    } else {
+      countryCode = 'US';
+    }
+  }
+
   const canonicalUrl = `https://www.welcometothejungle.com/en/companies/${hit.organization.slug}/jobs/${hit.slug}`;
 
   return {

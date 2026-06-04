@@ -336,9 +336,9 @@ function renderHtml(state: JobSearchState): string {
       <h1>Job Search Bot</h1>
       <p class="status">Status: ${escapeHtml(state.lastRunStatus)}</p>
       <div class="meta">
-        <div><strong>Last run:</strong> <span class="muted">${escapeHtml(state.lastRunAt ?? 'never')}</span></div>
-        <div><strong>Last success:</strong> <span class="muted">${escapeHtml(state.lastSuccessAt ?? 'never')}</span></div>
-        <div><strong>Next run:</strong> <span class="muted">${escapeHtml(state.nextRunAt ?? 'not scheduled')}</span></div>
+        <div><strong>Last run:</strong> <span class="muted ts" data-utc="${escapeHtml(state.lastRunAt ?? '')}">${escapeHtml(state.lastRunAt ?? 'never')}</span></div>
+        <div><strong>Last success:</strong> <span class="muted ts" data-utc="${escapeHtml(state.lastSuccessAt ?? '')}">${escapeHtml(state.lastSuccessAt ?? 'never')}</span></div>
+        <div><strong>Next run:</strong> <span class="muted ts" data-utc="${escapeHtml(state.nextRunAt ?? '')}">${escapeHtml(state.nextRunAt ?? 'not scheduled')}</span></div>
         <div><strong>Interval:</strong> <span class="muted">${state.intervalMinutes} minutes</span></div>
         <div><strong>Seen TTL:</strong> <span class="muted">${state.seenTtlHours} hour(s)</span></div>
         <div><strong>Latest match count:</strong> <span class="muted">${state.stats.matchCount}</span></div>
@@ -375,6 +375,15 @@ function renderHtml(state: JobSearchState): string {
         </tbody>
       </table>
     </div>
+    <script>
+      document.querySelectorAll('.ts[data-utc]').forEach(function(el) {
+        var utc = el.getAttribute('data-utc');
+        if (!utc) return;
+        var d = new Date(utc);
+        if (isNaN(d.getTime())) return;
+        el.textContent = d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      });
+    </script>
   </body>
 </html>`;
 }

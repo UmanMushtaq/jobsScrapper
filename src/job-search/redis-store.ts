@@ -14,12 +14,70 @@ export function isRedisAvailable(): boolean {
   return getClient() !== null;
 }
 
+// All URL stores use ZSET (score = timestamp ms) so per-entry TTL is trivial.
+// Legacy SET keys (job:sent, job:applied, job:dismissed) are migrated on first access.
 const URL_KEY_MAP: Record<string, string> = {
-  seen_urls: 'job:seen',       // ZSET — score = timestamp ms; pruned on every read AND write
-  sent_urls: 'job:sent',       // SET  — permanent, never expires
-  applied_urls: 'job:applied', // SET
-  dismissed_urls: 'job:dismissed', // SET
+  seen_urls: 'job:seen',           // ZSET — always was ZSET
+  sent_urls: 'job:sent_z',         // ZSET (migrated from job:sent SET)
+  applied_urls: 'job:applied_z',   // ZSET (migrated from job:applied SET)
+  dismissed_urls: 'job:dismissed_z', // ZSET (migrated from job:dismissed SET)
 };
+
+const LEGACY_SET_KEY_MAP: Record<string, string> = {
+  sent_urls: 'job:sent',
+  applied_urls: 'job:applied',
+  dismissed_urls: 'job:dismissed',
+};
+
+// Default TTLs when none supplied by caller
+const DEFAULT_TTL_MS: Record<string, number> = {
+  sent_urls: 30 * 24 * 60 * 60 * 1000,       // 30 days
+  applied_urls: 180 * 24 * 60 * 60 * 1000,    // 180 days
+  dismissed_urls: 60 * 24 * 60 * 60 * 1000,   // 60 days
+};
+
+// --- Role-based deduplication (company + base title) ---
+const ROLE_KEY_MAP: Record<string, string> = {
+  applied: 'job:applied_roles',
+  dismissed: 'job:dismissed_roles',
+};
+
+export function buildRoleKey(company: string, title: string): string {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `${norm(company)}::${norm(title.split('|')[0].trim())}`;
+}
+
+export async function redisAddRoleKey(
+  type: 'applied' | 'dismissed',
+  roleKey: string,
+  ttlMs: number,
+): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    type SM = { score: number; member: string };
+    await r.zadd<string>(ROLE_KEY_MAP[type], { score: Date.now(), member: roleKey } as SM);
+    await r.zremrangebyscore(ROLE_KEY_MAP[type], 0, Date.now() - ttlMs);
+  } catch (err) {
+    console.error('[redis] addRoleKey failed:', (err as Error).message);
+  }
+}
+
+export async function redisGetRoleSet(
+  type: 'applied' | 'dismissed',
+  ttlMs: number,
+): Promise<Set<string>> {
+  const r = getClient();
+  if (!r) return new Set();
+  try {
+    await r.zremrangebyscore(ROLE_KEY_MAP[type], 0, Date.now() - ttlMs);
+    const members = await r.zrange<string[]>(ROLE_KEY_MAP[type], 0, -1);
+    return new Set(members);
+  } catch (err) {
+    console.error('[redis] getRoleSet failed:', (err as Error).message);
+    return new Set();
+  }
+}
 
 export const FILE_KEY_MAP: Record<string, string> = {
   'job_search_state.json': 'job:state',
@@ -37,16 +95,30 @@ export async function redisReadUrlSet(
   if (!key) return null;
 
   try {
-    if (urlKey === 'seen_urls') {
-      // Prune BEFORE reading so the window shrinks even when 0 matches are found
-      // (writes only happen when matches exist — without read-time pruning the ZSET
-      // accumulates forever and blocks all fresh jobs on every subsequent run).
-      const pruneMs = options?.ttlMs ?? 48 * 60 * 60 * 1000;
-      await r.zremrangebyscore(key, 0, Date.now() - pruneMs);
-      const members = await r.zrange<string[]>(key, 0, -1);
-      return new Set(members);
+    const pruneMs = options?.ttlMs ?? DEFAULT_TTL_MS[urlKey] ?? 48 * 60 * 60 * 1000;
+    await r.zremrangebyscore(key, 0, Date.now() - pruneMs);
+    const members = await r.zrange<string[]>(key, 0, -1);
+
+    // One-time migration: copy members from legacy SET key into ZSET
+    const legacyKey = LEGACY_SET_KEY_MAP[urlKey];
+    if (legacyKey) {
+      try {
+        const legacyCount = await r.scard(legacyKey);
+        if (legacyCount > 0) {
+          const legacyMembers = await r.smembers<string[]>(legacyKey);
+          const now = Date.now();
+          type SM = { score: number; member: string };
+          const scoreMembers = legacyMembers.map((m): SM => ({ score: now, member: m })) as [SM, ...SM[]];
+          await r.zadd<string>(key, ...scoreMembers);
+          await r.del(legacyKey);
+          console.log(`[redis] migrated ${legacyCount} entries from legacy SET ${legacyKey} → ZSET ${key}`);
+          return new Set([...members, ...legacyMembers]);
+        }
+      } catch {
+        // Migration is best-effort — don't fail the read
+      }
     }
-    const members = await r.smembers<string[]>(key);
+
     return new Set(members);
   } catch (err) {
     console.error('[redis] readUrlSet failed:', (err as Error).message);
@@ -62,18 +134,12 @@ export async function redisAddUrls(urlKey: string, urls: string[], ttlMs?: numbe
   if (!key) return;
 
   try {
-    if (urlKey === 'seen_urls') {
-      const now = Date.now();
-      type SM = { score: number; member: string };
-      const scoreMembers = urls.map((url): SM => ({ score: now, member: url })) as [SM, ...SM[]];
-      await r.zadd<string>(key, ...scoreMembers);
-      // Prune entries older than the configured TTL (defaults to 48h)
-      const pruneMs = ttlMs ?? 48 * 60 * 60 * 1000;
-      await r.zremrangebyscore(key, 0, now - pruneMs);
-    } else {
-      const nonEmpty = urls as [string, ...string[]];
-      await r.sadd<string>(key, ...nonEmpty);
-    }
+    const now = Date.now();
+    type SM = { score: number; member: string };
+    const scoreMembers = urls.map((url): SM => ({ score: now, member: url })) as [SM, ...SM[]];
+    await r.zadd<string>(key, ...scoreMembers);
+    const pruneMs = ttlMs ?? DEFAULT_TTL_MS[urlKey] ?? 48 * 60 * 60 * 1000;
+    await r.zremrangebyscore(key, 0, now - pruneMs);
   } catch (err) {
     console.error('[redis] addUrls failed:', (err as Error).message);
   }
@@ -87,11 +153,7 @@ export async function redisRemoveUrls(urlKey: string, urls: string[]): Promise<v
   if (!key) return;
 
   try {
-    if (urlKey === 'seen_urls') {
-      await r.zrem<string>(key, ...urls);
-    } else {
-      await r.srem<string>(key, ...urls);
-    }
+    await r.zrem<string>(key, ...urls);
   } catch (err) {
     console.error('[redis] removeUrls failed:', (err as Error).message);
   }
