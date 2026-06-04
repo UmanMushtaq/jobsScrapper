@@ -373,109 +373,254 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function renderHtml(state: JobSearchState): string {
-  const statusColor =
-    state.lastRunStatus === 'success'
-      ? '#116329'
-      : state.lastRunStatus === 'error'
-        ? '#8f1d1d'
-        : '#374151';
+function scoreColor(score: number): string {
+  if (score >= 80) return '#15803d';
+  if (score >= 65) return '#b45309';
+  return '#b91c1c';
+}
 
+function scoreBg(score: number): string {
+  if (score >= 80) return '#dcfce7';
+  if (score >= 65) return '#fef3c7';
+  return '#fee2e2';
+}
+
+function workModeBadge(mode: string): string {
+  const styles: Record<string, string> = {
+    remote: 'background:#dbeafe;color:#1e40af',
+    hybrid: 'background:#ede9fe;color:#5b21b6',
+    'on-site': 'background:#f3f4f6;color:#374151',
+  };
+  const style = styles[mode] ?? styles['on-site'];
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;${style}">${escapeHtml(mode)}</span>`;
+}
+
+function statusDot(status: string): string {
+  const colors: Record<string, string> = { success: '#16a34a', error: '#dc2626', running: '#d97706', idle: '#9ca3af' };
+  const color = colors[status] ?? colors['idle'];
+  return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle;"></span>`;
+}
+
+function renderHtml(state: JobSearchState): string {
   const rows =
     state.latestMatches.length > 0
       ? state.latestMatches
           .map((match) => {
             const url = escapeHtml(match.job.canonicalUrl);
+            const sc = match.score;
+            const reasons = match.reasons.slice(0, 2).join('<br>');
             return `
               <tr>
-                <td>${escapeHtml(match.job.title)}</td>
-                <td>${escapeHtml(match.job.company)}</td>
-                <td>${escapeHtml(match.job.locationLabel)}</td>
-                <td>${escapeHtml(match.job.workMode)}</td>
-                <td>${escapeHtml(match.salaryLabel)}</td>
-                <td>${match.score}%</td>
-                <td>${escapeHtml(match.reasons.join('; '))}</td>
                 <td>
-                  <a href="${escapeHtml(match.job.applyUrl)}" target="_blank" rel="noreferrer">Apply</a>
-                  <form method="post" action="/jobs/applied" style="display:inline-block;margin-left:8px;">
-                    <input type="hidden" name="url" value="${url}" />
-                    <button type="submit">Applied</button>
-                  </form>
-                  <form method="post" action="/jobs/dismissed" style="display:inline-block;margin-left:8px;">
-                    <input type="hidden" name="url" value="${url}" />
-                    <button type="submit">Dismiss</button>
-                  </form>
+                  <div style="font-weight:600;font-size:14px;line-height:1.4;">${escapeHtml(match.job.title)}</div>
+                  <div style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}</div>
+                </td>
+                <td style="font-weight:500;">${escapeHtml(match.job.company)}</td>
+                <td style="color:#374151;font-size:13px;">${escapeHtml(match.job.locationLabel)}</td>
+                <td>${workModeBadge(match.job.workMode)}</td>
+                <td style="font-size:13px;white-space:nowrap;">${escapeHtml(match.salaryLabel)}</td>
+                <td>
+                  <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:${scoreColor(sc)};background:${scoreBg(sc)};">
+                    ${sc}%
+                  </span>
+                </td>
+                <td style="font-size:12px;color:#4b5563;max-width:220px;">${reasons}</td>
+                <td>
+                  <div style="display:flex;flex-direction:column;gap:6px;min-width:120px;">
+                    <a href="${escapeHtml(match.job.applyUrl)}" target="_blank" rel="noreferrer"
+                       style="display:block;text-align:center;padding:6px 12px;background:#2563eb;color:white;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">
+                      Apply
+                    </a>
+                    <form method="post" action="/jobs/applied">
+                      <input type="hidden" name="url" value="${url}" />
+                      <button type="submit" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">
+                        ✓ Applied
+                      </button>
+                    </form>
+                    <form method="post" action="/jobs/dismissed">
+                      <input type="hidden" name="url" value="${url}" />
+                      <button type="submit" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">
+                        Dismiss
+                      </button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             `;
           })
           .join('\n')
-      : '<tr><td colspan="8">No current matches. The bot will keep checking automatically.</td></tr>';
+      : `<tr><td colspan="8" style="text-align:center;padding:40px;color:#6b7280;">
+           No current matches — the bot will check again at the next scheduled run.
+         </td></tr>`;
+
+  const statusLabel = state.lastRunStatus === 'running' ? 'Running…' : state.lastRunStatus;
 
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Job Search Bot</title>
+    <title>Job Search — Uman Mushtaq</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 24px; background: #f8fafc; color: #111827; }
-      .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); margin-bottom: 20px; }
-      .status { color: ${statusColor}; font-weight: 700; }
-      table { width: 100%; border-collapse: collapse; background: white; }
-      th, td { border-bottom: 1px solid #e5e7eb; padding: 12px; text-align: left; vertical-align: top; }
-      th { background: #f3f4f6; }
-      button { border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
-      form button { background: #111827; color: white; }
-      .run-button { background: #2563eb; color: white; }
-      .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-      .muted { color: #6b7280; }
-      a { color: #1d4ed8; }
+      *, *::before, *::after { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        margin: 0;
+        padding: 24px 20px;
+        background: #f1f5f9;
+        color: #111827;
+        min-height: 100vh;
+      }
+      .page { max-width: 1280px; margin: 0 auto; }
+      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
+      h2 { margin: 0 0 16px; font-size: 17px; font-weight: 600; color: #111827; }
+      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 20px; }
+      .card {
+        background: white;
+        border-radius: 14px;
+        padding: 24px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+        margin-bottom: 20px;
+      }
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px 20px;
+        margin: 16px 0 20px;
+      }
+      .meta-item label { display:block; font-size:11px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:3px; }
+      .meta-item span { font-size:14px; color:#111827; font-weight:500; }
+      .sources-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+      .source-chip {
+        display:inline-block; padding:3px 9px; border-radius:99px;
+        font-size:11px; font-weight:500;
+        background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0;
+      }
+      .blocked-chip {
+        background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;
+      }
+      .actions-row { display:flex; align-items:center; gap:10px; margin-top:20px; flex-wrap:wrap; }
+      .btn {
+        display:inline-flex; align-items:center; gap:6px;
+        padding:9px 18px; border-radius:8px; font-size:14px; font-weight:600;
+        border:0; cursor:pointer; text-decoration:none; line-height:1;
+      }
+      .btn-primary { background:#2563eb; color:white; }
+      .btn-primary:hover { background:#1d4ed8; }
+      .error-box {
+        background:#fef2f2; border:1px solid #fecaca; border-radius:8px;
+        padding:12px 16px; font-size:13px; color:#991b1b; margin:16px 0 0;
+      }
+      table { width:100%; border-collapse:collapse; }
+      thead th {
+        background:#f8fafc; padding:11px 14px; text-align:left;
+        font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase;
+        letter-spacing:.06em; border-bottom:2px solid #e5e7eb; white-space:nowrap;
+      }
+      tbody tr { transition:background .1s; }
+      tbody tr:hover { background:#f8fafc; }
+      tbody td { padding:14px 14px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+      tbody tr:last-child td { border-bottom:0; }
+      .table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #e5e7eb; }
+      a { color:#2563eb; }
+      @media (max-width: 700px) {
+        body { padding: 12px; }
+        .card { padding: 16px; }
+      }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1>Job Search Bot</h1>
-      <p class="status">Status: ${escapeHtml(state.lastRunStatus)}</p>
-      <div class="meta">
-        <div><strong>Last run:</strong> <span class="muted ts" data-utc="${escapeHtml(state.lastRunAt ?? '')}">${escapeHtml(state.lastRunAt ?? 'never')}</span></div>
-        <div><strong>Last success:</strong> <span class="muted ts" data-utc="${escapeHtml(state.lastSuccessAt ?? '')}">${escapeHtml(state.lastSuccessAt ?? 'never')}</span></div>
-        <div><strong>Next run:</strong> <span class="muted ts" data-utc="${escapeHtml(state.nextRunAt ?? '')}">${escapeHtml(state.nextRunAt ?? 'not scheduled')}</span></div>
-        <div><strong>Interval:</strong> <span class="muted">${state.intervalMinutes} minutes</span></div>
-        <div><strong>Seen TTL:</strong> <span class="muted">${state.seenTtlHours} hour(s)</span></div>
-        <div><strong>Latest match count:</strong> <span class="muted">${state.stats.matchCount}</span></div>
-      </div>
-      ${
-        state.lastError
-          ? `<p><strong>Last error:</strong> <span class="muted">${escapeHtml(state.lastError)}</span></p>`
-          : ''
-      }
-      <p><strong>Active sources:</strong> ${escapeHtml(state.activeSources.join(', '))}</p>
-      <p><strong>Blocked sources:</strong> ${escapeHtml(state.blockedSources.join(', '))}</p>
-      <form method="post" action="/run-now">
-        <button class="run-button" type="submit">Run now</button>
-      </form>
-    </div>
+    <div class="page">
 
-    <div class="card">
-      <h2>Current matches</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Role</th>
-            <th>Company</th>
-            <th>Location</th>
-            <th>Mode</th>
-            <th>Salary</th>
-            <th>Score</th>
-            <th>Why it matches</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
+      <div class="card">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <h1>Job Search Bot</h1>
+            <p class="subtitle">Uman Mushtaq — Node.js / NestJS Backend Engineer, Paris</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
+            ${statusDot(state.lastRunStatus)}
+            <span style="font-size:13px;font-weight:600;color:#374151;">${escapeHtml(statusLabel)}</span>
+          </div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-item">
+            <label>Last run</label>
+            <span class="ts" data-utc="${escapeHtml(state.lastRunAt ?? '')}">${escapeHtml(state.lastRunAt ?? '—')}</span>
+          </div>
+          <div class="meta-item">
+            <label>Last success</label>
+            <span class="ts" data-utc="${escapeHtml(state.lastSuccessAt ?? '')}">${escapeHtml(state.lastSuccessAt ?? '—')}</span>
+          </div>
+          <div class="meta-item">
+            <label>Next run</label>
+            <span class="ts" data-utc="${escapeHtml(state.nextRunAt ?? '')}">${escapeHtml(state.nextRunAt ?? '—')}</span>
+          </div>
+          <div class="meta-item">
+            <label>Interval</label>
+            <span>${state.intervalMinutes} min</span>
+          </div>
+          <div class="meta-item">
+            <label>Current matches</label>
+            <span style="font-size:18px;font-weight:700;color:#2563eb;">${state.stats.matchCount}</span>
+          </div>
+          <div class="meta-item">
+            <label>Fresh jobs scanned</label>
+            <span>${state.stats.freshJobsCount ?? '—'}</span>
+          </div>
+        </div>
+
+        ${state.lastError ? `<div class="error-box"><strong>Last error:</strong> ${escapeHtml(state.lastError)}</div>` : ''}
+
+        <div style="margin-top:16px;">
+          <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">
+            Active sources (${state.activeSources.length})
+          </div>
+          <div class="sources-row">
+            ${state.activeSources.map((s) => `<span class="source-chip">${escapeHtml(s)}</span>`).join('')}
+          </div>
+          ${state.blockedSources.length ? `
+          <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin:10px 0 8px;">
+            No public API
+          </div>
+          <div class="sources-row">
+            ${state.blockedSources.map((s) => `<span class="source-chip blocked-chip">${escapeHtml(s)}</span>`).join('')}
+          </div>` : ''}
+        </div>
+
+        <div class="actions-row">
+          <form method="post" action="/run-now">
+            <button class="btn btn-primary" type="submit">
+              ▶ Run now
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Current matches <span style="font-size:14px;font-weight:400;color:#6b7280;">(${state.latestMatches.length})</span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Role</th>
+                <th>Company</th>
+                <th>Location</th>
+                <th>Mode</th>
+                <th>Salary</th>
+                <th>Score</th>
+                <th>Why it matches</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
     <script>
       document.querySelectorAll('.ts[data-utc]').forEach(function(el) {
