@@ -1,9 +1,16 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import {
+  isRedisAvailable,
+  redisGetFollowupSent,
+  redisMarkFollowupSent,
+  redisReadUrlEntries,
+} from './redis-store';
 import { TelegramOutgoingMessage, sendTelegramMessages } from './telegram';
 
 const FOLLOWUP_DAYS = 7;
 const WINDOW_HOURS = 20; // send reminder once within ±20h of the 7-day mark
+const SENT_TTL_MS = 200 * 24 * 60 * 60 * 1000; // keep "already reminded" markers ~200 days
 
 interface UrlEntry {
   url: string;
@@ -34,16 +41,31 @@ export async function checkFollowups(): Promise<void> {
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!botToken || !chatId) return;
 
+  // In production state lives in Redis, so applied entries must be read from the
+  // Redis ZSET (job:applied_z), not the local file. Reading the file here was a
+  // silent bug: the file is empty under Redis, so reminders never fired.
+  const useRedis = isRedisAvailable();
   const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? 'job_search_applied.json';
   const sentFile = process.env.JOB_SEARCH_FOLLOWUP_SENT_FILE ?? 'job_search_followup_sent.json';
 
-  const [appliedStore, sentStore] = await Promise.all([
-    readJson(appliedFile),
-    readJson(sentFile),
-  ]);
+  let entries: UrlEntry[];
+  let alreadySent: Set<string>;
 
-  const entries: UrlEntry[] = appliedStore.applied_entries ?? [];
-  const alreadySent = new Set<string>(sentStore.sent_urls ?? []);
+  if (useRedis) {
+    const [appliedEntries, sent] = await Promise.all([
+      redisReadUrlEntries('applied_urls'),
+      redisGetFollowupSent(SENT_TTL_MS),
+    ]);
+    entries = appliedEntries ?? [];
+    alreadySent = sent ?? new Set<string>();
+  } else {
+    const [appliedStore, sentStore] = await Promise.all([
+      readJson(appliedFile),
+      readJson(sentFile),
+    ]);
+    entries = appliedStore.applied_entries ?? [];
+    alreadySent = new Set<string>(sentStore.sent_urls ?? []);
+  }
 
   const now = Date.now();
   const targetMs = FOLLOWUP_DAYS * 24 * 60 * 60 * 1000;
@@ -73,9 +95,13 @@ export async function checkFollowups(): Promise<void> {
 
   await sendTelegramMessages(botToken, chatId, messages);
 
-  for (const e of due) alreadySent.add(e.url);
-  sentStore.sent_urls = Array.from(alreadySent);
-  await writeJson(sentFile, sentStore);
+  const dueUrls = due.map((e) => e.url);
+  if (useRedis) {
+    await redisMarkFollowupSent(dueUrls);
+  } else {
+    for (const url of dueUrls) alreadySent.add(url);
+    await writeJson(sentFile, { sent_urls: Array.from(alreadySent) });
+  }
 
   console.log(`[followup] sent ${due.length} reminder(s)`);
 }

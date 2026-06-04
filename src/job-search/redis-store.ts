@@ -159,6 +159,63 @@ export async function redisRemoveUrls(urlKey: string, urls: string[]): Promise<v
   }
 }
 
+// Read URL entries together with their stored timestamp (ZSET score = ms epoch when added).
+// Used by the follow-up reminder, which needs the applied-at time, not just the URL.
+export async function redisReadUrlEntries(
+  urlKey: string,
+): Promise<Array<{ url: string; timestamp: string }> | null> {
+  const r = getClient();
+  if (!r) return null;
+  const key = URL_KEY_MAP[urlKey];
+  if (!key) return null;
+
+  try {
+    // withScores returns a flat [member, score, member, score, ...] array.
+    const flat = (await r.zrange<(string | number)[]>(key, 0, -1, { withScores: true })) ?? [];
+    const entries: Array<{ url: string; timestamp: string }> = [];
+    for (let i = 0; i < flat.length; i += 2) {
+      const url = String(flat[i]);
+      const scoreMs = Number(flat[i + 1]);
+      if (!url || Number.isNaN(scoreMs)) continue;
+      entries.push({ url, timestamp: new Date(scoreMs).toISOString() });
+    }
+    return entries;
+  } catch (err) {
+    console.error('[redis] readUrlEntries failed:', (err as Error).message);
+    return null;
+  }
+}
+
+// Follow-up "already reminded" markers live in their own ZSET so they survive restarts.
+const FOLLOWUP_SENT_KEY = 'job:followup_sent';
+
+export async function redisGetFollowupSent(ttlMs: number): Promise<Set<string> | null> {
+  const r = getClient();
+  if (!r) return null;
+  try {
+    await r.zremrangebyscore(FOLLOWUP_SENT_KEY, 0, Date.now() - ttlMs);
+    const members = await r.zrange<string[]>(FOLLOWUP_SENT_KEY, 0, -1);
+    return new Set(members);
+  } catch (err) {
+    console.error('[redis] getFollowupSent failed:', (err as Error).message);
+    return null;
+  }
+}
+
+export async function redisMarkFollowupSent(urls: string[]): Promise<void> {
+  if (!urls.length) return;
+  const r = getClient();
+  if (!r) return;
+  try {
+    const now = Date.now();
+    type SM = { score: number; member: string };
+    const scoreMembers = urls.map((url): SM => ({ score: now, member: url })) as [SM, ...SM[]];
+    await r.zadd<string>(FOLLOWUP_SENT_KEY, ...scoreMembers);
+  } catch (err) {
+    console.error('[redis] markFollowupSent failed:', (err as Error).message);
+  }
+}
+
 // --- JSON state operations ---
 // Use explicit JSON.stringify/parse to ensure reliable round-trip for nested objects.
 
