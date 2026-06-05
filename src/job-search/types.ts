@@ -79,6 +79,8 @@ export interface ScoreBreakdown {
   location: number;
   startup: number;
   sponsor?: number;
+  // Adjustment learned from your Applied/Dismissed history (can be negative).
+  preference?: number;
 }
 
 export interface MatchResult {

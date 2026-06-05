@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { enrichMatch } from './ai-enrichment';
 import { checkFollowups } from './followup';
 import { scoreJob } from './matcher';
+import { buildPreferenceContext, buildPreferenceModel } from './preference';
 import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
 import { AdzunaJobsSource } from './sources/adzuna.source';
@@ -31,7 +32,7 @@ import {
   removeUrlsFromStore,
   writeJsonFile,
 } from './storage';
-import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetRoleSet, redisStoreJobHistory } from './redis-store';
+import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisStoreJobHistory } from './redis-store';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
 
@@ -103,6 +104,15 @@ export async function runJobSearchOnce(
     ]);
     console.log(`[storage] seen=${seenUrls.size} applied=${appliedUrls.size} dismissed=${dismissedUrls.size} sent=${sentUrls.size} applied-roles=${appliedRoles.size} dismissed-roles=${dismissedRoles.size}`);
 
+    // Preference learning: derive a scoring model + an AI context block from your
+    // Applied/Dismissed history. Built once per run and reused for every job.
+    const decisionHistory = await redisGetJobHistory();
+    const prefModel = buildPreferenceModel(decisionHistory);
+    const prefContext = buildPreferenceContext(decisionHistory);
+    if (prefModel.appliedCount + prefModel.dismissedCount > 0) {
+      console.log(`[preference] learning from ${prefModel.appliedCount} applied + ${prefModel.dismissedCount} dismissed → ${prefModel.weights.size} weighted words`);
+    }
+
     const sources = [
       new WttjJobsSource(),
       new WellfoundJobsSource(),
@@ -163,7 +173,7 @@ export async function runJobSearchOnce(
     );
 
     const rawMatches = freshJobs
-      .map((job) => scoreJob(job, profile))
+      .map((job) => scoreJob(job, profile, prefModel))
       .filter((match): match is MatchResult => match !== null)
       .sort(sortMatches);
 
@@ -266,7 +276,7 @@ export async function runJobSearchOnce(
     const newMatches: MatchResult[] = [];
     const rejectedByAi: MatchResult[] = [];
     for (const match of unseenRaw) {
-      const ai = await enrichMatch(match, profile);
+      const ai = await enrichMatch(match, profile, prefContext);
       if (ai && ai.relevanceScore < 55) {
         console.log(`[notify] LOW RELEVANCE (${ai.relevanceScore}/100) — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]${ai.relevanceIssues.length ? ` — ${ai.relevanceIssues[0]}` : ''}`);
         rejectedByAi.push(match);
@@ -490,7 +500,7 @@ async function buildTelegramPayload(
   for (const [i, match] of matches.entries()) {
     const bd = match.scoreBreakdown;
     const scoreDetail = bd
-      ? ` [Tech:${bd.mandatory} | KW:${bd.keywords} | Loc:${bd.location} | Startup:${bd.startup}${bd.sponsor ? ` | Sponsor:${bd.sponsor}` : ''}]`
+      ? ` [Tech:${bd.mandatory} | KW:${bd.keywords} | Loc:${bd.location} | Startup:${bd.startup}${bd.sponsor ? ` | Sponsor:${bd.sponsor}` : ''}${bd.preference ? ` | Pref:${bd.preference > 0 ? '+' : ''}${bd.preference}` : ''}]`
       : '';
 
     const lines: string[] = [

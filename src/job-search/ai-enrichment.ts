@@ -247,10 +247,11 @@ export interface AiEnrichment {
 export async function enrichMatch(
   match: MatchResult,
   profile: SearchProfile,
+  preferenceContext = '',
 ): Promise<AiEnrichment | null> {
   if (!getApiKeys().length) return null;
   return callWithRotation(
-    (ai, model) => enrichSingle(ai, model, match.job, profile, match.reasons),
+    (ai, model) => enrichSingle(ai, model, match.job, profile, match.reasons, preferenceContext),
     match.job.company,
   );
 }
@@ -325,6 +326,7 @@ async function enrichSingle(
   job: JobPosting,
   profile: SearchProfile,
   matchReasons: string[],
+  preferenceContext = '',
 ): Promise<AiEnrichment> {
   const isConsulting = /(consulting|conseil|agency|agence|ssii|outsourcing)/i.test(
     `${job.company} ${job.companySummary} ${job.description.slice(0, 300)}`,
@@ -339,6 +341,7 @@ async function enrichSingle(
   ].filter(Boolean).join('\n');
 
   const prompt =
+    (preferenceContext ? `${preferenceContext}\n\n` : '') +
     `${companyInfo}\n` +
     `Role: ${job.title}\n` +
     `Location: ${job.locationLabel} (${job.workMode})\n` +

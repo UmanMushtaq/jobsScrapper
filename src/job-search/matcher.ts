@@ -1,3 +1,4 @@
+import { PreferenceModel, scorePreference } from './preference';
 import { detectLanguage } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
@@ -21,7 +22,11 @@ const BASE_REQUIRED_WEIGHTS = [
   },
 ];
 
-export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult | null {
+export function scoreJob(
+  job: JobPosting,
+  profile: SearchProfile,
+  prefModel?: PreferenceModel,
+): MatchResult | null {
   const normalizedTitle = job.title.toLowerCase();
   const text = [job.title, job.description, job.companySummary, ...job.keyMissions]
     .join(' ')
@@ -155,9 +160,15 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
   const locScore = Math.round(locationScore.score / 10);
   const keywordsTotal = kwScore + preferredGroupScore + titleScore;
 
-  const score = Math.min(
-    100,
-    mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore,
+  // Layer 1 learning: nudge the score by what you've Applied to / Dismissed before.
+  const preference = prefModel ? scorePreference(prefModel, job) : { delta: 0, reasons: [] };
+
+  const score = Math.max(
+    0,
+    Math.min(
+      100,
+      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + preference.delta,
+    ),
   );
 
   // Adaptive threshold based on description length:
@@ -175,11 +186,13 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     location: locScore,
     startup: startupScore,
     sponsor: sponsorScore,
+    preference: preference.delta,
   };
 
   const salaryLabel = buildSalaryLabel(job);
   const reasons = [
     ...matchedReasons,
+    ...preference.reasons,
     ...(hasSponsorSignal ? ['Visa/relocation support mentioned in posting'] : []),
     `Location fit: ${locationScore.reason}`,
     ...buildPreferredReasons(text, profile),
