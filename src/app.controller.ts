@@ -56,18 +56,26 @@ export class AppController {
   @Post('jobs/applied')
   async markApplied(
     @Body('url') url: string,
+    @Body('title') title: string,
+    @Body('company') company: string,
+    @Body('score') score: string,
+    @Body('source') source: string,
     @Res() response: Response,
   ): Promise<void> {
-    await this.appService.markApplied(url);
+    await this.appService.markApplied(url, { title, company, score: Number(score) || 0, source });
     response.redirect('/');
   }
 
   @Post('jobs/dismissed')
   async markDismissed(
     @Body('url') url: string,
+    @Body('title') title: string,
+    @Body('company') company: string,
+    @Body('score') score: string,
+    @Body('source') source: string,
     @Res() response: Response,
   ): Promise<void> {
-    await this.appService.markDismissed(url);
+    await this.appService.markDismissed(url, { title, company, score: Number(score) || 0, source });
     response.redirect('/');
   }
 

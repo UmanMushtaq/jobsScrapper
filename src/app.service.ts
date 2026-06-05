@@ -7,6 +7,7 @@ import {
 import { enrichMatch, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
+  JobDecisionMeta,
   markJobDecision,
   readJobSearchState,
   runJobSearchOnce,
@@ -17,7 +18,7 @@ import {
   registerWebhook,
   resolveJobRef,
 } from './job-search/telegram';
-import { JobHistoryEntry, isRedisAvailable, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
+import { JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
 import { JobSearchState } from './job-search/types';
 
 @Injectable()
@@ -150,24 +151,18 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     await answerCallbackQuery(botToken, cbq.id, `${label} saved!`);
   }
 
-  async markApplied(url: string): Promise<void> {
-    if (!url) {
-      return;
-    }
-
-    await markJobDecision('applied', url);
+  async markApplied(url: string, meta?: JobDecisionMeta): Promise<void> {
+    if (!url) return;
+    await markJobDecision('applied', url, meta);
   }
 
-  async markDismissed(url: string): Promise<void> {
-    if (!url) {
-      return;
-    }
-
-    await markJobDecision('dismissed', url);
+  async markDismissed(url: string, meta?: JobDecisionMeta): Promise<void> {
+    if (!url) return;
+    await markJobDecision('dismissed', url, meta);
   }
 
   async getHealth(): Promise<Record<string, unknown>> {
-    const state = await readJobSearchState();
+    const [state, urlCounts] = await Promise.all([readJobSearchState(), redisCountUrlSets()]);
     return {
       ok: true,
       status: state.lastRunStatus,
@@ -181,6 +176,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       redis: isRedisAvailable() ? 'connected' : 'not configured',
       telegram: process.env.TELEGRAM_BOT_TOKEN ? 'configured' : 'not configured',
       scheduler: shouldEnableScheduler() ? 'enabled' : 'disabled',
+      urlCounts,
     };
   }
 
@@ -633,12 +629,20 @@ function renderHtml(state: JobSearchState): string {
                     </a>
                     <form method="post" action="/jobs/applied">
                       <input type="hidden" name="url" value="${url}" />
+                      <input type="hidden" name="title" value="${escapeHtml(match.job.title)}" />
+                      <input type="hidden" name="company" value="${escapeHtml(match.job.company)}" />
+                      <input type="hidden" name="score" value="${sc}" />
+                      <input type="hidden" name="source" value="${escapeHtml(match.job.source ?? '')}" />
                       <button type="submit" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">
                         Applied
                       </button>
                     </form>
                     <form method="post" action="/jobs/dismissed">
                       <input type="hidden" name="url" value="${url}" />
+                      <input type="hidden" name="title" value="${escapeHtml(match.job.title)}" />
+                      <input type="hidden" name="company" value="${escapeHtml(match.job.company)}" />
+                      <input type="hidden" name="score" value="${sc}" />
+                      <input type="hidden" name="source" value="${escapeHtml(match.job.source ?? '')}" />
                       <button type="submit" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">
                         Dismiss
                       </button>
@@ -1055,11 +1059,19 @@ function renderHtml(state: JobSearchState): string {
 
         html += '</div>';
 
-        html += '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;">';
+        html += '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;margin-bottom:10px;">';
         html += '<span>' + systemDot(redisOk) + 'Redis: <strong>' + (data.redis || 'unknown') + '</strong></span>';
         html += '<span>' + systemDot(tgOk)    + 'Telegram: <strong>' + (data.telegram || 'unknown') + '</strong></span>';
         html += '<span>' + systemDot(schOk)   + 'Scheduler: <strong>' + (data.scheduler || 'unknown') + '</strong></span>';
         html += '<span style="margin-left:auto;color:#9ca3af;font-size:12px;">Interval: ' + (data.intervalMinutes || '?') + ' min</span>';
+        html += '</div>';
+
+        var uc = data.urlCounts || {};
+        html += '<div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:#6b7280;padding:8px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;">';
+        html += '<span>Seen URLs: <strong style="color:#374151;">' + (uc.seen || 0) + '</strong></span>';
+        html += '<span>Sent to Telegram: <strong style="color:#374151;">' + (uc.sent || 0) + '</strong></span>';
+        html += '<span>Applied: <strong style="color:#15803d;">' + (uc.applied || 0) + '</strong></span>';
+        html += '<span>Dismissed: <strong style="color:#6b7280;">' + (uc.dismissed || 0) + '</strong></span>';
         html += '</div>';
 
         if (data.error) {

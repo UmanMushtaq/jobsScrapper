@@ -308,6 +308,24 @@ export async function redisSetJson<T>(redisKey: string, value: T): Promise<void>
   }
 }
 
+// --- URL set counts (for dashboard display, no pruning side-effect) ---
+
+export async function redisCountUrlSets(): Promise<{ seen: number; applied: number; dismissed: number; sent: number }> {
+  const r = getClient();
+  if (!r) return { seen: 0, applied: 0, dismissed: 0, sent: 0 };
+  try {
+    const [seen, applied, dismissed, sent] = await Promise.all([
+      r.zcard('job:seen'),
+      r.zcard('job:applied_z'),
+      r.zcard('job:dismissed_z'),
+      r.zcard('job:sent_z'),
+    ]);
+    return { seen: seen ?? 0, applied: applied ?? 0, dismissed: dismissed ?? 0, sent: sent ?? 0 };
+  } catch {
+    return { seen: 0, applied: 0, dismissed: 0, sent: 0 };
+  }
+}
+
 // --- Gemini daily call counter ---
 // Key: gemini:calls:{pacific-day} (YYYY-MM-DD in America/Los_Angeles)
 // Incremented on every successful Gemini API call. TTL 50h covers day rollover + buffer.

@@ -416,9 +416,17 @@ export async function runJobSearchOnce(
   }
 }
 
+export interface JobDecisionMeta {
+  title?: string;
+  company?: string;
+  score?: number;
+  source?: string;
+}
+
 export async function markJobDecision(
   decision: 'applied' | 'dismissed',
   rawUrl: string,
+  fallback?: JobDecisionMeta,
 ): Promise<void> {
   const normalizedUrl = rawUrl.trim();
   const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? DEFAULT_APPLIED_FILE;
@@ -431,22 +439,31 @@ export async function markJobDecision(
   const state = await readJobSearchState();
   const match = state.latestMatches.find((m) => normDecision(m.job.canonicalUrl) === normDecision(normalizedUrl));
 
+  const historyTitle   = match?.job.title   ?? fallback?.title   ?? '';
+  const historyCompany = match?.job.company  ?? fallback?.company ?? '';
+  const historyScore   = match?.score        ?? fallback?.score   ?? 0;
+  const historySource  = match?.job.source   ?? fallback?.source  ?? '';
+
   if (decision === 'applied') {
     await addUrlsToStore(appliedFile, 'applied_urls', [normalizedUrl], { ttlMs: 180 * 24 * 60 * 60 * 1000 });
-    if (match) await redisAddRoleKey('applied', buildRoleKey(match.job.company, match.job.title), 180 * 24 * 60 * 60 * 1000);
+    if (historyCompany && historyTitle) {
+      await redisAddRoleKey('applied', buildRoleKey(historyCompany, historyTitle), 180 * 24 * 60 * 60 * 1000);
+    }
   } else {
     await addUrlsToStore(dismissedFile, 'dismissed_urls', [normalizedUrl], { ttlMs: 60 * 24 * 60 * 60 * 1000 });
-    if (match) await redisAddRoleKey('dismissed', buildRoleKey(match.job.company, match.job.title), 60 * 24 * 60 * 60 * 1000);
+    if (historyCompany && historyTitle) {
+      await redisAddRoleKey('dismissed', buildRoleKey(historyCompany, historyTitle), 60 * 24 * 60 * 60 * 1000);
+    }
   }
 
-  if (match) {
+  if (historyTitle && historyCompany) {
     await redisStoreJobHistory({
       type: decision,
-      title: match.job.title,
-      company: match.job.company,
-      url: match.job.canonicalUrl,
-      score: match.score,
-      source: match.job.source ?? '',
+      title: historyTitle,
+      company: historyCompany,
+      url: match?.job.canonicalUrl ?? normalizedUrl,
+      score: historyScore,
+      source: historySource,
       date: new Date().toISOString(),
     });
   }
@@ -455,7 +472,7 @@ export async function markJobDecision(
 
   await updateState(stateFile, (current) => ({
     ...current,
-    latestMatches: current.latestMatches.filter((match) => match.job.canonicalUrl !== normalizedUrl),
+    latestMatches: current.latestMatches.filter((m) => m.job.canonicalUrl !== normalizedUrl),
   }));
 }
 
