@@ -466,8 +466,8 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
 
   const tableRows = (rows: JobHistoryEntry[], type: 'applied' | 'dismissed') => {
     if (!rows.length) {
-      return `<tr><td colspan="5" style="text-align:center;padding:32px;color:#6b7280;">
-        No ${type} jobs yet. ${type === 'applied' ? 'Use the "Applied" button on a job card to track it here.' : ''}
+      return `<tr><td colspan="6" style="text-align:center;padding:32px;color:#6b7280;">
+        No ${type} jobs yet.${type === 'applied' ? ' Use the Applied button on a job card to track it here.' : ''}
       </td></tr>`;
     }
     return rows.map((e, i) => {
@@ -492,23 +492,11 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
           <td style="padding:10px 14px;">${badge}</td>
           <td style="padding:10px 14px;">
             <a href="${escapeHtml(e.url)}" target="_blank" rel="noreferrer"
-               style="font-size:12px;color:#2563eb;text-decoration:none;">View posting →</a>
+               style="font-size:12px;color:#2563eb;text-decoration:none;">View →</a>
           </td>
         </tr>`;
     }).join('');
   };
-
-  const tabs = (active: 'applied' | 'dismissed') => `
-    <div style="display:flex;gap:4px;margin-bottom:20px;">
-      <a href="?tab=applied" style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;
-         ${active === 'applied' ? 'background:#2563eb;color:white;' : 'background:#f3f4f6;color:#374151;'}">
-        Applied (${applied.length})
-      </a>
-      <a href="?tab=dismissed" style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;
-         ${active === 'dismissed' ? 'background:#6b7280;color:white;' : 'background:#f3f4f6;color:#374151;'}">
-        Dismissed (${dismissed.length})
-      </a>
-    </div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -522,16 +510,25 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
              margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
       .page { max-width: 1100px; margin: 0 auto; }
       h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
-      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 24px; }
+      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 20px; }
       .card { background: white; border-radius: 14px; padding: 24px;
               box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 20px; }
       .nav { margin-bottom: 20px; }
       .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
+      .tab-bar { display:flex; gap:6px; margin-bottom:20px; }
+      .tab-btn { padding:9px 20px; border-radius:8px; font-size:14px; font-weight:600;
+                 border:0; cursor:pointer; transition:background .15s,color .15s; }
+      .tab-btn.active-applied  { background:#2563eb; color:white; }
+      .tab-btn.active-dismissed{ background:#6b7280; color:white; }
+      .tab-btn.inactive { background:#f3f4f6; color:#374151; }
+      .tab-btn.inactive:hover  { background:#e5e7eb; }
       table { width: 100%; border-collapse: collapse; }
-      thead th { background: #f8fafc; padding: 10px 14px; text-align: left;
-                 font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase;
-                 letter-spacing: .05em; border-bottom: 1px solid #e5e7eb; }
-      tbody tr:hover { background: #f8fafc !important; }
+      thead th { background:#f8fafc; padding:10px 14px; text-align:left;
+                 font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase;
+                 letter-spacing:.05em; border-bottom:1px solid #e5e7eb; }
+      tbody tr:hover { background:#f8fafc !important; }
+      tbody td { border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+      tbody tr:last-child td { border-bottom:0; }
     </style>
   </head>
   <body>
@@ -540,32 +537,45 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
       <h1>Application History</h1>
       <p class="subtitle">${applied.length} applied · ${dismissed.length} dismissed</p>
 
-      <div class="card" id="applied-section">
-        <div style="font-size:17px;font-weight:600;margin-bottom:16px;">Applied (${applied.length})</div>
-        ${tabs('applied')}
-        <div id="tab-applied">
-          <table>
-            <thead><tr>
-              <th>Date</th><th>Job</th><th>Company</th><th>Score</th><th>Status</th><th>Link</th>
-            </tr></thead>
-            <tbody>${tableRows(applied, 'applied')}</tbody>
-          </table>
-        </div>
+      <div class="tab-bar">
+        <button class="tab-btn" id="btn-applied" onclick="switchTab('applied')">
+          Applied (${applied.length})
+        </button>
+        <button class="tab-btn" id="btn-dismissed" onclick="switchTab('dismissed')">
+          Dismissed (${dismissed.length})
+        </button>
       </div>
 
-      <div class="card" id="dismissed-section">
-        <div style="font-size:17px;font-weight:600;margin-bottom:16px;">Dismissed (${dismissed.length})</div>
-        ${tabs('dismissed')}
-        <div id="tab-dismissed">
-          <table>
-            <thead><tr>
-              <th>Date</th><th>Job</th><th>Company</th><th>Score</th><th>Status</th><th>Link</th>
-            </tr></thead>
-            <tbody>${tableRows(dismissed, 'dismissed')}</tbody>
-          </table>
-        </div>
+      <div class="card" id="section-applied">
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Job</th><th>Company</th><th>Score</th><th>Status</th><th>Link</th>
+          </tr></thead>
+          <tbody>${tableRows(applied, 'applied')}</tbody>
+        </table>
+      </div>
+
+      <div class="card" id="section-dismissed" style="display:none;">
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Job</th><th>Company</th><th>Score</th><th>Status</th><th>Link</th>
+          </tr></thead>
+          <tbody>${tableRows(dismissed, 'dismissed')}</tbody>
+        </table>
       </div>
     </div>
+    <script>
+      function switchTab(tab) {
+        var isApplied = tab === "applied";
+        document.getElementById("section-applied").style.display  = isApplied ? "" : "none";
+        document.getElementById("section-dismissed").style.display = isApplied ? "none" : "";
+        document.getElementById("btn-applied").className   = "tab-btn " + (isApplied ? "active-applied"   : "inactive");
+        document.getElementById("btn-dismissed").className = "tab-btn " + (isApplied ? "inactive" : "active-dismissed");
+        history.replaceState(null, "", "?tab=" + tab);
+      }
+      var initialTab = new URLSearchParams(window.location.search).get("tab");
+      switchTab(initialTab === "dismissed" ? "dismissed" : "applied");
+    </script>
   </body>
 </html>`;
 }
