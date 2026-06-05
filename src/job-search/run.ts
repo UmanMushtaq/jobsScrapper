@@ -586,8 +586,13 @@ async function buildTelegramPayload(
       );
     }
 
-    // Store hash → URL for button callbacks (fire-and-forget, non-blocking)
-    const hash = await storeJobRef(match.job.canonicalUrl);
+    // Store hash → URL + metadata for button callbacks so history saves even after redeploy
+    const hash = await storeJobRef(match.job.canonicalUrl, {
+      title: match.job.title,
+      company: match.job.company,
+      score: match.score,
+      source: match.job.source ?? '',
+    });
 
     messages.push({
       text: lines.join('\n'),

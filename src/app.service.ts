@@ -16,6 +16,7 @@ import {
   answerCallbackQuery,
   editTelegramMessage,
   registerWebhook,
+  resolveJobMeta,
   resolveJobRef,
 } from './job-search/telegram';
 import { JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
@@ -137,8 +138,9 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    const meta = await resolveJobMeta(hash);
     const decision = action === 'a' ? 'applied' : 'dismissed';
-    await markJobDecision(decision, url);
+    await markJobDecision(decision, url, meta ?? undefined);
 
     const label = action === 'a' ? '✅ Applied' : '❌ Rejected';
     const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });

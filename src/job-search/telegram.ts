@@ -18,14 +18,30 @@ export function hashJobUrl(url: string): string {
   return createHash('sha256').update(url).digest('hex').slice(0, 20);
 }
 
-export async function storeJobRef(url: string): Promise<string> {
+export interface JobRefMeta {
+  title: string;
+  company: string;
+  score: number;
+  source: string;
+}
+
+export async function storeJobRef(url: string, meta?: JobRefMeta): Promise<string> {
   const hash = hashJobUrl(url);
   await redisSetEx(`job:ref:${hash}`, url, JOB_REF_TTL_SECONDS);
+  if (meta) {
+    await redisSetEx(`job:meta:${hash}`, JSON.stringify(meta), JOB_REF_TTL_SECONDS);
+  }
   return hash;
 }
 
 export async function resolveJobRef(hash: string): Promise<string | null> {
   return redisGet(`job:ref:${hash}`);
+}
+
+export async function resolveJobMeta(hash: string): Promise<JobRefMeta | null> {
+  const raw = await redisGet(`job:meta:${hash}`);
+  if (!raw) return null;
+  try { return JSON.parse(raw) as JobRefMeta; } catch { return null; }
 }
 
 function splitMessage(text: string, maxLength = 3500): string[] {
