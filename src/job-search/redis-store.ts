@@ -307,3 +307,24 @@ export async function redisSetJson<T>(redisKey: string, value: T): Promise<void>
     console.error('[redis] setJson failed:', (err as Error).message);
   }
 }
+
+// --- Gemini daily call counter ---
+// Key: gemini:calls:{pacific-day} (YYYY-MM-DD in America/Los_Angeles)
+// Incremented on every successful Gemini API call. TTL 50h covers day rollover + buffer.
+
+export async function redisIncrGeminiDailyCalls(day: string): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await r.incr(`gemini:calls:${day}`);
+    await r.expire(`gemini:calls:${day}`, 50 * 60 * 60);
+  } catch { /* silent — never block enrichment */ }
+}
+
+export async function redisGetGeminiDailyCalls(day: string): Promise<number> {
+  const r = getClient();
+  if (!r) return 0;
+  try {
+    return Number(await r.get<string>(`gemini:calls:${day}`)) || 0;
+  } catch { return 0; }
+}

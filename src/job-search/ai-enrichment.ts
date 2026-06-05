@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { redisIncrGeminiDailyCalls } from './redis-store';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
 // Free tier: 15 RPM, 1500 req/day per key. One combined call per job.
@@ -6,9 +7,12 @@ import { JobPosting, MatchResult, SearchProfile } from './types';
 // Only 2.0 models are valid on the v1beta endpoint used by @google/genai SDK.
 const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 
-let _cachedKeys: string[] | null = null;
+interface ApiKeyEntry { key: string; source: string; }
+let _cachedKeyEntries: ApiKeyEntry[] | null = null;
 let _currentKeyIndex = 0;
 let _workingModel: string | null = null;
+// Keys confirmed working in this server session.
+const _confirmedWorkingKeyIndices = new Set<number>();
 // Keys confirmed permanently unusable (daily quota exhausted, or invalid/revoked).
 const _quotaExhaustedKeyIndices = new Set<number>();
 // Once every key is exhausted, skip Gemini until Google's quota resets.
@@ -16,6 +20,9 @@ const _quotaExhaustedKeyIndices = new Set<number>();
 // calendar day on which we went down and resume as soon as that day rolls over.
 let _allKeysDown = false;
 let _allKeysDownPacificDay: string | null = null;
+// Successful Gemini calls today (Pacific day). Resets on day rollover.
+let _dailyCallCount = 0;
+let _dailyCallPacificDay = '';
 
 // Current calendar date in Google's quota-reset timezone (America/Los_Angeles), as YYYY-MM-DD.
 function pacificDay(d: Date = new Date()): string {
@@ -24,17 +31,30 @@ function pacificDay(d: Date = new Date()): string {
 
 export let lastGeminiError = '';
 
-function getApiKeys(): string[] {
-  if (_cachedKeys) return _cachedKeys;
-  const keys: string[] = [];
+function getApiKeyEntries(): ApiKeyEntry[] {
+  if (_cachedKeyEntries) return _cachedKeyEntries;
+  const entries: ApiKeyEntry[] = [];
   const main = process.env.GEMINI_API_KEY;
-  if (main) keys.push(...main.split(',').map((k) => k.trim()).filter(Boolean));
+  if (main) {
+    main.split(',').map((k) => k.trim()).filter(Boolean).forEach((k, i) => {
+      entries.push({ key: k, source: i === 0 ? 'GEMINI_API_KEY' : `GEMINI_API_KEY (slot ${i + 1})` });
+    });
+  }
   for (let i = 1; i <= 10; i++) {
     const k = process.env[`GEMINI_API_KEY_${i}`];
-    if (k?.trim()) keys.push(k.trim());
+    if (k?.trim()) entries.push({ key: k.trim(), source: `GEMINI_API_KEY_${i}` });
   }
-  _cachedKeys = [...new Set(keys)];
-  return _cachedKeys;
+  const seen = new Set<string>();
+  _cachedKeyEntries = entries.filter((e) => {
+    if (seen.has(e.key)) return false;
+    seen.add(e.key);
+    return true;
+  });
+  return _cachedKeyEntries;
+}
+
+function getApiKeys(): string[] {
+  return getApiKeyEntries().map((e) => e.key);
 }
 
 // Daily quota exhausted — no value retrying with the same key until Google resets at midnight UTC.
@@ -85,6 +105,7 @@ async function callWithRotation<T>(
       _allKeysDown = false;
       _allKeysDownPacificDay = null;
       _quotaExhaustedKeyIndices.clear();
+      _confirmedWorkingKeyIndices.clear();
       console.log('[gemini] new Pacific day since all-keys-down — quota reset, resuming enrichment');
     } else {
       return null;
@@ -111,6 +132,16 @@ async function callWithRotation<T>(
         const result = await fn(ai, model);
         _currentKeyIndex = idx;
         _workingModel = model;
+        _confirmedWorkingKeyIndices.add(idx);
+        // Track daily call count; reset when Pacific day rolls over.
+        const today = pacificDay();
+        if (today !== _dailyCallPacificDay) {
+          _dailyCallCount = 0;
+          _dailyCallPacificDay = today;
+        }
+        _dailyCallCount++;
+        // Persist to Redis — fire-and-forget so enrichment is never delayed.
+        redisIncrGeminiDailyCalls(today).catch(() => undefined);
         return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -118,9 +149,11 @@ async function callWithRotation<T>(
         if (isRetryableError(err)) {
           if (isDailyQuotaError(err)) {
             _quotaExhaustedKeyIndices.add(idx);
+            _confirmedWorkingKeyIndices.delete(idx);
             console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} quota exhausted — blacklisted until next day reset`);
           } else if (isInvalidKeyError(err)) {
             _quotaExhaustedKeyIndices.add(idx);
+            _confirmedWorkingKeyIndices.delete(idx);
             console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} invalid/revoked — permanently blacklisted`);
           } else {
             console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} ${msg.slice(0, 100)} trying next`);
@@ -146,6 +179,47 @@ async function callWithRotation<T>(
     console.error(`[gemini] ${label}: all keys/models failed — sending job without AI enrichment`);
   }
   return null;
+}
+
+export interface GeminiKeyState {
+  index: number;
+  source: string;
+  keyPreview: string;
+  /** ok = confirmed working this session; quota_exhausted = confirmed exhausted; untested = no attempts yet */
+  status: 'ok' | 'quota_exhausted' | 'untested';
+}
+
+export interface GeminiModuleState {
+  keys: GeminiKeyState[];
+  allKeysDown: boolean;
+  allKeysDownPacificDay: string | null;
+  /** Successful calls counted in-memory since last server start (resets on restart). */
+  dailyCallCount: number;
+  dailyCallPacificDay: string;
+  workingModel: string | null;
+  lastError: string;
+}
+
+export function getGeminiModuleState(): GeminiModuleState {
+  const entries = getApiKeyEntries();
+  return {
+    keys: entries.map((entry, i) => ({
+      index: i,
+      source: entry.source,
+      keyPreview: `${entry.key.slice(0, 8)}...${entry.key.slice(-4)}`,
+      status: _quotaExhaustedKeyIndices.has(i)
+        ? 'quota_exhausted'
+        : _confirmedWorkingKeyIndices.has(i)
+          ? 'ok'
+          : 'untested',
+    })),
+    allKeysDown: _allKeysDown,
+    allKeysDownPacificDay: _allKeysDownPacificDay,
+    dailyCallCount: _dailyCallCount,
+    dailyCallPacificDay: _dailyCallPacificDay,
+    workingModel: _workingModel,
+    lastError: lastGeminiError,
+  };
 }
 
 export interface AiEnrichment {
