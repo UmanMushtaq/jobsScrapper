@@ -11,9 +11,16 @@ let _currentKeyIndex = 0;
 let _workingModel: string | null = null;
 // Keys confirmed permanently unusable (daily quota exhausted, or invalid/revoked).
 const _quotaExhaustedKeyIndices = new Set<number>();
-// Once every key is exhausted, skip Gemini until Google's quota resets (~24h, midnight UTC).
+// Once every key is exhausted, skip Gemini until Google's quota resets.
+// Gemini free-tier quota resets at midnight PACIFIC time, so we track the Pacific
+// calendar day on which we went down and resume as soon as that day rolls over.
 let _allKeysDown = false;
-let _allKeysDownAt: number | null = null;
+let _allKeysDownPacificDay: string | null = null;
+
+// Current calendar date in Google's quota-reset timezone (America/Los_Angeles), as YYYY-MM-DD.
+function pacificDay(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(d);
+}
 
 export let lastGeminiError = '';
 
@@ -71,15 +78,14 @@ async function callWithRotation<T>(
   const keys = getApiKeys();
   if (!keys.length) return null;
 
-  // All keys previously confirmed quota-exhausted.
-  // Auto-reset after 25 hours — Google free-tier quota resets at midnight UTC each day.
+  // All keys previously confirmed quota-exhausted. Resume as soon as the Pacific
+  // calendar day has rolled over since we went down — that's when Google refills quota.
   if (_allKeysDown) {
-    const hoursElapsed = _allKeysDownAt ? (Date.now() - _allKeysDownAt) / 3_600_000 : 99;
-    if (hoursElapsed >= 25) {
+    if (_allKeysDownPacificDay && pacificDay() !== _allKeysDownPacificDay) {
       _allKeysDown = false;
-      _allKeysDownAt = null;
+      _allKeysDownPacificDay = null;
       _quotaExhaustedKeyIndices.clear();
-      console.log('[gemini] 25h elapsed since all-keys-down — quota likely reset, resuming enrichment');
+      console.log('[gemini] new Pacific day since all-keys-down — quota reset, resuming enrichment');
     } else {
       return null;
     }
@@ -134,8 +140,8 @@ async function callWithRotation<T>(
   // subsequent jobs skip Gemini immediately without burning any more API calls.
   if (_quotaExhaustedKeyIndices.size >= keys.length) {
     _allKeysDown = true;
-    _allKeysDownAt = Date.now();
-    console.error('[gemini] all keys quota-exhausted — skipping Gemini until ~25h from now');
+    _allKeysDownPacificDay = pacificDay();
+    console.error('[gemini] all keys quota-exhausted — skipping Gemini until next Pacific-day quota reset');
   } else {
     console.error(`[gemini] ${label}: all keys/models failed — sending job without AI enrichment`);
   }
@@ -231,6 +237,8 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `      - on-site/hybrid in France (FR): "Based in Paris, I can join your team on-site without relocation."\n` +
   `      - on-site/hybrid outside France: "I am open to relocation and happy to work through the logistics."\n` +
   `      Then one closing sentence.\n` +
+  `    After Para 3, add this exact line on its own (do not alter the wording): "Authorized to work in France (RECE permit, valid Oct 2026 — straightforward status change on contract signing)."\n` +
+  `    Note: this is the ONLY place a dash is allowed — keep the em dash in that authorization line exactly as written.\n` +
   `    End with exactly: "Best regards,\\n${name}"\n` +
   `    Rules: absolutely no dashes of any kind (no hyphen-punctuation, no em dash —, no en dash). Use commas or short sentences instead. No: passionate/leverage/synergy/excited/contribute/dynamic.\n` +
   `  salaryMin: monthly gross integer in local currency, or null.\n` +
@@ -387,6 +395,8 @@ function buildFallbackCoverLetter(
     `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears} years of production experience. At OptimusFox I designed and delivered production microservices across fintech and crypto platforms for a cross-functional team of roughly ten engineers, integrating Stripe, PayPal, and blockchain APIs, Dockerizing backend services, and building GitHub Actions CI/CD pipelines from scratch. I am applying these architecture patterns in NexusPay, an event-driven fintech platform I am building with NestJS, RabbitMQ, Kafka, and Clean Architecture.`,
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
+    '',
+    'Authorized to work in France (RECE permit, valid Oct 2026 — straightforward status change on contract signing).',
     '',
     'Best regards,',
     profile.candidate.name,

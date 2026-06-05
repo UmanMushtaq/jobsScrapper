@@ -381,6 +381,8 @@ function buildCoverLetter(job: JobPosting, profile: SearchProfile, reasons: stri
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',
+    'Authorized to work in France (RECE permit, valid Oct 2026 — straightforward status change on contract signing).',
+    '',
     'Best regards,',
     profile.candidate.name,
   ].join('\n');
