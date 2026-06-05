@@ -4,7 +4,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { enrichMatch, lastGeminiError } from './job-search/ai-enrichment';
+import { enrichMatch, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
   markJobDecision,
@@ -17,7 +17,7 @@ import {
   registerWebhook,
   resolveJobRef,
 } from './job-search/telegram';
-import { JobHistoryEntry, redisGetJobHistory } from './job-search/redis-store';
+import { JobHistoryEntry, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
 import { JobSearchState } from './job-search/types';
 
 @Injectable()
@@ -370,6 +370,24 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   async getHistoryPage(): Promise<string> {
     const entries = await redisGetJobHistory();
     return renderHistoryHtml(entries);
+  }
+
+  async getGeminiStatusLite(): Promise<Record<string, unknown>> {
+    const state = getGeminiModuleState();
+    const today = state.dailyCallPacificDay || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date());
+    const redisDailyCallCount = await redisGetGeminiDailyCalls(today);
+    const working = state.keys.filter((k) => k.status === 'ok').length;
+    const exhausted = state.keys.filter((k) => k.status === 'quota_exhausted').length;
+    const untested = state.keys.filter((k) => k.status === 'untested').length;
+    return {
+      ...state,
+      totalKeys: state.keys.length,
+      working,
+      quotaExhausted: exhausted,
+      untested,
+      redisDailyCallCount,
+      checkedAt: new Date().toISOString(),
+    };
   }
 
   private async safeRun(trigger: 'startup' | 'interval' | 'manual'): Promise<void> {
@@ -753,12 +771,19 @@ function renderHtml(state: JobSearchState): string {
       </div>
 
       <div class="card" id="gemini-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
           <h2 style="margin:0;">Gemini API keys</h2>
-          <button onclick="loadKeyStatus(true)" id="key-refresh-btn"
-            style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:#374151;">
-            Refresh
-          </button>
+          <div style="display:flex;gap:8px;">
+            <button onclick="loadKeyStatus(false)" id="key-refresh-btn"
+              style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:#374151;">
+              Refresh
+            </button>
+            <button onclick="loadKeyStatus(true)" id="key-live-btn"
+              title="Makes one real Gemini API call per key to verify status"
+              style="padding:6px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:#2563eb;">
+              Test live
+            </button>
+          </div>
         </div>
         <div id="key-status" style="color:#9ca3af;font-size:13px;">Loading key status…</div>
       </div>
@@ -797,19 +822,78 @@ function renderHtml(state: JobSearchState): string {
       });
 
       var STATUS_STYLE = {
-        ok:               { dot: '#16a34a', label: 'Working',          bg: '#f0fdf4', text: '#15803d' },
-        quota_exhausted:  { dot: '#d97706', label: 'Quota exhausted',  bg: '#fffbeb', text: '#b45309' },
-        invalid_key:      { dot: '#dc2626', label: 'Invalid key',      bg: '#fef2f2', text: '#b91c1c' },
-        invalid_format:   { dot: '#dc2626', label: 'Wrong format',     bg: '#fef2f2', text: '#b91c1c' },
-        permission_denied:{ dot: '#7c3aed', label: 'API not enabled',  bg: '#f5f3ff', text: '#5b21b6' },
-        unknown:          { dot: '#9ca3af', label: 'Unknown',          bg: '#f9fafb', text: '#6b7280' },
+        ok:               { dot: '#16a34a', label: 'Working',           bg: '#f0fdf4', text: '#15803d' },
+        quota_exhausted:  { dot: '#d97706', label: 'Quota exhausted',   bg: '#fffbeb', text: '#b45309' },
+        untested:         { dot: '#9ca3af', label: 'Not tested yet',    bg: '#f9fafb', text: '#6b7280' },
+        // live-test statuses (from /debug/keys)
+        invalid_key:      { dot: '#dc2626', label: 'Invalid key',       bg: '#fef2f2', text: '#b91c1c' },
+        invalid_format:   { dot: '#dc2626', label: 'Wrong format',      bg: '#fef2f2', text: '#b91c1c' },
+        permission_denied:{ dot: '#7c3aed', label: 'API not enabled',   bg: '#f5f3ff', text: '#5b21b6' },
+        unknown:          { dot: '#9ca3af', label: 'Unknown',           bg: '#f9fafb', text: '#6b7280' },
       };
 
       function dot(color) {
         return '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + color + ';margin-right:6px;vertical-align:middle;flex-shrink:0;"></span>';
       }
 
-      function renderKeyStatus(data) {
+      function renderLiteStatus(data) {
+        if (data.error) {
+          return '<span style="color:#b91c1c;">' + data.error + '</span>';
+        }
+
+        var keys = data.keys || [];
+        var working = data.working || 0;
+        var total = data.totalKeys || 0;
+        var exhausted = data.quotaExhausted || 0;
+        var untested = data.untested || 0;
+        var redisCalls = data.redisDailyCallCount || 0;
+        var memCalls = data.dailyCallCount || 0;
+        var callDay = data.dailyCallPacificDay || '';
+
+        var summaryColor = working > 0 ? '#15803d' : exhausted === total ? '#b91c1c' : '#b45309';
+        var summaryText = working + '/' + total + ' keys working';
+        if (exhausted > 0) summaryText += ' · ' + exhausted + ' quota-exhausted';
+        if (untested > 0) summaryText += ' · ' + untested + ' not tested this session';
+
+        var html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">';
+        html += '<span style="font-weight:600;font-size:14px;color:' + summaryColor + ';">' + summaryText + '</span>';
+        html += '</div>';
+
+        // Daily call counter
+        var callsLabel = redisCalls > 0 ? redisCalls : memCalls;
+        var callsNote = redisCalls > 0 ? 'Redis-persisted' : 'in-memory since last restart';
+        var callsColor = callsLabel > 1200 ? '#b91c1c' : callsLabel > 800 ? '#b45309' : '#374151';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#f0f9ff;border:1px solid #bae6fd;margin-bottom:12px;font-size:13px;">';
+        html += '<span style="font-weight:600;color:#0369a1;">API calls today</span>';
+        html += '<span style="font-weight:700;font-size:15px;color:' + callsColor + ';">' + callsLabel + '</span>';
+        html += '<span style="color:#6b7280;font-size:12px;">/ 1,500 per account (' + callsNote + (callDay ? ', Pacific day ' + callDay : '') + ')</span>';
+        html += '</div>';
+
+        if (data.allKeysDown) {
+          html += '<div style="padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#b45309;margin-bottom:12px;">';
+          html += '<strong>All keys quota-exhausted.</strong> Bot is paused. Quota resets at midnight Pacific time';
+          if (data.allKeysDownPacificDay) html += ' (went down on Pacific day ' + data.allKeysDownPacificDay + ')';
+          html += '. No action needed — will resume automatically.';
+          html += '</div>';
+        }
+
+        html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">';
+        keys.forEach(function(k) {
+          var s = STATUS_STYLE[k.status] || STATUS_STYLE.unknown;
+          html += '<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;background:' + s.bg + ';border-radius:8px;font-size:13px;flex-wrap:wrap;">';
+          html += '<span style="display:flex;align-items:center;min-width:160px;font-weight:500;color:#374151;">' + dot(s.dot) + k.source + '</span>';
+          html += '<code style="color:#6b7280;font-size:12px;">' + k.keyPreview + '</code>';
+          html += '<span style="margin-left:auto;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600;color:' + s.text + ';background:white;border:1px solid ' + s.dot + '40;">' + s.label + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+
+        html += '<div style="font-size:12px;color:#9ca3af;margin-bottom:10px;">Status reflects bot\'s own enrichment runs. "Not tested yet" = bot hasn\'t needed that key this session.</div>';
+
+        return html;
+      }
+
+      function renderLiveStatus(data) {
         if (data.error) {
           return '<span style="color:#b91c1c;">' + data.error + '</span>';
         }
@@ -821,7 +905,7 @@ function renderHtml(state: JobSearchState): string {
         var invalid = data.invalid || 0;
 
         var summaryColor = working === total ? '#15803d' : working > 0 ? '#b45309' : '#b91c1c';
-        var summaryText = working + '/' + total + ' keys working';
+        var summaryText = 'Live test: ' + working + '/' + total + ' keys working';
         if (exhausted > 0) summaryText += ' · ' + exhausted + ' quota-exhausted';
         if (invalid > 0) summaryText += ' · ' + invalid + ' invalid';
 
@@ -829,7 +913,7 @@ function renderHtml(state: JobSearchState): string {
 
         var html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">';
         html += '<span style="font-weight:600;font-size:14px;color:' + summaryColor + ';">' + summaryText + '</span>';
-        if (testedAt) html += '<span style="font-size:12px;color:#9ca3af;">Checked ' + testedAt + '</span>';
+        if (testedAt) html += '<span style="font-size:12px;color:#9ca3af;">Tested ' + testedAt + '</span>';
         html += '</div>';
 
         html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">';
@@ -856,16 +940,27 @@ function renderHtml(state: JobSearchState): string {
         return html;
       }
 
-      function loadKeyStatus(force) {
+      function loadKeyStatus(live) {
         var el = document.getElementById('key-status');
         var btn = document.getElementById('key-refresh-btn');
-        el.textContent = force ? 'Checking keys…' : 'Loading key status…';
-        if (btn) btn.disabled = true;
-        fetch('/debug/keys' + (force ? '?force=true' : ''))
-          .then(function(r) { return r.json(); })
-          .then(function(data) { el.innerHTML = renderKeyStatus(data); })
-          .catch(function() { el.textContent = 'Could not load key status.'; })
-          .finally(function() { if (btn) btn.disabled = false; });
+        var liveBtn = document.getElementById('key-live-btn');
+        if (live) {
+          el.textContent = 'Testing all keys live (1 real API call per key)…';
+          if (liveBtn) liveBtn.disabled = true;
+          fetch('/debug/keys?force=true')
+            .then(function(r) { return r.json(); })
+            .then(function(data) { el.innerHTML = renderLiveStatus(data); })
+            .catch(function() { el.textContent = 'Could not reach /debug/keys.'; })
+            .finally(function() { if (liveBtn) liveBtn.disabled = false; });
+        } else {
+          el.textContent = 'Loading key status…';
+          if (btn) btn.disabled = true;
+          fetch('/api/gemini-status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) { el.innerHTML = renderLiteStatus(data); })
+            .catch(function() { el.textContent = 'Could not load key status.'; })
+            .finally(function() { if (btn) btn.disabled = false; });
+        }
       }
 
       loadKeyStatus(false);

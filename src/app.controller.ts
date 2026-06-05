@@ -37,6 +37,11 @@ export class AppController {
     return this.appService.testGemini();
   }
 
+  @Get('api/gemini-status')
+  async geminiStatus() {
+    return this.appService.getGeminiStatusLite();
+  }
+
   @Get('debug/keys')
   async validateKeys(@Query('force') force?: string) {
     return this.appService.validateGeminiKeys(force === 'true');
