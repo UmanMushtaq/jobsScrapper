@@ -52,6 +52,10 @@ export function scoreJob(
     'ai engineer', 'ml engineer', 'machine learning engineer', 'machine learning developer',
     'data engineer', 'data scientist', 'data analyst', 'nlp engineer', 'llm engineer',
     'prompt engineer', 'computer vision engineer',
+    // AI specialist compound titles — "ai backend engineer", "mcp engineer", etc.
+    // 'ai engineer' above only matches exact substring; these catch split patterns.
+    'mcp engineer', 'ai backend', 'ai infrastructure', 'mlops', 'ml ops',
+    'generative ai', 'genai engineer',
     // DevOps / Infra
     'devops engineer', 'site reliability engineer', 'site reliability', 'sre engineer', 'sre',
     'infrastructure engineer', 'platform engineer', 'cloud engineer',
