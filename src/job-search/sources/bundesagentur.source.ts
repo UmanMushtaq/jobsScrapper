@@ -71,7 +71,6 @@ async function fetchJobs(query: string, settings: SearchSettings): Promise<JobPo
     was: query,
     angebotsart: '1',
     maxErgebnisse: '100',
-    berufsfeld: '',
   });
 
   const response = await fetch(`${BASE_URL}?${params.toString()}`, {
