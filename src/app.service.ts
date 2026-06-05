@@ -17,7 +17,7 @@ import {
   registerWebhook,
   resolveJobRef,
 } from './job-search/telegram';
-import { JobHistoryEntry, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
+import { JobHistoryEntry, isRedisAvailable, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
 import { JobSearchState } from './job-search/types';
 
 @Injectable()
@@ -176,7 +176,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       nextRunAt: state.nextRunAt,
       intervalMinutes: state.intervalMinutes,
       matches: state.stats.matchCount,
+      freshScanned: state.stats.freshJobsCount,
       error: state.lastError,
+      redis: isRedisAvailable() ? 'connected' : 'not configured',
+      telegram: process.env.TELEGRAM_BOT_TOKEN ? 'configured' : 'not configured',
+      scheduler: shouldEnableScheduler() ? 'enabled' : 'disabled',
     };
   }
 
@@ -573,14 +577,37 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
 </html>`;
 }
 
+function escapeJs(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+}
+
+function escapeBr(value: string): string {
+  return escapeHtml(value).replace(/\n/g, '<br>');
+}
+
 function renderHtml(state: JobSearchState): string {
   const rows =
     state.latestMatches.length > 0
       ? state.latestMatches
-          .map((match) => {
+          .map((match, idx) => {
             const url = escapeHtml(match.job.canonicalUrl);
             const sc = match.score;
             const reasons = match.reasons.slice(0, 2).join('<br>');
+            const salaryDisplay = match.salaryLabel !== 'salary not listed'
+              ? escapeHtml(match.salaryLabel)
+              : match.suggestedSalary
+                ? `<span style="color:#9ca3af;font-size:12px;">not listed</span><div style="font-size:12px;color:#2563eb;margin-top:2px;">Est. ${escapeHtml(match.suggestedSalary)}</div>`
+                : `<span style="color:#9ca3af;font-size:12px;">not listed</span>`;
+            const visaBadge = match.visaFriendly === true
+              ? `<span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#d1fae5;color:#065f46;">visa ok</span>`
+              : match.visaFriendly === false
+                ? `<span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fee2e2;color:#991b1b;">no visa</span>`
+                : '';
+            const hasCoverLetter = !!(match.coverLetter && match.coverLetter.length > 10);
+            const clId = `cl-${idx}`;
+            const coverLetterRow = hasCoverLetter
+              ? `<tr id="${clId}" style="display:none;"><td colspan="8" style="padding:0 14px 16px;"><div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap;">${escapeBr(match.coverLetter)}</div></td></tr>`
+              : '';
             return `
               <tr>
                 <td>
@@ -588,13 +615,14 @@ function renderHtml(state: JobSearchState): string {
                   <div style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}</div>
                 </td>
                 <td style="font-weight:500;">${escapeHtml(match.job.company)}</td>
-                <td style="color:#374151;font-size:13px;">${escapeHtml(match.job.locationLabel)}</td>
+                <td style="color:#374151;font-size:13px;">${escapeHtml(match.job.locationLabel)}${visaBadge}</td>
                 <td>${workModeBadge(match.job.workMode)}</td>
-                <td style="font-size:13px;white-space:nowrap;">${escapeHtml(match.salaryLabel)}</td>
+                <td style="font-size:13px;white-space:nowrap;">${salaryDisplay}</td>
                 <td>
                   <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:${scoreColor(sc)};background:${scoreBg(sc)};">
                     ${sc}%
                   </span>
+                  ${match.relevanceScore != null ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;">AI: ${match.relevanceScore}/10</div>` : ''}
                 </td>
                 <td style="font-size:12px;color:#4b5563;max-width:220px;">${reasons}</td>
                 <td>
@@ -606,7 +634,7 @@ function renderHtml(state: JobSearchState): string {
                     <form method="post" action="/jobs/applied">
                       <input type="hidden" name="url" value="${url}" />
                       <button type="submit" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">
-                        ✓ Applied
+                        Applied
                       </button>
                     </form>
                     <form method="post" action="/jobs/dismissed">
@@ -615,9 +643,11 @@ function renderHtml(state: JobSearchState): string {
                         Dismiss
                       </button>
                     </form>
+                    ${hasCoverLetter ? `<button type="button" onclick="toggleCl('${clId}')" style="width:100%;padding:6px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Cover letter</button>` : ''}
                   </div>
                 </td>
               </tr>
+              ${coverLetterRow}
             `;
           })
           .join('\n')
@@ -768,6 +798,17 @@ function renderHtml(state: JobSearchState): string {
             </button>
           </form>
         </div>
+      </div>
+
+      <div class="card" id="health-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+          <h2 style="margin:0;">System status</h2>
+          <button onclick="loadHealth()" id="health-refresh-btn"
+            style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:#374151;">
+            Refresh
+          </button>
+        </div>
+        <div id="health-status" style="color:#9ca3af;font-size:13px;">Loading…</div>
       </div>
 
       <div class="card" id="gemini-card">
@@ -964,6 +1005,83 @@ function renderHtml(state: JobSearchState): string {
       }
 
       loadKeyStatus(false);
+
+      function toggleCl(id) {
+        var row = document.getElementById(id);
+        if (!row) return;
+        row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+      }
+
+      function fmtDate(iso) {
+        if (!iso) return 'n/a';
+        var d = new Date(iso);
+        return isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      }
+
+      function systemDot(ok) {
+        return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + (ok ? '#16a34a' : '#dc2626') + ';margin-right:5px;vertical-align:middle;"></span>';
+      }
+
+      function renderHealth(data) {
+        if (data.error) return '<span style="color:#b91c1c;">' + data.error + '</span>';
+
+        var statusColors = { success: '#15803d', error: '#b91c1c', running: '#d97706', idle: '#6b7280' };
+        var statusBgs    = { success: '#f0fdf4', error: '#fef2f2', running: '#fffbeb', idle: '#f9fafb' };
+        var sc = statusColors[data.status] || '#6b7280';
+        var sb = statusBgs[data.status]   || '#f9fafb';
+        var redisOk = data.redis === 'connected';
+        var tgOk    = data.telegram === 'configured';
+        var schOk   = data.scheduler === 'enabled';
+
+        var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px 20px;margin-bottom:14px;">';
+
+        html += '<div><div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Bot status</div>';
+        html += '<span style="padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:' + sc + ';background:' + sb + ';">' + (data.status || 'unknown') + '</span></div>';
+
+        html += '<div><div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Last run</div>';
+        html += '<span style="font-size:13px;font-weight:500;">' + fmtDate(data.lastRunAt) + '</span></div>';
+
+        html += '<div><div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Last success</div>';
+        html += '<span style="font-size:13px;font-weight:500;">' + fmtDate(data.lastSuccessAt) + '</span></div>';
+
+        html += '<div><div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Next run</div>';
+        html += '<span style="font-size:13px;font-weight:500;">' + fmtDate(data.nextRunAt) + '</span></div>';
+
+        html += '<div><div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Matches</div>';
+        html += '<span style="font-size:18px;font-weight:700;color:#2563eb;">' + (data.matches || 0) + '</span></div>';
+
+        html += '<div><div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Fresh scanned</div>';
+        html += '<span style="font-size:13px;font-weight:500;">' + (data.freshScanned ?? 'n/a') + '</span></div>';
+
+        html += '</div>';
+
+        html += '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;">';
+        html += '<span>' + systemDot(redisOk) + 'Redis: <strong>' + (data.redis || 'unknown') + '</strong></span>';
+        html += '<span>' + systemDot(tgOk)    + 'Telegram: <strong>' + (data.telegram || 'unknown') + '</strong></span>';
+        html += '<span>' + systemDot(schOk)   + 'Scheduler: <strong>' + (data.scheduler || 'unknown') + '</strong></span>';
+        html += '<span style="margin-left:auto;color:#9ca3af;font-size:12px;">Interval: ' + (data.intervalMinutes || '?') + ' min</span>';
+        html += '</div>';
+
+        if (data.error) {
+          html += '<div style="margin-top:10px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:13px;color:#991b1b;"><strong>Error:</strong> ' + data.error + '</div>';
+        }
+
+        return html;
+      }
+
+      function loadHealth() {
+        var el = document.getElementById('health-status');
+        var btn = document.getElementById('health-refresh-btn');
+        if (btn) btn.disabled = true;
+        fetch('/health')
+          .then(function(r) { return r.json(); })
+          .then(function(data) { el.innerHTML = renderHealth(data); })
+          .catch(function() { el.textContent = 'Could not load health status.'; })
+          .finally(function() { if (btn) btn.disabled = false; });
+      }
+
+      loadHealth();
+      setInterval(loadHealth, 30000);
     </script>
   </body>
 </html>`;
