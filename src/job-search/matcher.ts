@@ -50,6 +50,14 @@ export function scoreJob(job: JobPosting, profile: SearchProfile): MatchResult |
     // DevOps / Infra
     'devops engineer', 'site reliability engineer', 'site reliability', 'sre engineer', 'sre',
     'infrastructure engineer', 'platform engineer', 'cloud engineer',
+    // Customer-facing / pre-sales / non-build roles that mention Node.js only in passing.
+    // These are NOT backend engineering jobs even though the description lists Node.js as a
+    // stack the customer might use (e.g. Sentry "Solutions Engineer").
+    'solutions engineer', 'solution engineer', 'sales engineer', 'pre-sales', 'presales',
+    'solutions architect', 'solutions consultant', 'implementation engineer', 'implementation consultant',
+    'customer success', 'success engineer', 'support engineer', 'technical support',
+    'developer advocate', 'developer relations', 'devrel', 'technical account manager',
+    'technical advisor', 'field engineer', 'evangelist', 'sales development', 'account executive',
   ];
   if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => normalizedTitle.includes(keyword))) {
     return null;
