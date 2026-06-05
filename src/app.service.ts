@@ -260,6 +260,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       let status = 'unknown';
       let model = '';
       let error = '';
+      let rawError = '';
 
       for (const m of MODELS) {
         try {
@@ -267,9 +268,12 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
           await ai.models.generateContent({ model: m, contents: MINI_PROMPT });
           status = 'ok';
           model = m;
+          rawError = '';
           break;
         } catch (err) {
-          const msg = String(err instanceof Error ? err.message : err).toLowerCase();
+          const fullMsg = String(err instanceof Error ? err.message : err);
+          rawError = fullMsg.slice(0, 400);
+          const msg = fullMsg.toLowerCase();
           if (msg.includes('resource_exhausted') || msg.includes('quota') || msg.includes('429')) {
             status = 'quota_exhausted';
             error = 'Daily quota used up';
@@ -287,12 +291,12 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
             error = 'Gemini API not enabled for this project. Enable it at console.cloud.google.com.';
             break;
           } else {
-            error = msg.slice(0, 200);
+            error = fullMsg.slice(0, 200);
           }
         }
       }
 
-      results.push({ source, key: keyPreview, status, model: model || null, error: error || null });
+      results.push({ source, key: keyPreview, status, model: model || null, error: error || null, rawError: rawError || null });
     }
 
     const okCount = results.filter((r) => r.status === 'ok').length;
@@ -960,6 +964,7 @@ function renderHtml(state: JobSearchState): string {
           html += '<code style="color:#6b7280;font-size:12px;">' + k.key + '</code>';
           html += '<span style="margin-left:auto;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600;color:' + s.text + ';background:white;border:1px solid ' + s.dot + '40;">' + s.label + (k.model ? ' · ' + k.model : '') + '</span>';
           if (k.error) html += '<span style="width:100%;font-size:12px;color:' + s.text + ';padding-left:22px;">' + k.error + '</span>';
+          if (k.rawError) html += '<code style="width:100%;font-size:11px;color:#6b7280;padding-left:22px;word-break:break-all;">Raw: ' + k.rawError + '</code>';
           html += '</div>';
         });
         html += '</div>';
