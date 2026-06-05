@@ -274,16 +274,20 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
             status = 'quota_exhausted';
             error = 'Daily quota used up';
             break;
-          } else if (msg.includes('api_key_invalid') || msg.includes('invalid api key') || msg.includes('401')) {
+          } else if (
+            msg.includes('api_key_invalid') || msg.includes('invalid api key') ||
+            msg.includes('unauthenticated') || msg.includes('invalid credential') ||
+            msg.includes('invalid_api_key') || msg.includes('401')
+          ) {
             status = 'invalid_key';
             error = 'Key is invalid or revoked. Delete it from env vars.';
             break;
-          } else if (msg.includes('403')) {
+          } else if (msg.includes('403') || msg.includes('permission_denied')) {
             status = 'permission_denied';
             error = 'Gemini API not enabled for this project. Enable it at console.cloud.google.com.';
             break;
           } else {
-            error = msg.slice(0, 120);
+            error = msg.slice(0, 200);
           }
         }
       }
