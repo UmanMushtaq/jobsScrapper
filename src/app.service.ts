@@ -888,7 +888,7 @@ function renderHtml(state: JobSearchState): string {
         });
         html += '</div>';
 
-        html += '<div style="font-size:12px;color:#9ca3af;margin-bottom:10px;">Status comes from the bot own enrichment runs. "Not tested yet" means the bot has not needed that key this session.</div>';
+        html += '<div style="font-size:12px;color:#9ca3af;margin-bottom:10px;">Status reflects bot\'s own enrichment runs. "Not tested yet" = bot hasn\'t needed that key this session.</div>';
 
         return html;
       }
