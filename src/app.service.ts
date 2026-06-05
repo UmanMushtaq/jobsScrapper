@@ -250,7 +250,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return { ok: false, error: 'No keys configured', advice: ['Add GEMINI_API_KEY or GEMINI_API_KEY_1..10 in Render env vars'] };
     }
 
-    const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+    const MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-8b', 'gemini-2.0-flash-exp'];
     const MINI_PROMPT = 'Reply with the single word: OK';
     const results: Array<Record<string, unknown>> = [];
 

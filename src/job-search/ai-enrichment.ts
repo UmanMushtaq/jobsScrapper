@@ -3,9 +3,8 @@ import { redisIncrGeminiDailyCalls } from './redis-store';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
 // Free tier: 15 RPM, 1500 req/day per key. One combined call per job.
-// All gemini-1.5 variants (including -002) were removed from v1beta in 2025.
-// Only 2.0 models are valid on the v1beta endpoint used by @google/genai SDK.
-const MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+// gemini-2.0-flash free tier limit was set to 0 by Google in 2026 — use 2.5.
+const MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-8b', 'gemini-2.0-flash-exp'];
 
 interface ApiKeyEntry { key: string; source: string; }
 let _cachedKeyEntries: ApiKeyEntry[] | null = null;
