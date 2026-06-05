@@ -257,19 +257,6 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     for (const { key, source } of rawKeys) {
       const keyPreview = `${key.slice(0, 8)}...${key.slice(-4)}`;
 
-      // Gemini REST API keys always start with "AIzaSy". Any other format
-      // (OAuth tokens, service account JSON, etc.) will never work here.
-      if (!key.startsWith('AIzaSy')) {
-        results.push({
-          source,
-          key: keyPreview,
-          status: 'invalid_format',
-          model: null,
-          error: 'Not a valid Gemini API key. Keys must start with "AIzaSy". Remove this from env vars.',
-        });
-        continue;
-      }
-
       let status = 'unknown';
       let model = '';
       let error = '';
@@ -308,7 +295,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const exhaustedCount = results.filter((r) => r.status === 'quota_exhausted').length;
     const invalidCount = results.filter((r) => r.status === 'invalid_key' || r.status === 'invalid_format').length;
     const permCount = results.filter((r) => r.status === 'permission_denied').length;
-    const validKeyCount = results.filter((r) => r.status !== 'invalid_format').length;
+    const validKeyCount = results.filter((r) => r.status !== 'invalid_key').length;
     const dailyCapacity = okCount * 1500;
 
     const advice: string[] = [];
