@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
@@ -108,29 +109,6 @@ function mapJob(job: RemotiveJob): JobPosting {
     companyCreationYear: null,
   };
 }
-
-function inferCountryCode(location: string): string | null {
-  const loc = location.toLowerCase();
-  if (loc.includes('france') || loc.includes('paris')) return 'FR';
-  if (loc.includes('germany') || loc.includes('berlin') || loc.includes('munich') || loc.includes('hamburg')) return 'DE';
-  if (loc.includes('belgium') || loc.includes('brussels')) return 'BE';
-  if (loc.includes('luxembourg')) return 'LU';
-  if (loc.includes('netherlands') || loc.includes('amsterdam')) return 'NL';
-  if (loc.includes('uk') || loc.includes('united kingdom') || loc.includes('london')) return 'GB';
-  if (loc.includes('poland') || loc.includes('warsaw') || loc.includes('warszawa') || loc.includes('krakow') || loc.includes('kraków') || loc.includes('wroclaw') || loc.includes('gdansk') || loc.includes('poznan')) return 'PL';
-  if (loc.includes('sweden') || loc.includes('stockholm') || loc.includes('gothenburg') || loc.includes('göteborg') || loc.includes('malmo') || loc.includes('malmö')) return 'SE';
-  if (loc.includes('spain') || loc.includes('madrid') || loc.includes('barcelona')) return 'ES';
-  if (loc.includes('portugal') || loc.includes('lisbon')) return 'PT';
-  if (loc.includes('ireland') || loc.includes('dublin')) return 'IE';
-  if (loc.includes('denmark') || loc.includes('copenhagen')) return 'DK';
-  if (loc.includes('finland') || loc.includes('helsinki')) return 'FI';
-  if (loc.includes('norway') || loc.includes('oslo')) return 'NO';
-  if (loc.includes('switzerland') || loc.includes('zurich') || loc.includes('zürich')) return 'CH';
-  if (loc.includes('czechia') || loc.includes('czech') || loc.includes('prague')) return 'CZ';
-  if (loc.includes('europe') || loc.includes('eu') || loc.includes('worldwide') || loc.includes('anywhere')) return 'FR';
-  return null;
-}
-
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();

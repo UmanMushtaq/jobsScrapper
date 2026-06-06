@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
@@ -168,26 +169,6 @@ function mapItem(item: RssItem): JobPosting | null {
     employeeCount: null,
     companyCreationYear: null,
   };
-}
-
-function inferCountryCode(region: string): string | null {
-  const r = region.toLowerCase();
-  if (r.includes('france') || r.includes('paris')) return 'FR';
-  if (r.includes('germany') || r.includes('berlin') || r.includes('munich')) return 'DE';
-  if (r.includes('belgium') || r.includes('brussels')) return 'BE';
-  if (r.includes('luxembourg')) return 'LU';
-  if (r.includes('netherlands') || r.includes('amsterdam')) return 'NL';
-  if (r.includes('uk') || r.includes('united kingdom') || r.includes('london')) return 'GB';
-  if (r.includes('poland') || r.includes('warsaw') || r.includes('krakow') || r.includes('wroclaw') || r.includes('gdansk') || r.includes('poznan')) return 'PL';
-  if (r.includes('sweden') || r.includes('stockholm') || r.includes('gothenburg') || r.includes('malmo')) return 'SE';
-  if (r.includes('spain') || r.includes('madrid') || r.includes('barcelona')) return 'ES';
-  if (r.includes('portugal') || r.includes('lisbon')) return 'PT';
-  if (r.includes('ireland') || r.includes('dublin')) return 'IE';
-  if (r.includes('denmark') || r.includes('copenhagen')) return 'DK';
-  if (r.includes('norway') || r.includes('oslo')) return 'NO';
-  if (r.includes('usa') || r.includes('united states') || r.includes('us only')) return 'US';
-  if (r.includes('europe') || r.includes('eu') || r.includes('worldwide') || r.includes('anywhere') || r === '' || r.includes('remote')) return 'FR';
-  return null;
 }
 
 function extractExperienceMinimum(text: string): number | null {

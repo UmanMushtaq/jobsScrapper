@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
@@ -164,27 +165,6 @@ function inferWorkMode(text: string, location: string): 'remote' | 'hybrid' | 'o
   ) return 'remote';
   if (containsAny(text, ['hybrid', 'hybride', 'télétravail partiel', 'partial remote', 'remote friendly'])) return 'hybrid';
   return 'on-site';
-}
-
-function inferCountryCode(location: string): string | null {
-  const l = location.toLowerCase();
-  if (l.includes('france') || l.includes('paris')) return 'FR';
-  if (l.includes('germany') || l.includes('berlin') || l.includes('munich')) return 'DE';
-  if (l.includes('uk') || l.includes('london') || l.includes('united kingdom') || l.includes('england')) return 'GB';
-  if (l.includes('netherlands') || l.includes('amsterdam')) return 'NL';
-  if (l.includes('belgium') || l.includes('brussels')) return 'BE';
-  if (l.includes('spain') || l.includes('madrid') || l.includes('barcelona')) return 'ES';
-  if (l.includes('ireland') || l.includes('dublin')) return 'IE';
-  if (l.includes('portugal') || l.includes('lisbon')) return 'PT';
-  if (l.includes('poland') || l.includes('warsaw') || l.includes('warszawa') || l.includes('krakow') || l.includes('kraków') || l.includes('wroclaw') || l.includes('gdansk') || l.includes('poznan')) return 'PL';
-  if (l.includes('sweden') || l.includes('stockholm') || l.includes('gothenburg') || l.includes('göteborg') || l.includes('malmo') || l.includes('malmö')) return 'SE';
-  if (l.includes('denmark') || l.includes('copenhagen')) return 'DK';
-  if (l.includes('finland') || l.includes('helsinki')) return 'FI';
-  if (l.includes('norway') || l.includes('oslo')) return 'NO';
-  if (l.includes('switzerland') || l.includes('zurich') || l.includes('zürich')) return 'CH';
-  if (l.includes('czechia') || l.includes('czech') || l.includes('prague')) return 'CZ';
-  if (l.includes('remote') || l.includes('europe') || l.includes('eu') || l.includes('anywhere')) return 'FR';
-  return null;
 }
 
 function inferCity(location: string): string | null {

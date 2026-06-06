@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 
 const SOURCE = 'wellfound.com';
@@ -146,7 +147,7 @@ function tryMapJob(raw: unknown): JobPosting | null {
 
   const locationLabel = (j.locationNames ?? []).join(', ') || (workMode === 'remote' ? 'Remote' : '');
   // Set countryCode even for remote jobs so the location filter can enforce usaJobs:false
-  const countryCode = guessCountryCode(locationLabel);
+  const countryCode = inferCountryCode(locationLabel);
 
   const description = j.description ?? j.startup.description ?? j.startup.highConcept ?? '';
   const publishedAt = j.liveStartAt ?? j.createdAt ?? new Date().toISOString();
@@ -198,16 +199,3 @@ function parseEmployeeCount(size: string | undefined): number | null {
   return match ? parseInt(match[1]) : null;
 }
 
-function guessCountryCode(location: string): string | null {
-  const l = location.toUpperCase();
-  if (l.includes('UNITED STATES') || l.includes('USA') || l.includes(' CA') || l.includes(' NY')) return 'US';
-  if (l.includes('UNITED KINGDOM') || l.includes('LONDON')) return 'GB';
-  if (l.includes('GERMANY') || l.includes('BERLIN')) return 'DE';
-  if (l.includes('FRANCE') || l.includes('PARIS')) return 'FR';
-  if (l.includes('NETHERLANDS') || l.includes('AMSTERDAM')) return 'NL';
-  if (l.includes('POLAND') || l.includes('WARSAW')) return 'PL';
-  if (l.includes('SWEDEN') || l.includes('STOCKHOLM')) return 'SE';
-  if (l.includes('SPAIN') || l.includes('MADRID') || l.includes('BARCELONA')) return 'ES';
-  if (l.includes('IRELAND') || l.includes('DUBLIN')) return 'IE';
-  return null;
-}

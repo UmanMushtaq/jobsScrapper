@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
@@ -121,7 +122,7 @@ function mapJob(job: HimalayasJob): JobPosting {
     companySummary: '',
     companySlug: (job.company?.slug ?? companyName).toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     locationLabel: location || 'Remote',
-    countryCode: inferCountryCode(location, job.countries),
+    countryCode: inferCountryCodeFromHimalayas(location, job.countries),
     city: null,
     workMode: 'remote',
     language: detectLanguage(`${job.title} ${description}`),
@@ -144,40 +145,12 @@ function mapJob(job: HimalayasJob): JobPosting {
   };
 }
 
-function inferCountryCode(location: string, countries?: string[]): string | null {
-  if (countries?.includes('FR')) return 'FR';
-  if (countries?.includes('DE')) return 'DE';
-  if (countries?.includes('BE')) return 'BE';
-  if (countries?.includes('NL')) return 'NL';
-  if (countries?.includes('IE')) return 'IE';
-  if (countries?.includes('LU')) return 'LU';
-  if (countries?.includes('PL')) return 'PL';
-  if (countries?.includes('SE')) return 'SE';
-  if (countries?.includes('ES')) return 'ES';
-  if (countries?.includes('PT')) return 'PT';
-  if (countries?.includes('DK')) return 'DK';
-  if (countries?.includes('FI')) return 'FI';
-  if (countries?.includes('NO')) return 'NO';
-  if (countries?.includes('CZ')) return 'CZ';
-  const l = location.toLowerCase();
-  if (l.includes('france') || l.includes('paris')) return 'FR';
-  if (l.includes('germany') || l.includes('berlin') || l.includes('munich')) return 'DE';
-  if (l.includes('belgium') || l.includes('brussels')) return 'BE';
-  if (l.includes('luxembourg')) return 'LU';
-  if (l.includes('netherlands') || l.includes('amsterdam')) return 'NL';
-  if (l.includes('ireland') || l.includes('dublin')) return 'IE';
-  if (l.includes('poland') || l.includes('warsaw') || l.includes('warszawa') || l.includes('krakow') || l.includes('kraków') || l.includes('wroclaw') || l.includes('gdansk') || l.includes('poznan')) return 'PL';
-  if (l.includes('sweden') || l.includes('stockholm') || l.includes('gothenburg') || l.includes('göteborg') || l.includes('malmo') || l.includes('malmö') || l.includes('uppsala')) return 'SE';
-  if (l.includes('spain') || l.includes('madrid') || l.includes('barcelona')) return 'ES';
-  if (l.includes('portugal') || l.includes('lisbon')) return 'PT';
-  if (l.includes('denmark') || l.includes('copenhagen')) return 'DK';
-  if (l.includes('finland') || l.includes('helsinki')) return 'FI';
-  if (l.includes('norway') || l.includes('oslo')) return 'NO';
-  if (l.includes('switzerland') || l.includes('zurich') || l.includes('zürich')) return 'CH';
-  if (l.includes('czechia') || l.includes('czech') || l.includes('prague')) return 'CZ';
-  if (l.includes('uk') || l.includes('united kingdom') || l.includes('london')) return 'GB';
-  if (l.includes('europe') || l.includes('eu') || l.includes('worldwide') || l.includes('anywhere') || l.includes('remote')) return 'FR';
-  return null;
+function inferCountryCodeFromHimalayas(location: string, countries?: string[]): string | null {
+  const preferred = ['FR','DE','BE','NL','IE','LU','PL','SE','ES','PT','DK','FI','NO','CZ','CH','AT','GB','IT','GR','HU','SK','SI','EE','IS'];
+  for (const cc of preferred) {
+    if (countries?.includes(cc)) return cc;
+  }
+  return inferCountryCode(location);
 }
 
 function extractExperienceMinimum(text: string): number | null {

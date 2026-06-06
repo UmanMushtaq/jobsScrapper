@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 
 const SOURCE = 'arbeitnow.com';
@@ -107,28 +108,6 @@ function mapJob(job: ArbeitnowJob): JobPosting {
     employeeCount: null,
     companyCreationYear: null,
   };
-}
-
-function inferCountryCode(location: string): string | null {
-  const loc = (location ?? '').toLowerCase();
-  if (loc.includes('france') || loc.includes('paris')) return 'FR';
-  if (loc.includes('germany') || loc.includes('berlin') || loc.includes('munich') || loc.includes('münchen')) return 'DE';
-  if (loc.includes('netherlands') || loc.includes('amsterdam')) return 'NL';
-  if (loc.includes('switzerland') || loc.includes('zürich') || loc.includes('zurich')) return 'CH';
-  if (loc.includes('austria') || loc.includes('vienna') || loc.includes('wien')) return 'AT';
-  if (loc.includes('belgium') || loc.includes('brussels')) return 'BE';
-  if (loc.includes('luxembourg')) return 'LU';
-  if (loc.includes('uk') || loc.includes('london')) return 'GB';
-  if (loc.includes('poland') || loc.includes('warsaw') || loc.includes('warszawa') || loc.includes('krakow') || loc.includes('kraków') || loc.includes('wroclaw') || loc.includes('wrocław') || loc.includes('gdansk') || loc.includes('gdańsk') || loc.includes('poznan') || loc.includes('poznań')) return 'PL';
-  if (loc.includes('sweden') || loc.includes('stockholm') || loc.includes('gothenburg') || loc.includes('göteborg') || loc.includes('malmo') || loc.includes('malmö') || loc.includes('uppsala')) return 'SE';
-  if (loc.includes('spain') || loc.includes('madrid') || loc.includes('barcelona')) return 'ES';
-  if (loc.includes('portugal') || loc.includes('lisbon') || loc.includes('lisboa')) return 'PT';
-  if (loc.includes('ireland') || loc.includes('dublin')) return 'IE';
-  if (loc.includes('denmark') || loc.includes('copenhagen')) return 'DK';
-  if (loc.includes('finland') || loc.includes('helsinki')) return 'FI';
-  if (loc.includes('norway') || loc.includes('oslo')) return 'NO';
-  if (loc.includes('czechia') || loc.includes('czech') || loc.includes('prague') || loc.includes('praha')) return 'CZ';
-  return 'DE';
 }
 
 function inferLanguage(text: string): string {
