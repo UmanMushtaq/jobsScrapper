@@ -63,7 +63,7 @@ export class AppController {
     @Res() response: Response,
   ): Promise<void> {
     await this.appService.markApplied(url, { title, company, score: Number(score) || 0, source });
-    response.redirect('/');
+    response.redirect('/history?tab=applied');
   }
 
   @Post('jobs/dismissed')
@@ -76,7 +76,7 @@ export class AppController {
     @Res() response: Response,
   ): Promise<void> {
     await this.appService.markDismissed(url, { title, company, score: Number(score) || 0, source });
-    response.redirect('/');
+    response.redirect('/history?tab=dismissed');
   }
 
   @Post('telegram/webhook')
