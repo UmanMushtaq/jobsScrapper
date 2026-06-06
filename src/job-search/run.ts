@@ -217,7 +217,8 @@ export async function runJobSearchOnce(
         const title = job.title.toLowerCase();
         const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
         const jobLang = (job.language ?? '').toLowerCase();
-        if (jobLang && jobLang !== desiredLang && !hasEnglishTeamSignals(txt)) { counts.lang++; continue; }
+        const isLangPrefCountry = profile.search.preferredCountries?.includes(job.countryCode ?? '');
+        if (jobLang && jobLang !== desiredLang && !hasEnglishTeamSignals(txt) && !isLangPrefCountry) { counts.lang++; continue; }
         if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { counts.title++; continue; }
         if (EXCL_ROLES.some((k) => title.includes(k))) { counts.role++; continue; }
 
@@ -641,6 +642,14 @@ function hasEnglishTeamSignals(txt: string): boolean {
     // German signals
     'englischkenntnisse', 'englisch.*voraussetzung', 'arbeitssprache.*englisch',
     'fließend.*englisch', 'sehr gute.*englischkenntnisse',
+    // Implicit international team signals (language-neutral)
+    'international team', 'international environment', 'international company',
+    'multicultural', 'multi-cultural', 'multinational',
+    'diverse team', 'global team', 'remote-first', 'fully remote',
+    'équipe internationale', 'environnement international', 'entreprise internationale',
+    'internationales team', 'internationales umfeld',
+    'international.*nationalities', 'nationalities.*international',
+    'team.*countries', 'countries.*team',
   ];
   return signals.some((s) => {
     try { return new RegExp(s, 'i').test(txt); } catch { return txt.includes(s); }

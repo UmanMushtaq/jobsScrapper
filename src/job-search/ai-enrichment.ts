@@ -308,8 +308,11 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  On-site/hybrid in France: compatible — candidate is open to any French city (Paris, Lyon, Marseille, Bordeaux, etc.).\n` +
   `  On-site/hybrid outside France: only compatible if employer explicitly mentions visa sponsorship or relocation support.\n\n` +
   `Language note: this job posting may be written in French, Dutch, German, or another European language.\n` +
-  `  Do NOT penalise the candidate for the posting language. If the posting explicitly requires English (e.g. "équipe anglophone", "english required", "working language English"), the candidate qualifies — write the cover letter and email in English.\n` +
-  `  If the posting requires French/Dutch/German fluency and there is NO English-team signal, set relevanceScore below 40 and note the language barrier in relevanceIssues.\n\n` +
+  `  The candidate is a fluent English speaker (A1 French). Assess language fit as follows:\n` +
+  `  - If the posting explicitly requires English OR signals an international/multicultural/global team → candidate qualifies. Write cover letter and email in English.\n` +
+  `  - If the posting says nothing about language → assume international environment is possible. Do NOT penalise. Write in English. Let technical fit drive the score.\n` +
+  `  - If the posting EXPLICITLY requires French/Dutch/German fluency (e.g. "maîtrise du français indispensable", "Deutsch fließend erforderlich") with no English-team signal → set relevanceScore below 40 and note the language barrier in relevanceIssues.\n` +
+  `  The posting language alone is NOT evidence that French/Dutch/German is required for the job.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
   `  relevanceScore: integer 0-100. How well does this job match the candidate's CV above?\n` +
