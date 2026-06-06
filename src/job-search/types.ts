@@ -103,6 +103,7 @@ export interface MatchResult {
   visaRisk?: string | null;
   atsMissingKeywords?: string[];
   atsPlacementSuggestions?: string[];
+  relevanceIssues?: string[];
   hiringEmail?: string | null;
   emailSubject?: string | null;
   emailBody?: string | null;

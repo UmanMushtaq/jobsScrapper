@@ -595,54 +595,204 @@ function renderHtml(state: JobSearchState): string {
           .map((match, idx) => {
             const url = escapeHtml(match.job.canonicalUrl);
             const sc = match.score;
-            const reasons = match.reasons.slice(0, 2).join('<br>');
+            const isHN = match.job.source === 'news.ycombinator.com';
+            const hasEmail = !!(match.hiringEmail);
+            const hasCoverLetter = !!(match.coverLetter && match.coverLetter.length > 10);
+            const detId = `det-${idx}`;
+
+            // Table row: compact summary
             const salaryDisplay = match.salaryLabel !== 'salary not listed'
               ? escapeHtml(match.salaryLabel)
               : match.suggestedSalary
                 ? `<span style="color:#9ca3af;font-size:12px;">not listed</span><div style="font-size:12px;color:#2563eb;margin-top:2px;">Est. ${escapeHtml(match.suggestedSalary)}</div>`
                 : `<span style="color:#9ca3af;font-size:12px;">not listed</span>`;
+
             const visaBadge = match.visaFriendly === true
               ? `<span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#d1fae5;color:#065f46;">visa ok</span>`
               : match.visaFriendly === false
                 ? `<span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fee2e2;color:#991b1b;">no visa</span>`
                 : '';
-            const hasCoverLetter = !!(match.coverLetter && match.coverLetter.length > 10);
-            const clId = `cl-${idx}`;
-            const coverLetterRow = hasCoverLetter
-              ? `<tr id="${clId}" style="display:none;"><td colspan="8" style="padding:0 14px 16px;"><div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap;">${escapeBr(match.coverLetter)}</div></td></tr>`
+
+            const hnBadge = isHN
+              ? `<span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;">HN</span>`
               : '';
+
+            const emailBadge = hasEmail
+              ? `<span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;">email</span>`
+              : '';
+
+            const detBtnLabel = hasEmail ? 'Email + Analysis' : 'Full Analysis';
+
+            // Apply button: for HN/email jobs open mail client, else open URL
+            const applyBtn = hasEmail
+              ? `<button type="button" onclick="openEmail(${idx})" style="display:block;width:100%;text-align:center;padding:6px 12px;background:#1d4ed8;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Send Email</button>`
+              : `<a href="${escapeHtml(match.job.applyUrl)}" target="_blank" rel="noreferrer" style="display:block;text-align:center;padding:6px 12px;background:#2563eb;color:white;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">${isHN ? 'View Post' : 'Apply'}</a>`;
+
+            // ─── Details panel ────────────────────────────────────────────────
+            const bd = match.scoreBreakdown;
+            const bdSection = bd
+              ? `<div style="font-size:12px;color:#374151;margin-top:6px;">
+                  ${[
+                    `Mandatory <b>+${bd.mandatory}</b>`,
+                    `Keywords <b>+${bd.keywords}</b>`,
+                    `Location <b>+${bd.location}</b>`,
+                    bd.startup ? `Startup <b>+${bd.startup}</b>` : '',
+                    bd.preference != null && bd.preference !== 0 ? `Preference <b>${bd.preference > 0 ? '+' : ''}${bd.preference}</b>` : '',
+                  ].filter(Boolean).join(' &nbsp;·&nbsp; ')}
+                </div>`
+              : '';
+
+            const reasonsAll = match.reasons.length > 0
+              ? `<ul style="margin:6px 0 0;padding:0 0 0 16px;font-size:12px;color:#374151;">${match.reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`
+              : '';
+
+            const relevanceIssuesHtml = (match.relevanceIssues ?? []).length > 0
+              ? `<div style="margin-top:4px;font-size:12px;color:#9ca3af;">${(match.relevanceIssues ?? []).map((i) => `• ${escapeHtml(i)}`).join('<br>')}</div>`
+              : '';
+
+            const fraudBg = (match.fraudScore ?? 0) >= 60 ? '#fef2f2' : '#f0fdf4';
+            const fraudColor = (match.fraudScore ?? 0) >= 60 ? '#b91c1c' : '#15803d';
+            const fraudHtml = match.fraudScore != null
+              ? `<div style="font-size:12px;margin-top:4px;">Fraud check: <span style="font-weight:700;color:${fraudColor};">${match.fraudScore}/100</span>${(match.fraudReasons ?? []).length ? ` — ${escapeHtml((match.fraudReasons ?? [])[0])}` : ''}</div>`
+              : '';
+
+            const companyHtml = match.companyQualityScore != null
+              ? `<div style="font-size:12px;margin-top:4px;">Company quality: <span style="font-weight:700;">${match.companyQualityScore}/100</span>${(match.companyRedFlags ?? []).length ? ` — <span style="color:#b45309;">${escapeHtml((match.companyRedFlags ?? []).join(', '))}</span>` : ''}</div>`
+              : '';
+
+            const visaNoteHtml = match.visaNote
+              ? `<div style="font-size:12px;margin-top:4px;color:#374151;">Visa: ${escapeHtml(match.visaNote)}</div>`
+              : '';
+
+            const visaRiskHtml = match.visaRisk
+              ? `<div style="margin-top:6px;padding:8px 10px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e;"><b>Salary risk:</b> ${escapeHtml(match.visaRisk)}</div>`
+              : '';
+
+            // Salary guidance section
+            const listedSalary = match.salaryLabel !== 'salary not listed'
+              ? `<div style="font-size:13px;"><b>Listed:</b> ${escapeHtml(match.salaryLabel)}</div>`
+              : `<div style="font-size:13px;color:#6b7280;">Listed: not stated</div>`;
+
+            const estimatedSalary = match.suggestedSalary
+              ? `<div style="font-size:13px;margin-top:4px;"><b>AI estimate:</b> ${escapeHtml(match.suggestedSalary)}</div>`
+              : '';
+
+            const salaryTarget = `<div style="font-size:12px;margin-top:6px;padding:8px 10px;background:#eff6ff;border-radius:6px;border:1px solid #bfdbfe;">
+              <b>Talent permit minimum:</b> €3,299/month (€39,582/yr)<br>
+              Negotiate to at least <b>€3,500/month</b> if salary is not listed or below threshold.
+            </div>`;
+
+            // ATS keywords section
+            const atsKeywords = (match.atsMissingKeywords ?? []);
+            const atsSuggestions = (match.atsPlacementSuggestions ?? []);
+            const atsSection = atsKeywords.length > 0
+              ? `<div>
+                  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;">Missing from your CV:</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;">
+                    ${atsKeywords.map((k) => `<span style="padding:2px 8px;background:#fef3c7;border:1px solid #fde68a;border-radius:99px;font-size:12px;font-weight:600;color:#92400e;">${escapeHtml(k)}</span>`).join('')}
+                  </div>
+                  ${atsSuggestions.length ? `<ul style="margin:0;padding:0 0 0 16px;font-size:12px;color:#374151;">${atsSuggestions.map((s) => `<li style="margin-bottom:3px;">${escapeHtml(s)}</li>`).join('')}</ul>` : ''}
+                </div>`
+              : `<div style="font-size:12px;color:#6b7280;">No missing keywords — your CV covers the requirements.</div>`;
+
+            // Email section (HN / any job with hiring email)
+            const emailSection = hasEmail
+              ? `<div style="grid-column:1/-1;background:white;border-radius:8px;padding:16px;border:2px solid #2563eb;">
+                  <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:10px;">Ready-to-send email</div>
+                  <div style="font-size:13px;margin-bottom:6px;"><b>To:</b> <a href="mailto:${escapeHtml(match.hiringEmail ?? '')}" style="color:#2563eb;">${escapeHtml(match.hiringEmail ?? '')}</a>
+                    <button onclick="copyTxt(${idx},'email')" style="margin-left:8px;padding:2px 8px;font-size:11px;border:1px solid #bfdbfe;border-radius:4px;background:#eff6ff;color:#1d4ed8;cursor:pointer;">Copy</button>
+                  </div>
+                  <div style="font-size:13px;margin-bottom:6px;"><b>Subject:</b> ${escapeHtml(match.emailSubject ?? `Application: ${match.job.title} — ${match.job.company}`)}
+                    <button onclick="copyTxt(${idx},'subject')" style="margin-left:8px;padding:2px 8px;font-size:11px;border:1px solid #bfdbfe;border-radius:4px;background:#eff6ff;color:#1d4ed8;cursor:pointer;">Copy</button>
+                  </div>
+                  <div style="font-size:12px;font-weight:700;color:#374151;margin:10px 0 4px;">Email body:</div>
+                  <div id="eb-${idx}" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:12px;font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap;">${escapeBr(match.emailBody ?? '')}</div>
+                  <div style="margin-top:8px;display:flex;gap:8px;">
+                    <button onclick="copyTxt(${idx},'body')" style="padding:5px 14px;font-size:12px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1d4ed8;cursor:pointer;font-weight:600;">Copy Body</button>
+                    <button onclick="openEmail(${idx})" style="padding:5px 14px;font-size:12px;border:0;border-radius:6px;background:#2563eb;color:white;cursor:pointer;font-weight:600;">Open in Mail App</button>
+                  </div>
+                  <span id="eb-${idx}-email" style="display:none;">${escapeHtml(match.hiringEmail ?? '')}</span>
+                  <span id="eb-${idx}-subject" style="display:none;">${escapeHtml(match.emailSubject ?? `Application: ${match.job.title} — ${match.job.company}`)}</span>
+                  <span id="eb-${idx}-rawbody" style="display:none;">${escapeHtml(match.emailBody ?? '')}</span>
+                </div>`
+              : isHN
+                ? `<div style="grid-column:1/-1;background:#fff7ed;border-radius:8px;padding:14px;border:1px solid #fed7aa;font-size:13px;color:#c2410c;">
+                    <b>HN post</b> — no email address found in the job description. Open the HN comment to find contact info.
+                    <a href="${escapeHtml(match.job.applyUrl)}" target="_blank" style="margin-left:8px;color:#c2410c;">View comment</a>
+                  </div>`
+                : '';
+
+            // Cover letter section
+            const coverLetterSection = hasCoverLetter
+              ? `<div style="grid-column:1/-1;background:white;border-radius:8px;padding:16px;border:1px solid #e5e7eb;">
+                  <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;">Cover Letter</div>
+                  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:14px;font-size:13px;color:#374151;line-height:1.7;white-space:pre-wrap;">${escapeBr(match.coverLetter)}</div>
+                  <button onclick="copyTxt(${idx},'cl')" style="margin-top:8px;padding:5px 14px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;background:#f3f4f6;color:#374151;cursor:pointer;font-weight:600;">Copy Cover Letter</button>
+                  <span id="eb-${idx}-cl" style="display:none;">${escapeHtml(match.coverLetter)}</span>
+                </div>`
+              : '';
+
+            const detailsRow = `<tr id="${detId}" style="display:none;">
+              <td colspan="8" style="padding:0 10px 20px;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;padding:16px;background:#f8fafc;border-radius:10px;border:1px solid #e5e7eb;">
+
+                  <div style="background:white;border-radius:8px;padding:14px;border:1px solid #e5e7eb;">
+                    <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:4px;">Match Score — ${sc}%</div>
+                    ${bdSection}
+                    ${reasonsAll}
+                  </div>
+
+                  <div style="background:white;border-radius:8px;padding:14px;border:1px solid #e5e7eb;">
+                    <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:4px;">AI Assessment</div>
+                    ${match.relevanceScore != null ? `<div style="font-size:13px;"><b>Relevance:</b> ${match.relevanceScore}/100${relevanceIssuesHtml}</div>` : ''}
+                    ${fraudHtml}
+                    ${companyHtml}
+                    ${visaNoteHtml}
+                    ${visaRiskHtml}
+                  </div>
+
+                  <div style="background:white;border-radius:8px;padding:14px;border:1px solid #e5e7eb;">
+                    <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;">Salary</div>
+                    ${listedSalary}
+                    ${estimatedSalary}
+                    ${salaryTarget}
+                  </div>
+
+                  <div style="background:white;border-radius:8px;padding:14px;border:1px solid #e5e7eb;">
+                    <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;">CV Keywords (ATS)</div>
+                    ${atsSection}
+                  </div>
+
+                  ${emailSection}
+                  ${coverLetterSection}
+                </div>
+              </td>
+            </tr>`;
+
             return `
               <tr>
                 <td>
                   <div style="font-weight:600;font-size:14px;line-height:1.4;">${escapeHtml(match.job.title)}</div>
-                  <div style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}</div>
+                  <div style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}&nbsp;${hnBadge}${emailBadge}</div>
                 </td>
                 <td style="font-weight:500;">${escapeHtml(match.job.company)}</td>
                 <td style="color:#374151;font-size:13px;">${escapeHtml(match.job.locationLabel)}${visaBadge}</td>
                 <td>${workModeBadge(match.job.workMode)}</td>
                 <td style="font-size:13px;white-space:nowrap;">${salaryDisplay}</td>
                 <td>
-                  <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:${scoreColor(sc)};background:${scoreBg(sc)};">
-                    ${sc}%
-                  </span>
-                  ${match.relevanceScore != null ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;">AI: ${match.relevanceScore}/10</div>` : ''}
+                  <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:${scoreColor(sc)};background:${scoreBg(sc)};">${sc}%</span>
+                  ${match.relevanceScore != null ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;">AI: ${match.relevanceScore}/100</div>` : ''}
                 </td>
-                <td style="font-size:12px;color:#4b5563;max-width:220px;">${reasons}</td>
                 <td>
                   <div style="display:flex;flex-direction:column;gap:6px;min-width:120px;">
-                    <a href="${escapeHtml(match.job.applyUrl)}" target="_blank" rel="noreferrer"
-                       style="display:block;text-align:center;padding:6px 12px;background:#2563eb;color:white;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">
-                      Apply
-                    </a>
+                    ${applyBtn}
                     <form method="post" action="/jobs/applied">
                       <input type="hidden" name="url" value="${url}" />
                       <input type="hidden" name="title" value="${escapeHtml(match.job.title)}" />
                       <input type="hidden" name="company" value="${escapeHtml(match.job.company)}" />
                       <input type="hidden" name="score" value="${sc}" />
                       <input type="hidden" name="source" value="${escapeHtml(match.job.source ?? '')}" />
-                      <button type="submit" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">
-                        Applied
-                      </button>
+                      <button type="submit" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Applied</button>
                     </form>
                     <form method="post" action="/jobs/dismissed">
                       <input type="hidden" name="url" value="${url}" />
@@ -650,19 +800,17 @@ function renderHtml(state: JobSearchState): string {
                       <input type="hidden" name="company" value="${escapeHtml(match.job.company)}" />
                       <input type="hidden" name="score" value="${sc}" />
                       <input type="hidden" name="source" value="${escapeHtml(match.job.source ?? '')}" />
-                      <button type="submit" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">
-                        Dismiss
-                      </button>
+                      <button type="submit" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Dismiss</button>
                     </form>
-                    ${hasCoverLetter ? `<button type="button" onclick="toggleCl('${clId}')" style="width:100%;padding:6px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Cover letter</button>` : ''}
+                    <button type="button" onclick="toggleDet('${detId}')" style="width:100%;padding:6px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">${detBtnLabel}</button>
                   </div>
                 </td>
               </tr>
-              ${coverLetterRow}
+              ${detailsRow}
             `;
           })
           .join('\n')
-      : `<tr><td colspan="8" style="text-align:center;padding:40px;color:#6b7280;">
+      : `<tr><td colspan="7" style="text-align:center;padding:40px;color:#6b7280;">
            No current matches. The bot will check again at the next scheduled run.
          </td></tr>`;
 
@@ -852,7 +1000,6 @@ function renderHtml(state: JobSearchState): string {
                 <th>Mode</th>
                 <th>Salary</th>
                 <th>Score</th>
-                <th>Why it matches</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -1018,10 +1165,39 @@ function renderHtml(state: JobSearchState): string {
 
       loadKeyStatus(false);
 
-      function toggleCl(id) {
+      function toggleDet(id) {
         var row = document.getElementById(id);
         if (!row) return;
         row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+      }
+
+      function copyTxt(idx, part) {
+        var el;
+        if (part === 'body') el = document.getElementById('eb-' + idx + '-rawbody');
+        else if (part === 'subject') el = document.getElementById('eb-' + idx + '-subject');
+        else if (part === 'email') el = document.getElementById('eb-' + idx + '-email');
+        else if (part === 'cl') el = document.getElementById('eb-' + idx + '-cl');
+        if (!el) return;
+        var txt = el.textContent || '';
+        navigator.clipboard.writeText(txt).catch(function() {
+          var ta = document.createElement('textarea');
+          ta.value = txt;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        });
+      }
+
+      function openEmail(idx) {
+        var eEl = document.getElementById('eb-' + idx + '-email');
+        var sEl = document.getElementById('eb-' + idx + '-subject');
+        var bEl = document.getElementById('eb-' + idx + '-rawbody');
+        if (!eEl) return;
+        var email = eEl.textContent || '';
+        var subject = encodeURIComponent(sEl ? (sEl.textContent || '') : '');
+        var body = encodeURIComponent(bEl ? (bEl.textContent || '') : '');
+        window.location.href = 'mailto:' + email + '?subject=' + subject + '&body=' + body;
       }
 
       function fmtDate(iso) {

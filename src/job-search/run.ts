@@ -308,6 +308,7 @@ export async function runJobSearchOnce(
               visaRisk: ai.visaRisk,
               atsMissingKeywords: ai.atsMissingKeywords,
               atsPlacementSuggestions: ai.atsPlacementSuggestions,
+              relevanceIssues: ai.relevanceIssues,
               hiringEmail: ai.hiringEmail,
               emailSubject: ai.emailSubject,
               emailBody: ai.emailBody,
