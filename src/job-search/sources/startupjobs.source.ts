@@ -174,6 +174,16 @@ function inferCountryCode(location: string): string | null {
   if (l.includes('luxembourg')) return 'LU';
   if (l.includes('netherlands') || l.includes('amsterdam')) return 'NL';
   if (l.includes('uk') || l.includes('united kingdom') || l.includes('london')) return 'GB';
+  if (l.includes('poland') || l.includes('warsaw') || l.includes('warszawa') || l.includes('krakow') || l.includes('kraków') || l.includes('wroclaw') || l.includes('gdansk') || l.includes('poznan')) return 'PL';
+  if (l.includes('sweden') || l.includes('stockholm') || l.includes('gothenburg') || l.includes('göteborg') || l.includes('malmo') || l.includes('malmö')) return 'SE';
+  if (l.includes('spain') || l.includes('madrid') || l.includes('barcelona')) return 'ES';
+  if (l.includes('portugal') || l.includes('lisbon')) return 'PT';
+  if (l.includes('ireland') || l.includes('dublin')) return 'IE';
+  if (l.includes('denmark') || l.includes('copenhagen')) return 'DK';
+  if (l.includes('finland') || l.includes('helsinki')) return 'FI';
+  if (l.includes('norway') || l.includes('oslo')) return 'NO';
+  if (l.includes('switzerland') || l.includes('zurich') || l.includes('zürich')) return 'CH';
+  if (l.includes('czechia') || l.includes('czech') || l.includes('prague')) return 'CZ';
   if (l.includes('europe') || l.includes('eu') || l.includes('worldwide') || l.includes('anywhere') || l.includes('remote') || l === '') return 'FR';
   return null;
 }
