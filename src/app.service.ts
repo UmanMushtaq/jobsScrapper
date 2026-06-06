@@ -4,7 +4,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { enrichMatch, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
+import { enrichMatch, generateTailoredCv, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
   JobDecisionMeta,
@@ -15,6 +15,7 @@ import {
 import {
   answerCallbackQuery,
   editTelegramMessage,
+  hashJobUrl,
   registerWebhook,
   resolveJobMeta,
   resolveJobRef,
@@ -369,6 +370,125 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return renderHistoryHtml(entries);
   }
 
+  async getTailoredCvPage(hash: string): Promise<string> {
+    const state = await readJobSearchState();
+    const match = state.latestMatches.find((m) => hashJobUrl(m.job.canonicalUrl) === hash);
+
+    if (!match) {
+      return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not found</title>
+        <style>body{font-family:sans-serif;padding:40px;color:#374151;}a{color:#2563eb;}</style></head>
+        <body><h2>Session expired</h2>
+        <p>This job is no longer in the current match list — the bot may have restarted or run a new cycle.</p>
+        <p><a href="/">Back to Dashboard</a> — run the bot again to reload matches.</p></body></html>`;
+    }
+
+    const profile = await loadSearchProfile();
+    const cvText = profile.candidate.cvText
+      ?? `${profile.candidate.name} | ${profile.candidate.experienceYears} years backend | Skills: ${profile.candidate.coreSkills.join(', ')}`;
+
+    const keywords = match.atsMissingKeywords ?? [];
+    const suggestions = match.atsPlacementSuggestions ?? [];
+
+    let tailoredCv: string | null = null;
+    if (keywords.length > 0) {
+      tailoredCv = await generateTailoredCv(
+        cvText,
+        match.job.title,
+        match.job.company,
+        keywords,
+        suggestions,
+      );
+    }
+
+    // Fallback: show base CV with keyword annotations if Gemini unavailable or no keywords
+    const displayCv = tailoredCv ?? cvText;
+    const wasAiGenerated = tailoredCv !== null && keywords.length > 0;
+
+    const kwTags = keywords.length > 0
+      ? keywords.map((k) => `<span style="display:inline-block;padding:2px 8px;background:#fef3c7;border:1px solid #fde68a;border-radius:99px;font-size:12px;font-weight:600;color:#92400e;margin:2px;">${escapeHtml(k)}</span>`).join('')
+      : '<span style="color:#6b7280;">None — your CV already matches well.</span>';
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Tailored CV — ${escapeHtml(match.job.title)} at ${escapeHtml(match.job.company)}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+           margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; }
+    .wrap { max-width: 860px; margin: 0 auto; }
+    .card { background: white; border-radius: 14px; padding: 28px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 20px; }
+    .btn { display: inline-block; padding: 9px 20px; border-radius: 8px; font-size: 14px;
+           font-weight: 600; border: 0; cursor: pointer; text-decoration: none; margin-right: 8px; }
+    .btn-blue { background: #2563eb; color: white; }
+    .btn-gray { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+    .cv-text { white-space: pre-wrap; font-size: 13.5px; line-height: 1.75; color: #1f2937;
+               background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; }
+    .badge { display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600; }
+    .badge-green { background:#d1fae5;color:#065f46; }
+    .badge-gray { background:#f3f4f6;color:#374151; }
+    @media print {
+      body { background: white; padding: 0; }
+      .no-print { display: none !important; }
+      .card { box-shadow: none; border-radius: 0; padding: 0; margin: 0; }
+      .cv-text { border: none; padding: 0; background: white; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card no-print">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <div>
+          <a href="/" style="font-size:13px;color:#6b7280;text-decoration:none;">← Dashboard</a>
+          <h1 style="margin:8px 0 4px;font-size:20px;">Tailored CV</h1>
+          <div style="font-size:14px;color:#374151;"><b>${escapeHtml(match.job.title)}</b> at <b>${escapeHtml(match.job.company)}</b></div>
+        </div>
+        <span class="badge ${wasAiGenerated ? 'badge-green' : 'badge-gray'}">${wasAiGenerated ? 'AI tailored' : keywords.length === 0 ? 'No gaps — base CV' : 'Gemini unavailable — base CV'}</span>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">ATS keywords added for this role:</div>
+        <div>${kwTags}</div>
+        ${suggestions.length > 0 ? `<ul style="margin:10px 0 0;padding:0 0 0 18px;font-size:12px;color:#374151;">${suggestions.map((s) => `<li style="margin-bottom:3px;">${escapeHtml(s)}</li>`).join('')}</ul>` : ''}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-blue" onclick="window.print()">Print / Save as PDF</button>
+        <button class="btn btn-gray" onclick="copyAll()">Copy All Text</button>
+      </div>
+      <div style="margin-top:12px;padding:10px 14px;background:#eff6ff;border-radius:8px;font-size:12px;color:#1d4ed8;">
+        <b>How to use:</b> Click <b>Print / Save as PDF</b> → in the print dialog choose <b>Save as PDF</b> → attach the PDF to your application.
+        Or click <b>Copy All Text</b> → paste into your CV template in Word / Google Docs.
+      </div>
+    </div>
+
+    <div class="card" id="cv-card">
+      <div class="cv-text" id="cv-content">${escapeHtml(displayCv)}</div>
+    </div>
+  </div>
+  <script>
+    function copyAll() {
+      var el = document.getElementById('cv-content');
+      if (!el) return;
+      navigator.clipboard.writeText(el.textContent || '').catch(function() {
+        var ta = document.createElement('textarea');
+        ta.value = el.textContent || '';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      });
+      var btn = event.target;
+      btn.textContent = 'Copied!';
+      setTimeout(function() { btn.textContent = 'Copy All Text'; }, 2000);
+    }
+  </script>
+</body>
+</html>`;
+  }
+
   async getGeminiStatusLite(): Promise<Record<string, unknown>> {
     const state = getGeminiModuleState();
     const today = state.dailyCallPacificDay || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date());
@@ -599,6 +719,7 @@ function renderHtml(state: JobSearchState): string {
             const hasEmail = !!(match.hiringEmail);
             const hasCoverLetter = !!(match.coverLetter && match.coverLetter.length > 10);
             const detId = `det-${idx}`;
+            const cvHash = hashJobUrl(match.job.canonicalUrl);
 
             // Table row: compact summary
             const salaryDisplay = match.salaryLabel !== 'salary not listed'
@@ -803,6 +924,7 @@ function renderHtml(state: JobSearchState): string {
                       <button type="submit" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Dismiss</button>
                     </form>
                     <button type="button" onclick="toggleDet('${detId}')" style="width:100%;padding:6px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">${detBtnLabel}</button>
+                    <a href="/jobs/tailored-cv?hash=${cvHash}" target="_blank" style="display:block;text-align:center;padding:6px 12px;background:#faf5ff;color:#6d28d9;border:1px solid #ddd6fe;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Tailored CV</a>
                   </div>
                 </td>
               </tr>

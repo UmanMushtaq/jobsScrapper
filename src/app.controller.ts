@@ -27,6 +27,12 @@ export class AppController {
     return this.appService.getHistoryPage();
   }
 
+  @Get('jobs/tailored-cv')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async tailoredCv(@Query('hash') hash: string): Promise<string> {
+    return this.appService.getTailoredCvPage(hash ?? '');
+  }
+
   @Get('health')
   async health() {
     return this.appService.getHealth();

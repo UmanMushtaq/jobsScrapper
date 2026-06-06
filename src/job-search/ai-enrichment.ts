@@ -255,6 +255,39 @@ export async function enrichMatch(
   );
 }
 
+export async function generateTailoredCv(
+  cvText: string,
+  jobTitle: string,
+  company: string,
+  atsMissingKeywords: string[],
+  atsPlacementSuggestions: string[],
+): Promise<string | null> {
+  if (!getApiKeys().length) return null;
+  const prompt =
+    `CANDIDATE CV:\n${cvText}\n\n` +
+    `JOB: ${jobTitle} at ${company}\n\n` +
+    `ATS KEYWORDS MISSING FROM THIS CV:\n${atsMissingKeywords.join(', ')}\n\n` +
+    `WHERE TO ADD EACH KEYWORD:\n${atsPlacementSuggestions.join('\n')}\n\n` +
+    `TASK:\n` +
+    `Return the full tailored CV as plain text with the keywords naturally inserted in the correct sections.\n` +
+    `Rules:\n` +
+    `- Only add keywords where the candidate genuinely has that experience per the suggestions above.\n` +
+    `- Keep ALL existing content unchanged — never remove, invent, or exaggerate anything.\n` +
+    `- Insert keywords naturally into the existing section text, not as a raw appended list.\n` +
+    `- Preserve all section headers and formatting.\n` +
+    `- At the very top, before the candidate name, add one line: "Tailored for: ${jobTitle} — ${company}"\n` +
+    `- Return ONLY the tailored CV text. No commentary.`;
+
+  return callWithRotation(async (ai, model) => {
+    const response = await ai.models.generateContent({
+      model,
+      config: { responseMimeType: 'text/plain' },
+      contents: prompt,
+    });
+    return response.text?.trim() ?? null;
+  }, `tailored-cv:${company}`);
+}
+
 const EUR_RATES: Record<string, number> = {
   EUR: 1, USD: 0.88, GBP: 1.16, CHF: 1.04,
   PLN: 0.23, SEK: 0.087, NOK: 0.086, DKK: 0.134, CZK: 0.041,
