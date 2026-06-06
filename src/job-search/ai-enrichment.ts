@@ -405,7 +405,7 @@ async function enrichSingle(
     contents: prompt,
   });
 
-  const raw = JSON.parse(response.text ?? '{}') as {
+  let raw: {
     relevanceScore?: number;
     relevanceIssues?: string[];
     visaFriendly?: boolean | null;
@@ -424,7 +424,12 @@ async function enrichSingle(
     salaryMax?: number | null;
     salaryCurrency?: string | null;
   };
-
+  try {
+    raw = JSON.parse(response.text ?? '{}');
+  } catch {
+    console.warn(`[gemini] malformed JSON response for "${job.title}" @ ${job.company} — treating as empty`);
+    raw = {};
+  }
   const relevanceScore = Math.min(100, Math.max(0, Number(raw.relevanceScore ?? 50)));
   const fraudScore = Math.min(100, Math.max(0, Number(raw.fraudScore ?? 0)));
   const companyQualityScore = Math.min(100, Math.max(0, Number(raw.companyQualityScore ?? 70)));

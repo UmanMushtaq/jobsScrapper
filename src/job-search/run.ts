@@ -478,7 +478,7 @@ export async function markJobDecision(
 
   await updateState(stateFile, (current) => ({
     ...current,
-    latestMatches: current.latestMatches.filter((m) => m.job.canonicalUrl !== normalizedUrl),
+    latestMatches: current.latestMatches.filter((m) => normDecision(m.job.canonicalUrl) !== normDecision(normalizedUrl)),
   }));
 }
 
@@ -723,13 +723,14 @@ async function ensureOutputDir(filePath: string): Promise<void> {
 function slimMatchesForState(matches: MatchResult[]): MatchResult[] {
   return matches.map((m) => ({
     ...m,
-    // Strip large text fields — dashboard only needs title/company/location/score/reasons/applyUrl.
-    // Keeping state small prevents Redis write failures that lose lastSuccessAt.
+    // Strip the largest fields (job description body) to keep Redis state under 256 KB.
+    // Keep all AI-generated fields (coverLetter, emailBody, atsPlacementSuggestions)
+    // because the dashboard displays them — trimmed to reasonable lengths.
     job: { ...m.job, description: '', companySummary: '', keyMissions: [] },
-    coverLetter: '',
     shortAnswers: [],
-    emailBody: undefined,
-    atsPlacementSuggestions: undefined,
+    coverLetter: m.coverLetter ? m.coverLetter.slice(0, 2000) : '',
+    emailBody: m.emailBody ? m.emailBody.slice(0, 800) : undefined,
+    atsPlacementSuggestions: m.atsPlacementSuggestions?.slice(0, 3),
   }));
 }
 

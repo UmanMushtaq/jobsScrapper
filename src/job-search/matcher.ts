@@ -354,7 +354,9 @@ function salaryMeetsMinimum(job: JobPosting, profile: SearchProfile): boolean {
 }
 
 function toMonthlyEur(job: JobPosting): number | null {
-  const amount = job.salaryYearlyMinimum ?? job.salaryMinimum;
+  // Prefer explicit yearly minimum; fall back to salaryMinimum + period
+  const useYearly = job.salaryYearlyMinimum !== null && job.salaryYearlyMinimum !== undefined;
+  const amount = useYearly ? job.salaryYearlyMinimum! : job.salaryMinimum;
   if (amount === null || amount === undefined) {
     return null;
   }
@@ -372,7 +374,9 @@ function toMonthlyEur(job: JobPosting): number | null {
     return null;
   }
 
-  if (job.salaryPeriod === 'monthly' || job.salaryPeriod === 'month') {
+  // salaryYearlyMinimum is always annual; otherwise use salaryPeriod to decide
+  const isMonthly = !useYearly && (job.salaryPeriod === 'monthly' || job.salaryPeriod === 'month');
+  if (isMonthly) {
     return amount * exchangeRate;
   }
 
