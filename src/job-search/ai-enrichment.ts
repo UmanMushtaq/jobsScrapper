@@ -305,7 +305,7 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
   `Visa: French RECE (post-study work permit, 12-month one-shot, successor to the old APS).\n` +
   `  Remote roles: always compatible (candidate works from Paris for any EU company).\n` +
-  `  On-site/hybrid in France: compatible.\n` +
+  `  On-site/hybrid in France: compatible — candidate is open to any French city (Paris, Lyon, Marseille, Bordeaux, etc.).\n` +
   `  On-site/hybrid outside France: only compatible if employer explicitly mentions visa sponsorship or relocation support.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
@@ -341,7 +341,8 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `    Para 3 (2 sentences): Mention location fit naturally.\n` +
   `      If workMode="${workMode}" and countryCode="${countryCode ?? 'null'}":\n` +
   `      - remote: "Working from Paris, I can join your distributed team from day one."\n` +
-  `      - on-site/hybrid in France (FR): "Based in Paris, I can join your team on-site without relocation."\n` +
+  `      - on-site/hybrid in France (FR), Paris-area: "Based in Paris, I can join your team on-site without relocation."\n` +
+  `      - on-site/hybrid in France (FR), outside Paris: "I am based in Paris and fully open to relocating within France for this role."\n` +
   `      - on-site/hybrid outside France: "I am open to relocation and happy to work through the logistics."\n` +
   `      Then one closing sentence.\n` +
   `    After Para 3, add this exact line on its own (do not alter the wording): "Authorized to work in France (RECE permit, valid Oct 2026 — straightforward status change on contract signing)."\n` +
@@ -489,11 +490,14 @@ function buildFallbackCoverLetter(
   reasons: string[],
 ): string {
   const reasonLine = reasons[0] ?? 'the backend ownership in the role';
+  const isParisArea = /paris|île-de-france|idf/i.test(job.locationLabel ?? '');
   const locationLine =
     job.workMode === 'remote'
       ? 'Working from Paris, I can join your distributed team from day one.'
       : job.countryCode === 'FR'
-        ? 'Based in Paris, I can join your team on-site without relocation.'
+        ? isParisArea
+          ? 'Based in Paris, I can join your team on-site without relocation.'
+          : 'I am based in Paris and fully open to relocating within France for this role.'
         : 'I am open to relocation within Europe and happy to work through the logistics.';
 
   return [

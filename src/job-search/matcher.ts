@@ -390,11 +390,14 @@ function buildSalaryLabel(job: JobPosting): string {
 
 function buildCoverLetter(job: JobPosting, profile: SearchProfile, reasons: string[]): string {
   const reasonLine = reasons[0] ?? 'the backend ownership in the role';
+  const isParisArea = /paris|île-de-france|idf/i.test(job.locationLabel ?? '');
   const locationLine =
     job.workMode === 'remote'
       ? 'Working from Paris, I can join your distributed team from day one.'
       : job.countryCode === 'FR'
-        ? 'Based in Paris, I can join your team on-site without relocation.'
+        ? isParisArea
+          ? 'Based in Paris, I can join your team on-site without relocation.'
+          : 'I am based in Paris and fully open to relocating within France for this role.'
         : 'I am open to relocation within Europe and happy to work through the logistics.';
 
   return [
