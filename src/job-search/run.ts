@@ -11,6 +11,7 @@ import { ApecJobsSource } from './sources/apec.source';
 import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
 import { BerlinStartupJobsSource } from './sources/berlinstartupjobs.source';
 import { BundesagenturJobsSource } from './sources/bundesagentur.source';
+import { EuropeRemotelyJobsSource } from './sources/europeremotely.source';
 import { FranceTravailJobsSource } from './sources/france-travail.source';
 import { GreenhouseJobsSource } from './sources/greenhouse.source';
 import { HackerNewsJobsSource } from './sources/hackernews.source';
@@ -18,6 +19,7 @@ import { IndeedJobsSource } from './sources/indeed.source';
 import { HimalayasJobsSource } from './sources/himalayas.source';
 import { JobicyJobsSource } from './sources/jobicy.source';
 import { LeverJobsSource } from './sources/lever.source';
+import { NodeskJobsSource } from './sources/nodesk.source';
 import { RemoteOKJobsSource } from './sources/remoteok.source';
 import { RemotiveJobsSource } from './sources/remotive.source';
 import { StartupJobsSource } from './sources/startupjobs.source';
@@ -48,6 +50,7 @@ const ACTIVE_SOURCES = [
   'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
   'berlinstartupjobs.com', 'bundesagentur.de', 'startup.jobs',
   'indeed.com', 'news.ycombinator.com',
+  'europeremotely.com', 'nodesk.co',
 ];
 // linkedin.com has no public API — requires a paid partner integration
 const BLOCKED_SOURCES = ['linkedin.com'];
@@ -132,6 +135,8 @@ export async function runJobSearchOnce(
       new StartupJobsSource(),
       new IndeedJobsSource(),
       new HackerNewsJobsSource(),
+      new EuropeRemotelyJobsSource(),
+      new NodeskJobsSource(),
     ];
     const jobLists = await Promise.all(
       sources.map(async (s) => {

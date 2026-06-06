@@ -26,10 +26,19 @@ interface JobicyResponse {
   data?: JobicyJob[];
 }
 
-const QUERIES = [
+interface JobicyQuery {
+  tag: string;
+  geo?: string;
+}
+
+const QUERIES: JobicyQuery[] = [
   { tag: 'node.js' },
+  { tag: 'node.js', geo: 'europe' },
+  { tag: 'node.js', geo: 'france' },
   { tag: 'typescript' },
+  { tag: 'typescript', geo: 'europe' },
   { tag: 'backend-engineer' },
+  { tag: 'backend-engineer', geo: 'europe' },
 ];
 
 export class JobicyJobsSource implements JobSource {
@@ -39,16 +48,16 @@ export class JobicyJobsSource implements JobSource {
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
 
-    for (const { tag } of QUERIES) {
+    for (const { tag, geo } of QUERIES) {
       try {
-        const results = await fetchJobs(tag, settings);
+        const results = await fetchJobs(tag, geo, settings);
         for (const job of results) {
           jobs.set(job.canonicalUrl, job);
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (!msg.includes('fetch failed') && !msg.includes('403')) {
-          console.error(`[jobicy] error for "${tag}": ${msg}`);
+          console.error(`[jobicy] error for "${tag}"${geo ? ` geo="${geo}"` : ''}: ${msg}`);
         }
       }
     }
@@ -63,11 +72,9 @@ export class JobicyJobsSource implements JobSource {
   }
 }
 
-async function fetchJobs(tag: string, settings: SearchSettings): Promise<JobPosting[]> {
-  const params = new URLSearchParams({
-    count: '50',
-    tag,
-  });
+async function fetchJobs(tag: string, geo: string | undefined, settings: SearchSettings): Promise<JobPosting[]> {
+  const params = new URLSearchParams({ count: '50', tag });
+  if (geo) params.set('geo', geo);
 
   const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
     headers: {
