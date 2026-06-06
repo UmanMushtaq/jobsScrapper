@@ -330,6 +330,11 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  emailSubject: if hiringEmail found, subject line max 60 chars: "Application: [role title] — [company]". Else null.\n` +
   `  emailBody: if hiringEmail found, 3-4 sentences for an email sent with CV attached.\n` +
   `    Mention: specific interest in this company/role, one concrete experience highlight from CV, CV is attached, open to discuss.\n` +
+  `    Include one location sentence using the same rules as the cover letter Para 3:\n` +
+  `      - remote: "Working from Paris, I can join your distributed team from day one."\n` +
+  `      - on-site/hybrid in France (FR), Paris-area: "Based in Paris, I can join your team on-site without relocation."\n` +
+  `      - on-site/hybrid in France (FR), outside Paris: "I am based in Paris and fully open to relocating within France for this role."\n` +
+  `      - on-site/hybrid outside France: "I am open to relocation and happy to work through the logistics."\n` +
   `    Use first name if hiring manager name appears in description. Else "Dear Hiring Team". Else null.\n` +
   `  coverLetter: write ONLY if relevanceScore >= 55. Otherwise return empty string.\n` +
   `    Format: 3 paragraphs, 140-175 words total.\n` +
