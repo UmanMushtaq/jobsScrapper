@@ -307,11 +307,15 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  Remote roles: always compatible (candidate works from Paris for any EU company).\n` +
   `  On-site/hybrid in France: compatible — candidate is open to any French city (Paris, Lyon, Marseille, Bordeaux, etc.).\n` +
   `  On-site/hybrid outside France: only compatible if employer explicitly mentions visa sponsorship or relocation support.\n\n` +
+  `Language note: this job posting may be written in French, Dutch, German, or another European language.\n` +
+  `  Do NOT penalise the candidate for the posting language. If the posting explicitly requires English (e.g. "équipe anglophone", "english required", "working language English"), the candidate qualifies — write the cover letter and email in English.\n` +
+  `  If the posting requires French/Dutch/German fluency and there is NO English-team signal, set relevanceScore below 40 and note the language barrier in relevanceIssues.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
   `  relevanceScore: integer 0-100. How well does this job match the candidate's CV above?\n` +
   `    Penalise heavily: primary backend NOT Node.js (C#/.NET, Java, Go, PHP) without Node.js.\n` +
   `    Penalise: frontend/fullstack where non-JS dominates; requires skills clearly absent from CV (AI/ML, DevOps, mobile).\n` +
+  `    Penalise: job requires French/Dutch/German fluency with no English-team signal (candidate is A1 French).\n` +
   `    Reward: Node.js/NestJS/TypeScript primary stack; fintech/payments domain; event-driven/microservices.\n` +
   `  relevanceIssues: array of up to 3 short strings explaining deductions.\n` +
   `  visaFriendly: true/false/null — assess using visa rules above.\n` +

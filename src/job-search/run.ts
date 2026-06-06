@@ -217,7 +217,7 @@ export async function runJobSearchOnce(
         const title = job.title.toLowerCase();
         const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
         const jobLang = (job.language ?? '').toLowerCase();
-        if (jobLang && jobLang !== desiredLang) { counts.lang++; continue; }
+        if (jobLang && jobLang !== desiredLang && !hasEnglishTeamSignals(txt)) { counts.lang++; continue; }
         if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { counts.title++; continue; }
         if (EXCL_ROLES.some((k) => title.includes(k))) { counts.role++; continue; }
 
@@ -610,6 +610,41 @@ async function buildTelegramPayload(
   }
 
   return messages;
+}
+
+/**
+ * Returns true when a non-English job description explicitly signals that
+ * the team works in English. Used to pass through French/Dutch/German posts
+ * that are still valid for an English-speaking candidate.
+ */
+function hasEnglishTeamSignals(txt: string): boolean {
+  const signals = [
+    // Direct "english required/spoken" patterns
+    'english required', 'english is required', 'english mandatory',
+    'fluent english', 'fluent in english', 'english fluency',
+    'english proficiency', 'proficient in english',
+    'english speaker', 'english-speaking', 'english speaking',
+    'native english', 'business english',
+    // Working language signals
+    'working language.*english', 'language.*english', 'english.*working language',
+    'company language.*english', 'team language.*english',
+    'we work in english', 'work in english', 'communication in english',
+    'all.*english', 'english.*team',
+    // French signals (équipe anglophone, langue de travail anglais)
+    'équipe anglophone', 'environnement anglophone', 'milieu anglophone',
+    'langue.*anglais', 'anglais.*courant', 'anglais.*requis',
+    'maîtrise.*anglais', 'parler anglais', 'anglais.*obligatoire',
+    'anglais.*indispensable', 'très bon niveau.*anglais',
+    // Dutch/Flemish signals
+    'engelstalig', 'voertaal.*engels', 'engels.*vereist',
+    'werkvoertaal.*engels', 'goede.*engels', 'vlotte.*engels',
+    // German signals
+    'englischkenntnisse', 'englisch.*voraussetzung', 'arbeitssprache.*englisch',
+    'fließend.*englisch', 'sehr gute.*englischkenntnisse',
+  ];
+  return signals.some((s) => {
+    try { return new RegExp(s, 'i').test(txt); } catch { return txt.includes(s); }
+  });
 }
 
 function sortMatches(left: MatchResult, right: MatchResult): number {
