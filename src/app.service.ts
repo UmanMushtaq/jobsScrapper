@@ -4,7 +4,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { enrichMatch, generateTailoredCv, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
+import { enrichMatch, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
   JobDecisionMeta,
@@ -400,115 +400,13 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Not found</title>
         <style>body{font-family:sans-serif;padding:40px;color:#374151;}a{color:#2563eb;}</style></head>
         <body><h2>Session expired</h2>
-        <p>This job is no longer in the current match list — the bot may have restarted or run a new cycle.</p>
+        <p>This job is no longer in the current match list. The bot may have restarted or completed a new cycle.</p>
         <p><a href="/">Back to Dashboard</a> — run the bot again to reload matches.</p></body></html>`;
     }
 
-    const profile = await loadSearchProfile();
-    const cvText = profile.candidate.cvText
-      ?? `${profile.candidate.name} | ${profile.candidate.experienceYears} years backend | Skills: ${profile.candidate.coreSkills.join(', ')}`;
-
     const keywords = match.atsMissingKeywords ?? [];
     const suggestions = match.atsPlacementSuggestions ?? [];
-
-    let tailoredCv: string | null = null;
-    if (keywords.length > 0) {
-      tailoredCv = await generateTailoredCv(
-        cvText,
-        match.job.title,
-        match.job.company,
-        keywords,
-        suggestions,
-      );
-    }
-
-    // Fallback: show base CV with keyword annotations if Gemini unavailable or no keywords
-    const displayCv = tailoredCv ?? cvText;
-    const wasAiGenerated = tailoredCv !== null && keywords.length > 0;
-
-    const kwTags = keywords.length > 0
-      ? keywords.map((k) => `<span style="display:inline-block;padding:2px 8px;background:#fef3c7;border:1px solid #fde68a;border-radius:99px;font-size:12px;font-weight:600;color:#92400e;margin:2px;">${escapeHtml(k)}</span>`).join('')
-      : '<span style="color:#6b7280;">None — your CV already matches well.</span>';
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Tailored CV — ${escapeHtml(match.job.title)} at ${escapeHtml(match.job.company)}</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-           margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; }
-    .wrap { max-width: 860px; margin: 0 auto; }
-    .card { background: white; border-radius: 14px; padding: 28px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 20px; }
-    .btn { display: inline-block; padding: 9px 20px; border-radius: 8px; font-size: 14px;
-           font-weight: 600; border: 0; cursor: pointer; text-decoration: none; margin-right: 8px; }
-    .btn-blue { background: #2563eb; color: white; }
-    .btn-gray { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
-    .cv-text { white-space: pre-wrap; font-size: 13.5px; line-height: 1.75; color: #1f2937;
-               background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; }
-    .badge { display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600; }
-    .badge-green { background:#d1fae5;color:#065f46; }
-    .badge-gray { background:#f3f4f6;color:#374151; }
-    @media print {
-      body { background: white; padding: 0; }
-      .no-print { display: none !important; }
-      .card { box-shadow: none; border-radius: 0; padding: 0; margin: 0; }
-      .cv-text { border: none; padding: 0; background: white; font-size: 12px; }
-    }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card no-print">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
-        <div>
-          <a href="/" style="font-size:13px;color:#6b7280;text-decoration:none;">← Dashboard</a>
-          <h1 style="margin:8px 0 4px;font-size:20px;">Tailored CV</h1>
-          <div style="font-size:14px;color:#374151;"><b>${escapeHtml(match.job.title)}</b> at <b>${escapeHtml(match.job.company)}</b></div>
-        </div>
-        <span class="badge ${wasAiGenerated ? 'badge-green' : 'badge-gray'}">${wasAiGenerated ? 'AI tailored' : keywords.length === 0 ? 'No gaps — base CV' : 'Gemini unavailable — base CV'}</span>
-      </div>
-      <div style="margin-bottom:14px;">
-        <div style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">ATS keywords added for this role:</div>
-        <div>${kwTags}</div>
-        ${suggestions.length > 0 ? `<ul style="margin:10px 0 0;padding:0 0 0 18px;font-size:12px;color:#374151;">${suggestions.map((s) => `<li style="margin-bottom:3px;">${escapeHtml(s)}</li>`).join('')}</ul>` : ''}
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-blue" onclick="window.print()">Print / Save as PDF</button>
-        <button class="btn btn-gray" onclick="copyAll()">Copy All Text</button>
-      </div>
-      <div style="margin-top:12px;padding:10px 14px;background:#eff6ff;border-radius:8px;font-size:12px;color:#1d4ed8;">
-        <b>How to use:</b> Click <b>Print / Save as PDF</b> → in the print dialog choose <b>Save as PDF</b> → attach the PDF to your application.
-        Or click <b>Copy All Text</b> → paste into your CV template in Word / Google Docs.
-      </div>
-    </div>
-
-    <div class="card" id="cv-card">
-      <div class="cv-text" id="cv-content">${escapeHtml(displayCv)}</div>
-    </div>
-  </div>
-  <script>
-    function copyAll() {
-      var el = document.getElementById('cv-content');
-      if (!el) return;
-      navigator.clipboard.writeText(el.textContent || '').catch(function() {
-        var ta = document.createElement('textarea');
-        ta.value = el.textContent || '';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      });
-      var btn = event.target;
-      btn.textContent = 'Copied!';
-      setTimeout(function() { btn.textContent = 'Copy All Text'; }, 2000);
-    }
-  </script>
-</body>
-</html>`;
+    return renderCvHtml(match.job.title, match.job.company, keywords, suggestions);
   }
 
   async getGeminiStatusLite(): Promise<Record<string, unknown>> {
@@ -719,6 +617,419 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
       switchTab(initialTab === "dismissed" ? "dismissed" : "applied");
     </script>
   </body>
+</html>`;
+}
+
+function renderCvHtml(
+  forJobTitle: string,
+  forCompany: string,
+  atsMissingKeywords: string[],
+  atsSuggestions: string[],
+): string {
+  const kwTags = atsMissingKeywords
+    .map((k) => `<span class="kw-tag">${escapeHtml(k)}</span>`)
+    .join(' ');
+
+  const atsPanel = atsMissingKeywords.length > 0
+    ? `<div class="no-print ats-panel">
+        <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">
+          ATS keywords this role scans for — consider weaving these in where they naturally fit
+        </div>
+        <div style="margin-bottom:${atsSuggestions.length > 0 ? '8px' : '0'};">${kwTags}</div>
+        ${atsSuggestions.length > 0
+          ? `<ul style="margin:0;padding:0 0 0 16px;font-size:12px;color:#374151;line-height:1.6;">${atsSuggestions.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>`
+          : ''}
+      </div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CV — Uman Mushtaq</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #1a1a1a;
+      background: #cbd5e1;
+    }
+
+    /* ── Toolbar (screen only) ─────────────────────────────── */
+    .toolbar {
+      position: sticky; top: 0; z-index: 10;
+      background: #1e293b;
+      padding: 10px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .toolbar a { color: #94a3b8; text-decoration: none; font-size: 13px; }
+    .toolbar a:hover { color: white; }
+    .toolbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .toolbar-job { font-size: 13px; color: #94a3b8; }
+    .toolbar-job b { color: #e2e8f0; }
+    .tbtn {
+      padding: 7px 18px; border-radius: 6px; font-size: 13px; font-weight: 600;
+      border: 0; cursor: pointer; font-family: inherit;
+    }
+    .tbtn-pdf  { background: #2563eb; color: white; }
+    .tbtn-copy { background: #334155; color: #e2e8f0; border: 1px solid #475569; }
+    .tbtn-tip  { background: transparent; color: #64748b; font-size: 12px; border: 1px dashed #475569; }
+
+    /* ── ATS panel (screen only) ───────────────────────────── */
+    .ats-panel {
+      background: #fffbeb;
+      border-bottom: 2px solid #fde68a;
+      padding: 12px 24px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .kw-tag {
+      display: inline-block; margin: 2px;
+      padding: 2px 9px;
+      background: #fef3c7; border: 1px solid #fde68a;
+      border-radius: 99px; font-size: 12px; font-weight: 600; color: #92400e;
+    }
+    .print-tip {
+      background: #f1f5f9;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 7px 24px;
+      text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12px; color: #64748b;
+    }
+
+    /* ── A4 page ───────────────────────────────────────────── */
+    .cv-page {
+      max-width: 794px;
+      margin: 28px auto 48px;
+      background: white;
+      padding: 54px 64px 60px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    }
+
+    /* Header */
+    .cv-name {
+      text-align: center; font-size: 30px; font-weight: bold;
+      letter-spacing: 0.02em; margin-bottom: 3px;
+    }
+    .cv-contact {
+      text-align: center; font-size: 12px; color: #374151;
+      display: flex; justify-content: center; flex-wrap: wrap;
+      gap: 2px 14px; margin: 6px 0 0;
+    }
+    .cv-contact a { color: #374151; text-decoration: none; }
+
+    /* Dividers */
+    .divider-bold { border: none; border-top: 1.5px solid #1a1a1a; margin: 14px 0; }
+    .divider-light { border: none; border-top: 1px solid #d1d5db; margin: 12px 0; }
+
+    /* Section rows */
+    .cv-section {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 0 22px;
+      align-items: start;
+    }
+    .cv-label {
+      font-size: 11.5px; color: #6b7280; padding-top: 2px;
+    }
+    .cv-body { }
+
+    /* Experience */
+    .job { margin-bottom: 18px; }
+    .job:last-child { margin-bottom: 0; }
+    .job-top {
+      display: flex; justify-content: space-between;
+      align-items: baseline; margin-bottom: 1px;
+    }
+    .job-co { font-weight: bold; font-size: 14px; }
+    .job-loc { font-size: 12px; color: #4b5563; }
+    .job-title-row {
+      display: flex; justify-content: space-between;
+      align-items: baseline; margin-bottom: 5px;
+    }
+    .job-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #374151; }
+    .job-dates { font-size: 12px; color: #4b5563; }
+    .job-bullets { margin: 0; padding: 0 0 0 14px; }
+    .job-bullets li { margin-bottom: 4px; font-size: 12.5px; line-height: 1.55; }
+
+    /* Projects */
+    .proj { margin-bottom: 14px; }
+    .proj:last-child { margin-bottom: 0; }
+    .proj-top {
+      display: flex; justify-content: space-between;
+      align-items: baseline; margin-bottom: 3px;
+    }
+    .proj-name { font-weight: bold; font-size: 13px; }
+    .proj-dates { font-size: 12px; color: #4b5563; white-space: nowrap; margin-left: 12px; }
+    .proj-desc { font-size: 12.5px; line-height: 1.55; }
+
+    /* Education */
+    .edu { margin-bottom: 12px; }
+    .edu:last-child { margin-bottom: 0; }
+    .edu-top {
+      display: flex; justify-content: space-between;
+      align-items: baseline;
+    }
+    .edu-school { font-weight: bold; font-size: 13px; }
+    .edu-type { font-size: 12px; color: #4b5563; }
+    .edu-deg-row {
+      display: flex; justify-content: space-between;
+      align-items: baseline;
+    }
+    .edu-deg { font-size: 12.5px; }
+    .edu-dates { font-size: 12px; color: #4b5563; }
+
+    /* ── Print ─────────────────────────────────────────────── */
+    @media print {
+      @page { size: A4; margin: 0; }
+      body { background: white; padding: 1.7cm 2cm 1.5cm; font-size: 12px; }
+      .no-print, .toolbar, .ats-panel, .print-tip { display: none !important; }
+      .cv-page { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+      .divider-bold { border-top-width: 1.2px; margin: 11px 0; }
+      .divider-light { margin: 10px 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="no-print toolbar">
+    <a href="/">← Dashboard</a>
+    <div class="toolbar-right">
+      <span class="toolbar-job">CV for <b>${escapeHtml(forJobTitle)}</b> at <b>${escapeHtml(forCompany)}</b></span>
+      <button class="tbtn tbtn-copy" onclick="copyAll(event)">Copy text</button>
+      <button class="tbtn tbtn-pdf" onclick="window.print()">Save as PDF</button>
+    </div>
+  </div>
+
+  ${atsPanel}
+
+  <div class="no-print print-tip">
+    To hide the URL and date when printing: in Chrome open <b>More settings</b> and uncheck <b>Headers and footers</b>
+  </div>
+
+  <div class="cv-page" id="cv-doc">
+
+    <!-- ── Header ──────────────────────────────────────────── -->
+    <div class="cv-name">Uman Mushtaq</div>
+    <div class="cv-contact">
+      <span><a href="mailto:umanmushtaq72@gmail.com">umanmushtaq72@gmail.com</a></span>
+      <span>+33 6 51 99 51 39</span>
+      <span>Paris, Île-de-France, France</span>
+      <span><a href="https://github.com/umanmushtaq" target="_blank" rel="noreferrer">github.com/umanmushtaq</a></span>
+      <span><a href="https://linkedin.com/in/umanmushtaq" target="_blank" rel="noreferrer">linkedin.com/in/umanmushtaq</a></span>
+    </div>
+
+    <hr class="divider-bold">
+
+    <!-- ── Summary ─────────────────────────────────────────── -->
+    <div class="cv-section">
+      <div class="cv-label">Summary</div>
+      <div class="cv-body">
+        Node.js / NestJS Engineer with 4+ years building production-grade microservices in fintech, crypto, and SaaS
+        environments. Specialised in scalable backend systems and event-driven architecture (RabbitMQ, Kafka), with
+        strong experience in TypeScript, PostgreSQL, Docker, AWS, and CI/CD pipelines. Currently in France on a
+        job-search residence permit. Eligible for a fast changement de statut to an employee work permit once a
+        contract is signed. Already legally resident, no overseas visa process required.
+      </div>
+    </div>
+
+    <hr class="divider-light">
+
+    <!-- ── Skills ──────────────────────────────────────────── -->
+    <div class="cv-section">
+      <div class="cv-label">Skills</div>
+      <div class="cv-body">
+        <div style="margin-bottom:5px;">
+          <strong>Core (Expert):</strong>
+          TypeScript, JavaScript, Node.js, NestJS, Express.js, PostgreSQL, Docker, GitHub Actions,
+          CI/CD, Microservices, Event-Driven Architecture, Clean Architecture, Domain-Driven Design,
+          REST APIs, JWT, OAuth2, Git, Nx Monorepo, TypeORM
+        </div>
+        <div>
+          <strong>Also worked with:</strong>
+          React, MongoDB, Redis, RabbitMQ, Kafka, AWS, Sequelize, Mongoose, Prisma, Agile, Scrum
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider-light">
+
+    <!-- ── Experience ──────────────────────────────────────── -->
+    <div class="cv-section">
+      <div class="cv-label">Experience</div>
+      <div class="cv-body">
+
+        <div class="job">
+          <div class="job-top">
+            <span class="job-co">OptimusFox</span>
+            <span class="job-loc">Lahore, Pakistan</span>
+          </div>
+          <div class="job-title-row">
+            <span class="job-title">Software Engineer</span>
+            <span class="job-dates">Oct 2021 – Jul 2024</span>
+          </div>
+          <ul class="job-bullets">
+            <li>Built and delivered 4 production microservices across fintech, crypto, and SaaS products using NestJS,
+                TypeScript, and Express.js, covering payment flows, wallet management, and trading platform backends.</li>
+            <li>Integrated 5 third-party services including Stripe and PayPal for payment processing, Auth0 and Firebase
+                for authentication, and Twilio and SendGrid for notifications across multiple backend systems.</li>
+            <li>Resolved critical data integrity failures by redesigning PostgreSQL and MongoDB schemas across 3 services,
+                eliminating recurring production bugs and improving query reliability.</li>
+            <li>Built GitHub Actions CI/CD pipelines from scratch across 4 services, reducing manual deployment effort
+                by approximately 60% and standardising release workflows for a team of 10 engineers.</li>
+            <li>Dockerized 4 backend services with multi-stage builds and environment-specific configurations, ensuring
+                consistent deployments across development and production.</li>
+            <li>Collaborated with a cross-functional team of 10 engineers to ship features across fintech payment
+                platforms and crypto trading systems within 2-week sprint cycles.</li>
+          </ul>
+        </div>
+
+        <div class="job">
+          <div class="job-top">
+            <span class="job-co">Teams.pk</span>
+            <span class="job-loc">Lahore, Pakistan</span>
+          </div>
+          <div class="job-title-row">
+            <span class="job-title">Node.js Developer</span>
+            <span class="job-dates">Jun 2020 – Sep 2021</span>
+          </div>
+          <ul class="job-bullets">
+            <li>Built and maintained REST APIs powering core workflows of a B2B SaaS platform using Node.js, TypeScript,
+                and Express.js, supporting approximately 50 business clients.</li>
+            <li>Structured backend codebases from early-stage features through to stable production, establishing clean
+                architecture patterns adopted across the team.</li>
+            <li>Debugged and resolved performance bottlenecks across 3 core API modules, improving response times
+                across the platform.</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+
+    <hr class="divider-light">
+
+    <!-- ── Projects ────────────────────────────────────────── -->
+    <div class="cv-section">
+      <div class="cv-label">Projects</div>
+      <div class="cv-body">
+
+        <div class="proj">
+          <div class="proj-top">
+            <span class="proj-name">NexusPay – Event-Driven Fintech Transaction Platform</span>
+            <span class="proj-dates">Apr 2026 – Present</span>
+          </div>
+          <p class="proj-desc">Event-driven fintech platform built across 7 independent NestJS microservices in an
+          Nx monorepo, covering payments, wallets, transfers, notifications, and analytics. Each service owns a
+          dedicated PostgreSQL database. RabbitMQ handles Saga-based distributed transactions and Kafka manages
+          real-time event streaming. Applies Clean and Hexagonal Architecture with Domain-Driven Design for loose
+          coupling and independent scalability. Redis used for caching, rate limiting, and distributed locks.
+          Includes JWT and refresh token authentication, full KYC submission and approval workflow with event
+          publishing, and 85%+ test coverage across unit, integration, and e2e tests. Infrastructure fully
+          Dockerized with GitHub Actions CI/CD pipelines.</p>
+        </div>
+
+        <div class="proj">
+          <div class="proj-top">
+            <span class="proj-name">Aktoo</span>
+            <span class="proj-dates">Jan 2024 – Jul 2024</span>
+          </div>
+          <p class="proj-desc">Training platform for actors built with Node.js, TypeScript, Express.js, and
+          PostgreSQL. Designed and implemented structured content delivery APIs supporting multiple content types
+          across drama, crime, medical, and comedy genres, with user progress tracking and role-based access
+          control.</p>
+        </div>
+
+        <div class="proj">
+          <div class="proj-top">
+            <span class="proj-name">Swiss Block</span>
+            <span class="proj-dates">Dec 2022 – May 2023</span>
+          </div>
+          <p class="proj-desc">Cryptocurrency exchange platform supporting real-time BTC and ETH trading. Built
+          secure REST API backend with Node.js, TypeScript, Express.js, and PostgreSQL, integrating 3 third-party
+          market data APIs for live price feeds, wallet management, and order execution.</p>
+        </div>
+
+        <div class="proj">
+          <div class="proj-top">
+            <span class="proj-name">Dinisium</span>
+            <span class="proj-dates">Mar 2022 – Jul 2023</span>
+          </div>
+          <p class="proj-desc">White-label marketplace for asset-backed cryptocurrency tokens with role-based
+          interfaces for super admins, admins, and investors. Built the backend with Node.js, Express.js, and
+          PostgreSQL and integrated the Quorum blockchain mainnet to record all transactions for auditability
+          and transparency.</p>
+        </div>
+
+      </div>
+    </div>
+
+    <hr class="divider-light">
+
+    <!-- ── Education ───────────────────────────────────────── -->
+    <div class="cv-section">
+      <div class="cv-label">Education</div>
+      <div class="cv-body">
+        <div class="edu">
+          <div class="edu-top">
+            <span class="edu-school">Paris School of Business</span>
+            <span class="edu-type">Master</span>
+          </div>
+          <div class="edu-deg-row">
+            <span class="edu-deg">Business Administration</span>
+            <span class="edu-dates">Oct 2024 – Jul 2025</span>
+          </div>
+        </div>
+        <div class="edu">
+          <div class="edu-top">
+            <span class="edu-school">University of Central Punjab</span>
+            <span class="edu-type">Bachelor</span>
+          </div>
+          <div class="edu-deg-row">
+            <span class="edu-deg">Computer Science</span>
+            <span class="edu-dates">Oct 2015 – Aug 2019</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider-light">
+
+    <!-- ── Languages ───────────────────────────────────────── -->
+    <div class="cv-section">
+      <div class="cv-label">Languages</div>
+      <div class="cv-body">
+        English (Fluent) &nbsp;&middot;&nbsp; French (A1, improving)
+      </div>
+    </div>
+
+  </div><!-- /cv-page -->
+
+  <script>
+    function copyAll(e) {
+      var el = document.getElementById('cv-doc');
+      if (!el) return;
+      var btn = e.target;
+      navigator.clipboard.writeText(el.innerText || el.textContent || '').then(function() {
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy text'; }, 2000);
+      }).catch(function() {
+        var ta = document.createElement('textarea');
+        ta.value = el.innerText || el.textContent || '';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy text'; }, 2000);
+      });
+    }
+  </script>
+</body>
 </html>`;
 }
 

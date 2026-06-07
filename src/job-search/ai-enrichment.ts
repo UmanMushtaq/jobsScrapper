@@ -357,8 +357,7 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `      - on-site/hybrid in France (FR), outside Paris: "I am based in Paris and fully open to relocating within France for this role."\n` +
   `      - on-site/hybrid outside France: "I am open to relocation and happy to work through the logistics."\n` +
   `      Then one closing sentence.\n` +
-  `    After Para 3, add this exact line on its own (do not alter the wording): "Authorized to work in France (RECE permit, valid Oct 2026 — straightforward status change on contract signing)."\n` +
-  `    Note: this is the ONLY place a dash is allowed — keep the em dash in that authorization line exactly as written.\n` +
+  `    After Para 3, add this exact line on its own: "Authorized to work in France. RECE permit valid to October 2026, standard changement de statut on contract signing."\n` +
   `    End with exactly: "Best regards,\\n${name}"\n` +
   `    Rules: absolutely no dashes of any kind (no hyphen-punctuation, no em dash —, no en dash). Use commas or short sentences instead. No: passionate/leverage/synergy/excited/contribute/dynamic.\n` +
   `  salaryMin: monthly gross integer in local currency, or null.\n` +
@@ -526,7 +525,7 @@ function buildFallbackCoverLetter(
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',
-    'Authorized to work in France (RECE permit, valid Oct 2026 — straightforward status change on contract signing).',
+    'Authorized to work in France. RECE permit valid to October 2026, standard changement de statut on contract signing.',
     '',
     'Best regards,',
     profile.candidate.name,
