@@ -297,6 +297,28 @@ function fmt(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
+// Safety net: Gemini sometimes ignores the "no dashes" rule. Strip every kind of
+// dash from generated prose so cover letters and emails never contain one.
+// - em/en/figure dashes etc. surrounded by spaces become a comma + space
+// - a hyphen between two letters becomes a single space ("full-stack" -> "full stack")
+// - any remaining stray dash characters are removed
+function stripDashes(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    // spaced long dashes -> comma (", ")
+    .replace(/\s*[—–―‒]\s*/g, ', ')
+    // spaced hyphen used as punctuation -> comma
+    .replace(/\s+-\s+/g, ', ')
+    // hyphen joining two word characters -> space ("real-time" -> "real time")
+    .replace(/(\w)-(\w)/g, '$1 $2')
+    // any leftover dash characters -> remove
+    .replace(/[—–―‒-]/g, '')
+    // tidy up any doubled commas/spaces the replacements may have produced
+    .replace(/,\s*,/g, ',')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 // To convert RECE to a long-term Talent (salarié qualifié) permit: flat €39,582/yr from Aug 2025 decree.
 const TALENT_THRESHOLD_MONTHLY_EUR = Math.ceil(39582 / 12); // 3299
 
@@ -344,22 +366,24 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `      - on-site/hybrid outside France: "I am open to relocation and happy to work through the logistics."\n` +
   `    Use first name if hiring manager name appears in description. Else "Dear Hiring Team". Else null.\n` +
   `  coverLetter: write ONLY if relevanceScore >= 55. Otherwise return empty string.\n` +
-  `    Format: 3 paragraphs, 140-175 words total.\n` +
-  `    Para 1 (2-3 sentences): Specific fact about what THIS company builds or does. Do NOT start with "I".\n` +
-  `    Para 2 (3-4 sentences): Reference specific projects/achievements from the CV that match this role.\n` +
-  `      PRIMARY proof: OptimusFox (4 years production, NestJS/Node.js microservices, fintech + crypto platforms, real cross-functional team). Since EU recruiters will not know OptimusFox, name the concrete output: what was built, specific integrations (Stripe, PayPal, Web3 APIs), scale hints (team of ~10, Dockerized services, CI/CD), to make the work legible.\n` +
-  `      SUPPORTING proof only: NexusPay may be cited as evidence of current technical depth — e.g. "I am applying these patterns in NexusPay, an event-driven fintech platform I am building" — never as the primary proof of experience. Swiss Block or Teams.pk may be cited if directly relevant to the role.\n` +
-  `      Do NOT open Para 2 with NexusPay.\n` +
-  `    Para 3 (2 sentences): Mention location fit naturally.\n` +
+  `    Goal: a warm, human, specific letter that answers every question in a recruiter's head: who is this person, why this company, why this role, why are they the right fit, and (if not Paris) why are they open to this location. It must read like a real person wrote it, not a template.\n` +
+  `    Length: 4 short paragraphs, 180-230 words total.\n` +
+  `    Para 1 (2-3 sentences): MUST begin with the exact words "I am". Introduce the candidate in one line (Paris-based Node.js / NestJS backend engineer with ${expYears}+ years), name the exact role title shown in the prompt that they are applying for, and state one genuine, specific reason this company appeals to him, grounded in a real fact about what THIS company actually builds or does (take it from the company info / description, never generic flattery).\n` +
+  `    Para 2 (3-4 sentences): Why he is the right fit. Map his concrete experience to what THIS role needs, using the job description's own requirements. PRIMARY proof: OptimusFox (${expYears} years production, NestJS/Node.js microservices, fintech + crypto platforms, real cross-functional team of ~10). EU recruiters will not know OptimusFox, so name the concrete output: what was built, specific integrations (Stripe, PayPal, Web3 APIs), Dockerized services, CI/CD. Connect 2-3 of his skills directly to the role's main needs and say plainly why that makes him a strong match.\n` +
+  `    Para 3 (2-3 sentences): Why this company and this role specifically (growth, product, domain, engineering culture, whatever the posting reveals). SUPPORTING proof only: NexusPay may be cited here as evidence of current depth, e.g. "I am applying these same patterns in NexusPay, an event-driven fintech platform I am building", never as primary experience. Do NOT open any paragraph with NexusPay.\n` +
+  `    Para 4 (2-3 sentences): Location and availability, worded naturally.\n` +
   `      If workMode="${workMode}" and countryCode="${countryCode ?? 'null'}":\n` +
   `      - remote: "Working from Paris, I can join your distributed team from day one."\n` +
   `      - on-site/hybrid in France (FR), Paris-area: "Based in Paris, I can join your team on-site without relocation."\n` +
-  `      - on-site/hybrid in France (FR), outside Paris: "I am based in Paris and fully open to relocating within France for this role."\n` +
-  `      - on-site/hybrid outside France: "I am open to relocation and happy to work through the logistics."\n` +
-  `      Then one closing sentence.\n` +
-  `    After Para 3, add this exact line on its own: "Authorized to work in France. RECE permit valid to October 2026, standard changement de statut on contract signing."\n` +
+  `      - on-site/hybrid in France (FR), outside Paris: say he is based in Paris and genuinely happy to relocate within France for this role, and give a brief human reason he is open to moving for the right team.\n` +
+  `      - on-site/hybrid outside France (another country): acknowledge the role is outside France, say he is genuinely open to relocating within Europe for it, and give one authentic reason WHY he would move there for this specific company/role (the opportunity, the product, the team). Do not sound desperate, sound deliberate.\n` +
+  `      Then one short closing sentence inviting a conversation.\n` +
+  `    After Para 4, add this exact line on its own: "Authorized to work in France. RECE permit valid to October 2026, standard changement de statut on contract signing."\n` +
   `    End with exactly: "Best regards,\\n${name}"\n` +
-  `    Rules: absolutely no dashes of any kind (no hyphen-punctuation, no em dash —, no en dash). Use commas or short sentences instead. No: passionate/leverage/synergy/excited/contribute/dynamic.\n` +
+  `    HARD RULES:\n` +
+  `      1. Absolutely NO dashes of any kind anywhere: no hyphen, no em dash —, no en dash. Write compound words with a space or one word (for example "full stack", "well structured", "real time"). Use commas, "and", or short sentences instead of dashes.\n` +
+  `      2. Sound human: vary sentence length, use plain confident language, write like you are speaking to one person. Avoid AI tells and these banned words: passionate, leverage, synergy, excited, thrilled, contribute, dynamic, fast-paced, cutting-edge, delve, tapestry, robust, seamless, spearheaded.\n` +
+  `      3. Be specific over generic: every claim should reference a real fact about the company, the role, or his actual experience.\n` +
   `  salaryMin: monthly gross integer in local currency, or null.\n` +
   `  salaryMax: monthly gross integer in local currency, or null.\n` +
   `  salaryCurrency: ISO 4217 string, or null.`;
@@ -489,14 +513,14 @@ async function enrichSingle(
     companyQualityScore,
     companyRedFlags: (raw.companyRedFlags ?? []).slice(0, 3),
     coverLetter: relevanceScore >= 55
-      ? (raw.coverLetter?.trim() || buildFallbackCoverLetter(job, profile, matchReasons))
+      ? stripDashes(raw.coverLetter?.trim() || buildFallbackCoverLetter(job, profile, matchReasons))
       : '',
     suggestedSalary,
     atsMissingKeywords: (raw.atsMissingKeywords ?? []).slice(0, 8),
     atsPlacementSuggestions: (raw.atsPlacementSuggestions ?? []).slice(0, 3),
     hiringEmail,
-    emailSubject: hiringEmail ? (raw.emailSubject?.trim() || null) : null,
-    emailBody: hiringEmail ? (raw.emailBody?.trim() || null) : null,
+    emailSubject: hiringEmail ? (stripDashes(raw.emailSubject?.trim()) || null) : null,
+    emailBody: hiringEmail ? (stripDashes(raw.emailBody?.trim()) || null) : null,
   };
 }
 
