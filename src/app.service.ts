@@ -4,6 +4,10 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { Response } from 'express';
 import { enrichMatch, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
@@ -450,6 +454,80 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     })();
 
     return this.activeRun;
+  }
+
+  // ─── Admin / permit-update page ──────────────────────────────────────────
+
+  async getAdminPage(cookieHeader: string | undefined, flash?: string): Promise<string> {
+    if (!isAdminAuthenticated(cookieHeader)) {
+      return renderAdminLoginHtml(false);
+    }
+    const profile = await loadSearchProfile();
+    const wa = profile.candidate.workAuthorization;
+    return renderAdminSettingsHtml(
+      wa?.permitName ?? '',
+      wa?.expiry ?? '',
+      flash,
+    );
+  }
+
+  adminLogin(password: string, res: Response): void {
+    const expected = process.env.ADMIN_PASSWORD;
+    if (!expected) {
+      res.status(500).send('ADMIN_PASSWORD environment variable is not set.');
+      return;
+    }
+    if (password !== expected) {
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.send(renderAdminLoginHtml(true));
+      return;
+    }
+    const token = signAdminToken(Date.now());
+    const maxAge = 24 * 60 * 60; // 24 h in seconds
+    res.setHeader('Set-Cookie', `admin_session=${token}; HttpOnly; Path=/; Max-Age=${maxAge}; SameSite=Strict`);
+    res.redirect('/admin');
+  }
+
+  adminLogout(res: Response): void {
+    res.setHeader('Set-Cookie', 'admin_session=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict');
+    res.redirect('/admin');
+  }
+
+  async adminUpdatePermit(
+    permitName: string,
+    expiry: string,
+    cookieHeader: string | undefined,
+    res: Response,
+  ): Promise<void> {
+    if (!isAdminAuthenticated(cookieHeader)) {
+      res.redirect('/admin');
+      return;
+    }
+
+    const pName = (permitName ?? '').trim();
+    const pExpiry = (expiry ?? '').trim();
+    if (!pName || !pExpiry) {
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.send(await this.getAdminPage(cookieHeader, 'error:Both fields are required.'));
+      return;
+    }
+
+    const profilePath = join(process.cwd(), 'job_search_profile.json');
+    const raw = await loadSearchProfile();
+
+    const country = raw.candidate.workAuthorization?.country ?? 'France';
+    const countryCode = raw.candidate.workAuthorization?.countryCode ?? 'FR';
+    raw.candidate.workAuthorization = {
+      permitName: pName,
+      country,
+      countryCode,
+      expiry: pExpiry,
+      statusLine: `Authorized to work in ${country}. ${pName} valid to ${pExpiry}, standard changement de statut on contract signing.`,
+      visaContext: `French ${pName} (valid to ${pExpiry}). Already legally resident in France, no overseas visa process required.`,
+    };
+
+    await writeFile(profilePath, JSON.stringify(raw, null, 2), 'utf-8');
+    res.redirect('/admin?updated=1');
   }
 }
 
@@ -1488,7 +1566,7 @@ function renderHtml(state: JobSearchState): string {
         <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
             <h1>Job Search Bot</h1>
-            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a></p>
+            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a> &nbsp;·&nbsp; <a href="/admin" style="color:#2563eb;text-decoration:none;">Admin →</a></p>
           </div>
           <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
             ${statusDot(state.lastRunStatus)}
@@ -1871,5 +1949,180 @@ function renderHtml(state: JobSearchState): string {
       setInterval(loadHealth, 30000);
     </script>
   </body>
+</html>`;
+}
+
+// ─── Admin helpers ────────────────────────────────────────────────────────────
+
+function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  if (!cookieHeader) return {};
+  const out: Record<string, string> = {};
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx < 1) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    try { out[k] = decodeURIComponent(v); } catch { out[k] = v; }
+  }
+  return out;
+}
+
+function signAdminToken(ts: number): string {
+  const secret = process.env.ADMIN_PASSWORD ?? '';
+  const payload = String(ts);
+  const sig = createHmac('sha256', secret).update(payload).digest('hex');
+  return `${payload}.${sig}`;
+}
+
+function verifyAdminToken(token: string): boolean {
+  const dot = token.indexOf('.');
+  if (dot < 1) return false;
+  const tsStr = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const ts = Number(tsStr);
+  if (!Number.isFinite(ts)) return false;
+  if (Date.now() - ts > 24 * 60 * 60 * 1000) return false;
+  const secret = process.env.ADMIN_PASSWORD ?? '';
+  const expected = createHmac('sha256', secret).update(tsStr).digest('hex');
+  try {
+    return timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+function isAdminAuthenticated(cookieHeader: string | undefined): boolean {
+  const cookies = parseCookies(cookieHeader);
+  const token = cookies['admin_session'];
+  if (!token) return false;
+  if (!process.env.ADMIN_PASSWORD) return false;
+  return verifyAdminToken(token);
+}
+
+function renderAdminLoginHtml(badPassword: boolean): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin Login</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f1f5f9;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+    .card{background:white;border-radius:16px;padding:36px 40px;box-shadow:0 4px 20px rgba(0,0,0,.08);width:100%;max-width:380px;}
+    h1{margin:0 0 8px;font-size:22px;color:#111827;}
+    p.sub{margin:0 0 28px;font-size:14px;color:#6b7280;}
+    label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;}
+    input[type=password]{width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-size:15px;outline:none;transition:border-color .15s;}
+    input[type=password]:focus{border-color:#2563eb;}
+    .err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:18px;}
+    button{width:100%;padding:11px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:18px;transition:background .15s;}
+    button:hover{background:#1d4ed8;}
+    .back{text-align:center;margin-top:18px;font-size:13px;color:#6b7280;}
+    .back a{color:#2563eb;text-decoration:none;}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Admin Login</h1>
+    <p class="sub">Enter your admin password to manage your work permit details.</p>
+    ${badPassword ? '<div class="err">Incorrect password. Please try again.</div>' : ''}
+    <form method="POST" action="/admin/login">
+      <label for="pw">Password</label>
+      <input type="password" id="pw" name="password" autofocus autocomplete="current-password" placeholder="Admin password">
+      <button type="submit">Sign in</button>
+    </form>
+    <div class="back"><a href="/">← Back to Dashboard</a></div>
+  </div>
+</body>
+</html>`;
+}
+
+function renderAdminSettingsHtml(currentPermitName: string, currentExpiry: string, flash?: string): string {
+  const updated = flash === undefined ? false : !flash?.startsWith('error:');
+  const errorMsg = flash?.startsWith('error:') ? flash.slice(6) : null;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin — Update Work Permit</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f1f5f9;margin:0;padding:40px 20px;}
+    .wrap{max-width:540px;margin:0 auto;}
+    .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;}
+    .header h1{margin:0;font-size:22px;color:#111827;}
+    .header a{font-size:13px;color:#6b7280;text-decoration:none;}
+    .header a:hover{color:#111827;}
+    .card{background:white;border-radius:16px;padding:32px 36px;box-shadow:0 4px 20px rgba(0,0,0,.07);}
+    .card h2{margin:0 0 6px;font-size:17px;color:#111827;}
+    .card p.desc{margin:0 0 28px;font-size:14px;color:#6b7280;line-height:1.5;}
+    label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;}
+    input[type=text]{width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-size:15px;outline:none;transition:border-color .15s;margin-bottom:20px;}
+    input[type=text]:focus{border-color:#2563eb;}
+    .hint{font-size:12px;color:#9ca3af;margin-top:-16px;margin-bottom:20px;}
+    .success{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;font-size:14px;margin-bottom:22px;display:flex;align-items:center;gap:8px;}
+    .error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:12px 16px;font-size:14px;margin-bottom:22px;}
+    .actions{display:flex;gap:12px;align-items:center;margin-top:4px;}
+    button.save{padding:11px 28px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s;}
+    button.save:hover{background:#1d4ed8;}
+    button.logout{padding:11px 20px;background:transparent;color:#6b7280;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;cursor:pointer;transition:all .15s;}
+    button.logout:hover{background:#f9fafb;color:#374151;}
+    .preview{margin-top:28px;padding:16px 18px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;}
+    .preview h3{margin:0 0 10px;font-size:13px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;}
+    .preview p{margin:0;font-size:13px;color:#374151;line-height:1.6;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <h1>Work Permit Settings</h1>
+      <a href="/">← Dashboard</a>
+    </div>
+    <div class="card">
+      <h2>Update your permit details</h2>
+      <p class="desc">Changes apply immediately — the next cover letter, email, and Gemini query will use the new values automatically.</p>
+
+      ${updated ? '<div class="success"><span>&#10003;</span> Permit details updated successfully.</div>' : ''}
+      ${errorMsg ? `<div class="error">${escapeHtml(errorMsg)}</div>` : ''}
+
+      <form method="POST" action="/admin/update-permit">
+        <label for="permitName">Permit / card name</label>
+        <input type="text" id="permitName" name="permitName" value="${escapeHtml(currentPermitName)}" placeholder="e.g. RECE permit, EU Blue Card, Talent permit" autofocus>
+        <p class="hint">Exactly as it appears on your card — used in cover letters and Gemini prompts.</p>
+
+        <label for="expiry">Expiry date</label>
+        <input type="text" id="expiry" name="expiry" value="${escapeHtml(currentExpiry)}" placeholder="e.g. October 2026">
+        <p class="hint">Free text — used verbatim in &ldquo;valid to &hellip;&rdquo; sentences.</p>
+
+        <div class="preview" id="preview-box">
+          <h3>Preview</h3>
+          <p id="preview-text">Authorized to work in France. ${escapeHtml(currentPermitName)} valid to ${escapeHtml(currentExpiry)}, standard changement de statut on contract signing.</p>
+        </div>
+
+        <div class="actions" style="margin-top:24px;">
+          <button type="submit" class="save">Save changes</button>
+          <form method="POST" action="/admin/logout" style="margin:0;">
+            <button type="submit" class="logout">Log out</button>
+          </form>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+    var pn = document.getElementById('permitName');
+    var ex = document.getElementById('expiry');
+    var pt = document.getElementById('preview-text');
+    function updatePreview() {
+      var name = pn.value.trim() || 'your permit';
+      var exp  = ex.value.trim() || 'unknown date';
+      pt.textContent = 'Authorized to work in France. ' + name + ' valid to ' + exp + ', standard changement de statut on contract signing.';
+    }
+    pn.addEventListener('input', updatePreview);
+    ex.addEventListener('input', updatePreview);
+  </script>
+</body>
 </html>`;
 }

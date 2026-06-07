@@ -104,5 +104,38 @@ export class AppController {
     await this.appService.handleTelegramWebhook(update, secret);
     return { ok: true };
   }
+
+  @Get('admin')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async adminPage(
+    @Headers('cookie') cookie: string,
+    @Query('updated') updated?: string,
+  ): Promise<string> {
+    const flash = updated === '1' ? 'updated' : undefined;
+    return this.appService.getAdminPage(cookie, flash);
+  }
+
+  @Post('admin/login')
+  async adminLogin(
+    @Body('password') password: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    this.appService.adminLogin(password, res);
+  }
+
+  @Post('admin/logout')
+  async adminLogout(@Res() res: Response): Promise<void> {
+    this.appService.adminLogout(res);
+  }
+
+  @Post('admin/update-permit')
+  async adminUpdatePermit(
+    @Body('permitName') permitName: string,
+    @Body('expiry') expiry: string,
+    @Headers('cookie') cookie: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    await this.appService.adminUpdatePermit(permitName, expiry, cookie, res);
+  }
 }
 
