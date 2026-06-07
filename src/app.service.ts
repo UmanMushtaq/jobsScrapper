@@ -23,10 +23,16 @@ import {
   registerWebhook,
   resolveJobMeta,
   resolveJobRef,
+  sendTelegramMessages,
 } from './job-search/telegram';
 import { JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
 import { JobSearchState, PlatformHealth } from './job-search/types';
+
+// Hardcoded recovery contact. Password recovery delivers to Telegram (already
+// configured); this address is shown on the login page so you always know where
+// the recovery message goes.
+const RECOVERY_EMAIL = 'umanmushtaq72@gmail.com';
 
 @Injectable()
 export class AppService implements OnModuleInit, OnModuleDestroy {
@@ -491,6 +497,43 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   adminLogout(res: Response): void {
     res.setHeader('Set-Cookie', 'admin_session=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict');
     res.redirect('/admin');
+  }
+
+  // Forgot password: send the current ADMIN_PASSWORD to the configured Telegram
+  // chat. Nothing is exposed in the browser — the password only ever lands in
+  // your private Telegram, which only you can read.
+  async adminRecover(res: Response): Promise<void> {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+
+    const password = process.env.ADMIN_PASSWORD;
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+
+    if (!password) {
+      res.send(renderAdminRecoverResultHtml('error', 'No password is set yet. Set the ADMIN_PASSWORD environment variable on Render first.'));
+      return;
+    }
+    if (!botToken || !chatId) {
+      res.send(renderAdminRecoverResultHtml('error', 'Telegram is not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID missing), so the password could not be sent.'));
+      return;
+    }
+
+    try {
+      await sendTelegramMessages(botToken, chatId, [
+        {
+          text:
+            `🔐 Admin password recovery\n\n` +
+            `Your admin password is:\n${password}\n\n` +
+            `Recovery contact on file: ${RECOVERY_EMAIL}\n` +
+            `Requested at ${new Date().toLocaleString('en-GB')}.\n\n` +
+            `If you did not request this, change ADMIN_PASSWORD on Render immediately.`,
+        },
+      ]);
+      res.send(renderAdminRecoverResultHtml('ok', 'Your password has been sent to your Telegram chat. Check your messages.'));
+    } catch (err) {
+      this.logger.warn(`[admin] recovery send failed: ${(err as Error).message}`);
+      res.send(renderAdminRecoverResultHtml('error', 'Could not send the Telegram message. Please try again shortly.'));
+    }
   }
 
   async adminUpdatePermit(
@@ -2016,8 +2059,13 @@ function renderAdminLoginHtml(badPassword: boolean): string {
     input[type=password]{width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-size:15px;outline:none;transition:border-color .15s;}
     input[type=password]:focus{border-color:#2563eb;}
     .err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:18px;}
-    button{width:100%;padding:11px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:18px;transition:background .15s;}
-    button:hover{background:#1d4ed8;}
+    button.signin{width:100%;padding:11px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:18px;transition:background .15s;}
+    button.signin:hover{background:#1d4ed8;}
+    .divider{display:flex;align-items:center;gap:10px;margin:22px 0 16px;color:#9ca3af;font-size:12px;}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:#e5e7eb;}
+    button.recover{width:100%;padding:10px;background:transparent;color:#374151;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;}
+    button.recover:hover{background:#f9fafb;border-color:#9ca3af;}
+    .recover-note{text-align:center;margin-top:10px;font-size:12px;color:#9ca3af;line-height:1.5;}
     .back{text-align:center;margin-top:18px;font-size:13px;color:#6b7280;}
     .back a{color:#2563eb;text-decoration:none;}
   </style>
@@ -2030,9 +2078,46 @@ function renderAdminLoginHtml(badPassword: boolean): string {
     <form method="POST" action="/admin/login">
       <label for="pw">Password</label>
       <input type="password" id="pw" name="password" autofocus autocomplete="current-password" placeholder="Admin password">
-      <button type="submit">Sign in</button>
+      <button type="submit" class="signin">Sign in</button>
     </form>
+
+    <div class="divider">forgot it?</div>
+    <form method="POST" action="/admin/recover">
+      <button type="submit" class="recover">Recover password via Telegram</button>
+    </form>
+    <p class="recover-note">Your password will be sent to your Telegram chat.<br>Recovery contact on file: ${escapeHtml(RECOVERY_EMAIL)}</p>
+
     <div class="back"><a href="/">← Back to Dashboard</a></div>
+  </div>
+</body>
+</html>`;
+}
+
+function renderAdminRecoverResultHtml(kind: 'ok' | 'error', message: string): string {
+  const isOk = kind === 'ok';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Password Recovery</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f1f5f9;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+    .card{background:white;border-radius:16px;padding:36px 40px;box-shadow:0 4px 20px rgba(0,0,0,.08);width:100%;max-width:400px;text-align:center;}
+    .icon{font-size:40px;margin-bottom:12px;}
+    h1{margin:0 0 10px;font-size:20px;color:#111827;}
+    p{margin:0 0 24px;font-size:14px;color:#4b5563;line-height:1.6;}
+    a.btn{display:inline-block;padding:10px 24px;background:#2563eb;color:white;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;transition:background .15s;}
+    a.btn:hover{background:#1d4ed8;}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${isOk ? '✅' : '⚠️'}</div>
+    <h1>${isOk ? 'Recovery sent' : 'Could not send'}</h1>
+    <p>${escapeHtml(message)}</p>
+    <a class="btn" href="/admin">Back to login</a>
   </div>
 </body>
 </html>`;

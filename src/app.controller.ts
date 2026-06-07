@@ -128,6 +128,11 @@ export class AppController {
     this.appService.adminLogout(res);
   }
 
+  @Post('admin/recover')
+  async adminRecover(@Res() res: Response): Promise<void> {
+    await this.appService.adminRecover(res);
+  }
+
   @Post('admin/update-permit')
   async adminUpdatePermit(
     @Body('permitName') permitName: string,
