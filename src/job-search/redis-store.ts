@@ -326,6 +326,35 @@ export async function redisCountUrlSets(): Promise<{ seen: number; applied: numb
   }
 }
 
+// --- Platform health (per-source run results + proxy status) ---
+// Persisted so source failures (blocks, crashes, proxy offline, empty results)
+// survive restarts and can be reviewed/fixed later from the /platform-status page.
+
+const PLATFORM_HEALTH_KEY = 'platform:health';
+
+export async function redisSavePlatformHealth(value: unknown): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await r.set(PLATFORM_HEALTH_KEY, JSON.stringify(value));
+  } catch (err) {
+    console.error('[redis] savePlatformHealth failed:', (err as Error).message);
+  }
+}
+
+export async function redisGetPlatformHealth<T>(fallback: T): Promise<T> {
+  const r = getClient();
+  if (!r) return fallback;
+  try {
+    const raw = await r.get<string>(PLATFORM_HEALTH_KEY);
+    if (raw == null) return fallback;
+    return JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as T;
+  } catch (err) {
+    console.error('[redis] getPlatformHealth failed:', (err as Error).message);
+    return fallback;
+  }
+}
+
 // --- Gemini daily call counter ---
 // Key: gemini:calls:{pacific-day} (YYYY-MM-DD in America/Los_Angeles)
 // Incremented on every successful Gemini API call. TTL 50h covers day rollover + buffer.

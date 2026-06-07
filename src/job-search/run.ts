@@ -35,6 +35,7 @@ import {
   writeJsonFile,
 } from './storage';
 import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisStoreJobHistory } from './redis-store';
+import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
 
@@ -138,27 +139,41 @@ export async function runJobSearchOnce(
       new EuropeRemotelyJobsSource(),
       new NodeskJobsSource(),
     ];
-    const jobLists = await Promise.all(
-      sources.map(async (s) => {
+    const sourceResults: SourceRunResult[] = await Promise.all(
+      sources.map(async (s): Promise<SourceRunResult> => {
+        const startedAt = Date.now();
         try {
-          return await s.fetch(profile.search.queries, profile.search);
+          const jobs = await s.fetch(profile.search.queries, profile.search);
+          return { source: s.name, jobs, durationMs: Date.now() - startedAt, error: null };
         } catch (err) {
           console.error(`[source:${s.name}] unexpected crash — isolated, other sources unaffected: ${err instanceof Error ? err.message : String(err)}`);
-          return [] as JobPosting[];
+          return {
+            source: s.name,
+            jobs: [],
+            durationMs: Date.now() - startedAt,
+            error: err instanceof Error ? err : new Error(String(err)),
+          };
         }
       }),
     );
     const jobMap = new Map<string, JobPosting>();
-    for (const [i, list] of jobLists.entries()) {
-      if (list.length > 0) {
-        console.log(`[source] ${sources[i].name}: ${list.length} jobs`);
+    for (const result of sourceResults) {
+      if (result.jobs.length > 0) {
+        console.log(`[source] ${result.source}: ${result.jobs.length} jobs`);
       } else {
-        console.log(`[source] ${sources[i].name}: 0 jobs — blocked or no results`);
+        console.log(`[source] ${result.source}: 0 jobs — ${result.error ? `crash: ${result.error.message}` : 'blocked or no results'}`);
       }
-      for (const job of list) {
+      for (const job of result.jobs) {
         jobMap.set(job.canonicalUrl, job);
       }
     }
+
+    // Record per-source health + proxy status so platform issues are tracked
+    // and visible on /platform-status. Best-effort — never blocks the scan.
+    await recordPlatformHealth(sourceResults).catch((err: unknown) =>
+      console.error('[platform-health] record failed:', err instanceof Error ? err.message : String(err)),
+    );
+
     const jobs = Array.from(jobMap.values());
 
     // Always compare normalized URLs — sources may return raw URLs while Redis stores normalized ones.

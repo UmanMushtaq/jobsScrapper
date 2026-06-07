@@ -120,6 +120,41 @@ export interface RunSummary {
   ranAt: string;
 }
 
+// Per-source health, recorded every run so platform failures (proxy offline,
+// crashes, blocks, empty results) can be tracked and fixed later.
+export type SourceHealthStatus =
+  | 'ok'           // returned jobs normally
+  | 'empty'        // ran without error but returned 0 jobs (not necessarily a problem)
+  | 'blocked'      // looks IP-blocked (403/429/captcha) — likely needs the proxy
+  | 'proxy_offline'// the home proxy tunnel is down (503/523 from proxy)
+  | 'error';       // threw an exception / crashed during fetch
+
+export interface SourceHealthRecord {
+  source: string;
+  status: SourceHealthStatus;
+  jobsFound: number;
+  durationMs: number;
+  error: string | null;
+  usesProxy: boolean;
+  lastCheckedAt: string;     // ISO — last time this source ran
+  lastSuccessAt: string | null; // ISO — last time it returned jobs
+  consecutiveFailures: number;
+}
+
+export interface ProxyHealth {
+  configured: boolean;       // JOB_PROXY_URL + JOB_PROXY_SECRET both set
+  online: boolean;           // proxy responded to the last ping
+  url: string | null;        // masked proxy host for display
+  error: string | null;
+  checkedAt: string;
+}
+
+export interface PlatformHealth {
+  sources: SourceHealthRecord[];
+  proxy: ProxyHealth;
+  updatedAt: string;
+}
+
 export interface JobSearchState {
   lastRunAt: string | null;
   lastSuccessAt: string | null;

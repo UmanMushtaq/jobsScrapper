@@ -1,4 +1,5 @@
 import { JobPosting, SearchSettings } from '../types';
+import { proxyFetch } from '../proxy-fetch';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
@@ -30,7 +31,7 @@ export class IndeedJobsSource implements JobSource {
     for (const search of searches) {
       try {
         const params = new URLSearchParams({ q: search.q, l: search.l, sort: 'date', fromage });
-        const response = await fetch(`https://www.indeed.com/rss?${params}`, {
+        const response = await proxyFetch(`https://www.indeed.com/rss?${params}`, {
           headers: { 'User-Agent': 'Mozilla/5.0 (compatible; job-search-bot/1.0)' },
           signal: AbortSignal.timeout(12_000),
         });

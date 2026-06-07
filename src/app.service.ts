@@ -21,7 +21,8 @@ import {
   resolveJobRef,
 } from './job-search/telegram';
 import { JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
-import { JobSearchState } from './job-search/types';
+import { getPlatformHealth } from './job-search/platform-health';
+import { JobSearchState, PlatformHealth } from './job-search/types';
 
 @Injectable()
 export class AppService implements OnModuleInit, OnModuleDestroy {
@@ -370,6 +371,27 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return renderHistoryHtml(entries);
   }
 
+  async getPlatformStatusPage(): Promise<string> {
+    const health = await getPlatformHealth();
+    return renderPlatformStatusHtml(health);
+  }
+
+  async getPlatformStatusJson(): Promise<Record<string, unknown>> {
+    const health = await getPlatformHealth();
+    if (!health) {
+      return { ok: false, error: 'No platform health recorded yet — run a scan first.' };
+    }
+    const failing = health.sources.filter((s) => s.status === 'error' || s.status === 'blocked' || s.status === 'proxy_offline');
+    return {
+      ok: true,
+      updatedAt: health.updatedAt,
+      proxy: health.proxy,
+      totalSources: health.sources.length,
+      failing: failing.length,
+      sources: health.sources,
+    };
+  }
+
   async getTailoredCvPage(hash: string): Promise<string> {
     const state = await readJobSearchState();
     const match = state.latestMatches.find((m) => hashJobUrl(m.job.canonicalUrl) === hash);
@@ -700,6 +722,142 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
 </html>`;
 }
 
+function renderPlatformStatusHtml(health: PlatformHealth | null): string {
+  const fmtDate = (iso: string | null) => {
+    if (!iso) return 'never';
+    try {
+      return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  };
+
+  const STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
+    ok:            { label: 'Working',       color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
+    empty:         { label: 'No results',    color: '#6b7280', bg: '#f9fafb', border: '#e5e7eb' },
+    blocked:       { label: 'Blocked',       color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
+    proxy_offline: { label: 'Proxy offline', color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+    error:         { label: 'Crashed',       color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+  };
+
+  if (!health) {
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>Platform Status</title>
+      <style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:40px 20px;background:#f1f5f9;color:#111827;}
+      .wrap{max-width:760px;margin:0 auto;}a{color:#2563eb;}
+      .card{background:white;border-radius:14px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,.06);}</style></head>
+      <body><div class="wrap"><p><a href="/">← Back to Dashboard</a></p>
+      <div class="card"><h1>Platform Status</h1>
+      <p style="color:#6b7280;">No health data recorded yet. It is captured automatically on every scan —
+      run the bot once (<b>Run now</b> on the dashboard) and refresh this page.</p></div></div></body></html>`;
+  }
+
+  const p = health.proxy;
+  const proxyMeta = !p.configured
+    ? { label: 'Not configured', color: '#b45309', bg: '#fffbeb', border: '#fde68a' }
+    : p.online
+      ? { label: 'Online', color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' }
+      : { label: 'OFFLINE', color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' };
+
+  const proxyCard = `
+    <div class="card" style="border-left:4px solid ${proxyMeta.color};">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h2 style="margin:0 0 4px;">Home proxy (your residential IP)</h2>
+          <div style="font-size:13px;color:#6b7280;">${p.url ? escapeHtml(p.url) : 'no URL set'} · checked ${fmtDate(p.checkedAt)}</div>
+        </div>
+        <span style="padding:5px 14px;border-radius:99px;font-size:14px;font-weight:700;color:${proxyMeta.color};background:${proxyMeta.bg};border:1px solid ${proxyMeta.border};">${proxyMeta.label}</span>
+      </div>
+      ${p.error ? `<div style="margin-top:12px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:13px;color:#991b1b;">${escapeHtml(p.error)}</div>` : ''}
+      ${!p.configured ? `<div style="margin-top:12px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1d4ed8;line-height:1.6;">
+        <b>This is why APEC / Indeed / RemoteOK return nothing.</b> Those sites block cloud-server IPs, so the bot must route through your laptop's residential IP.
+        Set <code>JOB_PROXY_URL</code> and <code>JOB_PROXY_SECRET</code> in Render's environment, and keep the proxy + cloudflared running on your laptop.</div>` : ''}
+    </div>`;
+
+  const rows = health.sources.map((s) => {
+    const m = STATUS_META[s.status] ?? STATUS_META.error;
+    const proxyTag = s.usesProxy
+      ? `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;">via proxy</span>`
+      : '';
+    const failTag = s.consecutiveFailures > 1
+      ? `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;background:#fef2f2;color:#b91c1c;">×${s.consecutiveFailures}</span>`
+      : '';
+    return `
+      <tr style="background:${m.bg};">
+        <td style="padding:11px 14px;font-weight:600;font-size:14px;">${escapeHtml(s.source)}${proxyTag}${failTag}</td>
+        <td style="padding:11px 14px;"><span style="padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700;color:${m.color};background:white;border:1px solid ${m.border};">${m.label}</span></td>
+        <td style="padding:11px 14px;text-align:center;font-weight:600;font-size:14px;color:${s.jobsFound > 0 ? '#15803d' : '#9ca3af'};">${s.jobsFound}</td>
+        <td style="padding:11px 14px;font-size:13px;color:#6b7280;">${(s.durationMs / 1000).toFixed(1)}s</td>
+        <td style="padding:11px 14px;font-size:12px;color:#6b7280;">${fmtDate(s.lastSuccessAt)}</td>
+        <td style="padding:11px 14px;font-size:12px;color:#b91c1c;max-width:280px;">${s.error ? escapeHtml(s.error) : ''}</td>
+      </tr>`;
+  }).join('');
+
+  const failing = health.sources.filter((s) => s.status === 'error' || s.status === 'blocked' || s.status === 'proxy_offline').length;
+  const okCount = health.sources.filter((s) => s.status === 'ok').length;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Platform Status — Job Search Bot</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
+      .page { max-width: 1100px; margin: 0 auto; }
+      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
+      h2 { margin: 0; font-size: 16px; font-weight: 600; }
+      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 20px; }
+      .nav { margin-bottom: 20px; } .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
+      .card { background: white; border-radius: 14px; padding: 22px 24px;
+              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 18px; }
+      table { width: 100%; border-collapse: collapse; }
+      thead th { background:#f8fafc; padding:10px 14px; text-align:left; font-size:11px; font-weight:700;
+                 color:#6b7280; text-transform:uppercase; letter-spacing:.05em; border-bottom:2px solid #e5e7eb; }
+      thead th:nth-child(3){ text-align:center; }
+      tbody td { border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+      tbody tr:last-child td { border-bottom:0; }
+      .table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #e5e7eb; }
+      code { background:#f1f5f9; padding:1px 5px; border-radius:4px; font-size:12px; }
+      .pills span { display:inline-block; padding:4px 12px; border-radius:99px; font-size:13px; font-weight:600; margin-right:8px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="nav"><a href="/">← Back to Dashboard</a></div>
+      <h1>Platform Status</h1>
+      <p class="subtitle">Per-source health, recorded automatically every scan · updated ${fmtDate(health.updatedAt)}</p>
+
+      ${proxyCard}
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+          <h2>Sources (${health.sources.length})</h2>
+          <div class="pills">
+            <span style="color:#15803d;background:#f0fdf4;">${okCount} working</span>
+            ${failing > 0 ? `<span style="color:#b91c1c;background:#fef2f2;">${failing} need attention</span>` : ''}
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Source</th><th>Status</th><th>Jobs</th><th>Duration</th><th>Last success</th><th>Problem</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <p style="font-size:12px;color:#9ca3af;margin:14px 0 0;line-height:1.6;">
+          <b>Crashed</b> = the source threw an error. <b>Blocked</b> = the site rejects this server's IP (needs the home proxy).
+          <b>Proxy offline</b> = a proxy-routed source couldn't reach your laptop. <b>No results</b> = ran fine but found no jobs (usually normal).
+          The <b>×N</b> badge counts consecutive failed runs.
+        </p>
+      </div>
+    </div>
+  </body>
+</html>`;
+}
+
 function escapeJs(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
 }
@@ -1019,7 +1177,7 @@ function renderHtml(state: JobSearchState): string {
         <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
             <h1>Job Search Bot</h1>
-            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a></p>
+            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a></p>
           </div>
           <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
             ${statusDot(state.lastRunStatus)}

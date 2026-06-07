@@ -27,6 +27,17 @@ export class AppController {
     return this.appService.getHistoryPage();
   }
 
+  @Get('platform-status')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async platformStatus(): Promise<string> {
+    return this.appService.getPlatformStatusPage();
+  }
+
+  @Get('api/platform-status')
+  async platformStatusApi() {
+    return this.appService.getPlatformStatusJson();
+  }
+
   @Get('jobs/tailored-cv')
   @Header('content-type', 'text/html; charset=utf-8')
   async tailoredCv(@Query('hash') hash: string): Promise<string> {
