@@ -10,6 +10,23 @@ export interface CandidateProfile {
   coreSkills: string[];
   experienceYears: number;
   cvText?: string;
+  // Your work-authorization details. Edit these in job_search_profile.json
+  // whenever your permit/card changes (new name, new expiry). The values
+  // flow automatically into every cover letter, email, and Gemini query.
+  workAuthorization?: WorkAuthorization;
+}
+
+export interface WorkAuthorization {
+  permitName: string;     // e.g. "RECE permit", "Talent permit", "EU Blue Card"
+  country: string;        // e.g. "France"
+  countryCode?: string;   // e.g. "FR"
+  expiry: string;         // free text, e.g. "October 2026"
+  // Optional. The exact sentence appended to cover letters and emails.
+  // If omitted, it is built automatically from the fields above.
+  statusLine?: string;
+  // Optional. Extra context fed to Gemini so it judges visa fit correctly.
+  // If omitted, it is built automatically from the fields above.
+  visaContext?: string;
 }
 
 export interface SearchSettings {

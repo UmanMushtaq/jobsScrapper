@@ -1,4 +1,5 @@
 import { PreferenceModel, scorePreference } from './preference';
+import { resolveWorkAuth } from './profile';
 import { detectLanguage } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
@@ -403,6 +404,7 @@ function buildCoverLetter(job: JobPosting, profile: SearchProfile, reasons: stri
           ? 'Based in Paris, I can join your team on-site without relocation.'
           : 'I am based in Paris and fully open to relocating within France for this role.'
         : 'I am open to relocation within Europe and happy to work through the logistics.';
+  const { statusLine } = resolveWorkAuth(profile);
 
   return [
     `Hello ${job.company} team,`,
@@ -413,7 +415,7 @@ function buildCoverLetter(job: JobPosting, profile: SearchProfile, reasons: stri
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',
-    'Authorized to work in France. RECE permit valid to October 2026, standard changement de statut on contract signing.',
+    statusLine,
     '',
     'Best regards,',
     profile.candidate.name,

@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { redisIncrGeminiDailyCalls } from './redis-store';
+import { resolveWorkAuth } from './profile';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
 // Free tier: 15 RPM, 1500 req/day per key. One combined call per job.
@@ -322,10 +323,10 @@ function stripDashes(text: string | null | undefined): string {
 // To convert RECE to a long-term Talent (salarié qualifié) permit: flat €39,582/yr from Aug 2025 decree.
 const TALENT_THRESHOLD_MONTHLY_EUR = Math.ceil(39582 / 12); // 3299
 
-const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null) =>
+const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null, visaContext: string, statusLine: string) =>
   `You are acting as a senior recruiter scanning a job for ${name}.\n\n` +
   `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
-  `Visa: French RECE (post-study work permit, 12-month one-shot, successor to the old APS).\n` +
+  `Visa: ${visaContext}\n` +
   `  Remote roles: always compatible (candidate works from Paris for any EU company).\n` +
   `  On-site/hybrid in France: compatible — candidate is open to any French city (Paris, Lyon, Marseille, Bordeaux, etc.).\n` +
   `  On-site/hybrid outside France: only compatible if employer explicitly mentions visa sponsorship or relocation support.\n\n` +
@@ -378,7 +379,7 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `      - on-site/hybrid in France (FR), outside Paris: say he is based in Paris and genuinely happy to relocate within France for this role, and give a brief human reason he is open to moving for the right team.\n` +
   `      - on-site/hybrid outside France (another country): acknowledge the role is outside France, say he is genuinely open to relocating within Europe for it, and give one authentic reason WHY he would move there for this specific company/role (the opportunity, the product, the team). Do not sound desperate, sound deliberate.\n` +
   `      Then one short closing sentence inviting a conversation.\n` +
-  `    After Para 4, add this exact line on its own: "Authorized to work in France. RECE permit valid to October 2026, standard changement de statut on contract signing."\n` +
+  `    After Para 4, add this exact line on its own, word for word: "${statusLine}"\n` +
   `    End with exactly: "Best regards,\\n${name}"\n` +
   `    HARD RULES:\n` +
   `      1. Absolutely NO dashes of any kind anywhere: no hyphen, no em dash —, no en dash. Write compound words with a space or one word (for example "full stack", "well structured", "real time"). Use commas, "and", or short sentences instead of dashes.\n` +
@@ -419,6 +420,7 @@ async function enrichSingle(
     `Full description:\n${job.description.slice(0, 1800)}`;
 
   const cvText = profile.candidate.cvText ?? `${profile.candidate.name} | ${profile.candidate.experienceYears}yrs backend | Skills: ${profile.candidate.coreSkills.join(', ')}`;
+  const workAuth = resolveWorkAuth(profile);
 
   const response = await ai.models.generateContent({
     model,
@@ -429,6 +431,8 @@ async function enrichSingle(
         cvText,
         job.workMode,
         job.countryCode,
+        workAuth.visaContext,
+        workAuth.statusLine,
       ),
       responseMimeType: 'application/json',
     },
@@ -539,6 +543,7 @@ function buildFallbackCoverLetter(
           ? 'Based in Paris, I can join your team on-site without relocation.'
           : 'I am based in Paris and fully open to relocating within France for this role.'
         : 'I am open to relocation within Europe and happy to work through the logistics.';
+  const { statusLine } = resolveWorkAuth(profile);
 
   return [
     `Hello ${job.company} team,`,
@@ -549,7 +554,7 @@ function buildFallbackCoverLetter(
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',
-    'Authorized to work in France. RECE permit valid to October 2026, standard changement de statut on contract signing.',
+    statusLine,
     '',
     'Best regards,',
     profile.candidate.name,
