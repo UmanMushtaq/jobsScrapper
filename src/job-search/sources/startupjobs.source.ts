@@ -1,6 +1,7 @@
 import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
+import { proxyFetch } from '../proxy-fetch';
 import { JobSource } from './registry';
 
 const SOURCE = 'startup.jobs';
@@ -43,7 +44,7 @@ export class StartupJobsSource implements JobSource {
 }
 
 async function fetchFeed(feedUrl: string, settings: SearchSettings): Promise<JobPosting[]> {
-  const response = await fetch(feedUrl, {
+  const response = await proxyFetch(feedUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
       'Accept': 'application/rss+xml, application/xml, text/xml',

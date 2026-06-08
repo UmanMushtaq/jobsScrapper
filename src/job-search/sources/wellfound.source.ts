@@ -1,5 +1,6 @@
 import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
+import { proxyFetch } from '../proxy-fetch';
 import { JobSource } from './registry';
 
 const SOURCE = 'wellfound.com';
@@ -45,7 +46,7 @@ export class WellfoundJobsSource implements JobSource {
 }
 
 async function fetchFromPage(url: string, cutoff: number): Promise<JobPosting[]> {
-  const res = await fetch(url, {
+  const res = await proxyFetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

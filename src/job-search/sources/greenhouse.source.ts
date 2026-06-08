@@ -9,14 +9,17 @@ const API_BASE = 'https://boards-api.greenhouse.io/v1/boards';
 // French and European startups/scale-ups using Greenhouse — mix of sizes
 const DEFAULT_COMPANIES = [
   // French startups & scale-ups (Series A–C range)
-  'pennylane', 'spendesk', 'libeo', 'fime', 'alma-2',
-  'payfit payfit', 'malt', 'swile', 'ringover', 'contentsquare',
+  'pennylane', 'spendesk', 'fime', 'alma',
+  'payfit', 'swile', 'ringover', 'contentsquare',
   'platform-sh', 'toucan-toco', 'tinyclues', 'doctrine', 'owkin',
-  'ankorstore', 'cegid', 'sendinblue', 'mirakl', 'axelor',
+  'ankorstore', 'cegid', 'brevo', 'mirakl', 'axelor',
   // European startups with Paris/EU offices
   'aircall', 'luko', 'agicap', 'indy', 'karmen',
   'epsor', 'haiilo', 'gymlib', 'skillup', 'yousign',
   'payplug', 'lucca', 'sinch', 'hivebrite', 'yubo',
+  // Additional EU tech companies known to use Greenhouse
+  'adyen', 'mollie', 'messagebird', 'takeaway', 'catawiki',
+  'vinted', 'pipedrive', 'bolt', 'cleverly', 'printify',
 ];
 
 interface GreenhouseJob {
@@ -92,7 +95,10 @@ async function fetchCompanyJobs(
   }
 
   const data = (await response.json()) as GreenhouseResponse;
-  const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+  // Use 7-day minimum — targeted company lists get few postings per day;
+  // a 72h window misses most of them.
+  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return data.jobs
     .filter((job) => new Date(job.updated_at).getTime() >= cutoff)

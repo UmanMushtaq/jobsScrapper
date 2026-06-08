@@ -14,7 +14,17 @@ import {
 
 // Sources that route through the home residential proxy (cloud IP is blocked).
 // Keep in sync with the sources that import proxy-fetch.
-export const PROXY_SOURCES = new Set(['apec.fr', 'remoteok.com', 'indeed.com']);
+export const PROXY_SOURCES = new Set([
+  'apec.fr',
+  'remoteok.com',
+  'indeed.com',
+  'wellfound.com',
+  'europeremotely.com',
+  'nodesk.co',
+  'startup.jobs',
+  'jobicy.com',
+  'himalayas.app',
+]);
 
 export interface SourceRunResult {
   source: string;
@@ -58,6 +68,12 @@ async function pingProxy(): Promise<ProxyHealth> {
         url: maskedUrl,
         error: `Proxy tunnel is down (HTTP ${res.status}) — check the proxy + cloudflared are running on your laptop`,
         checkedAt,
+      };
+    }
+    if (res.status === 403) {
+      return {
+        configured: true, online: false, url: maskedUrl, checkedAt,
+        error: 'Proxy returned 403 Forbidden — JOB_PROXY_SECRET on Render does not match your laptop proxy\'s secret. Fix: open Render → Environment, copy the exact secret from your proxy script, paste it into JOB_PROXY_SECRET, and redeploy.',
       };
     }
     if (!res.ok) {

@@ -1,6 +1,7 @@
 import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
+import { proxyFetch } from '../proxy-fetch';
 import { JobSource } from './registry';
 
 const SOURCE = 'himalayas.app';
@@ -45,27 +46,42 @@ export class HimalayasJobsSource implements JobSource {
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     try {
-      const response = await fetch('https://himalayas.app/jobs/api?limit=100&categories=engineering', {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-          'Accept': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        console.log(`[himalayas] API returned ${response.status} — skipping`);
-        return [];
+      // Two skill-filtered passes to avoid a too-broad API call; deduplicate by URL.
+      const apiUrls = [
+        'https://himalayas.app/jobs/api?limit=100&skills=node.js,typescript,nestjs,express',
+        'https://himalayas.app/jobs/api?limit=100&skills=backend,node.js',
+      ];
+      const allJobResults: HimalayasJob[] = [];
+      for (const apiUrl of apiUrls) {
+        const r = await proxyFetch(apiUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+          },
+        });
+        if (!r.ok) {
+          console.log(`[himalayas] API ${r.status} for ${apiUrl}`);
+          continue;
+        }
+        const d = (await r.json()) as HimalayasResponse;
+        allJobResults.push(...(d.jobs ?? d.data ?? []));
       }
 
-      const data = (await response.json()) as HimalayasResponse;
-      const jobs = data.jobs ?? data.data ?? [];
+      const seenUrls = new Set<string>();
+      const jobs = allJobResults.filter((j) => {
+        const k = j.url ?? String(j.id);
+        if (seenUrls.has(k)) return false;
+        seenUrls.add(k);
+        return true;
+      });
 
-      if (!Array.isArray(jobs) || jobs.length === 0) {
+      if (jobs.length === 0) {
         console.log('[himalayas] empty or unexpected response format');
         return [];
       }
 
-      const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+      const lookbackHours = Math.max(settings.maxAgeHours, 168);
+      const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
       const fresh = jobs.filter((job) => {
         const dateStr = job.postedAt ?? job.createdAt ?? job.updatedAt;
         if (!dateStr) return true;
@@ -75,7 +91,7 @@ export class HimalayasJobsSource implements JobSource {
       const relevant = fresh.filter((job) => isRelevant(job));
 
       if (fresh.length === 0) {
-        console.log(`[himalayas] ${jobs.length} total jobs but none within ${settings.maxAgeHours}h`);
+        console.log(`[himalayas] ${jobs.length} total jobs but none within ${lookbackHours}h`);
       } else if (relevant.length === 0) {
         console.log(`[himalayas] ${fresh.length} fresh jobs but none match Node.js/TS/backend tags`);
       } else {

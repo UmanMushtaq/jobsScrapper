@@ -96,7 +96,8 @@ async function fetchCompanyJobs(company: string, settings: SearchSettings): Prom
   const data = (await response.json()) as LeverPosting[];
   if (!Array.isArray(data)) return [];
 
-  const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return data
     .filter((p) => (p.updatedAt ?? p.createdAt) >= cutoff)
