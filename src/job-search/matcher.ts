@@ -179,7 +179,7 @@ export function scoreJob(
   // Adaptive threshold based on description length:
   // Short descriptions can't physically contain many keywords — don't penalise them for it.
   const wordCount = job.description.trim().split(/\s+/).length;
-  const threshold = wordCount < 120 ? 58 : wordCount < 350 ? 65 : 70;
+  const threshold = wordCount < 120 ? 55 : wordCount < 350 ? 60 : 65;
 
   if (score < threshold) {
     return null;

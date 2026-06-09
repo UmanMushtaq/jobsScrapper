@@ -37,7 +37,7 @@ import {
 import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisStoreJobHistory } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
-import { JobPosting, JobSearchState, MatchResult, RunSummary, SearchProfile } from './types';
+import { JobPosting, JobSearchState, MatchResult, RunSummary, ScorerDiagnostic, SearchProfile } from './types';
 
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
 const DEFAULT_APPLIED_FILE = 'job_search_applied.json';
@@ -218,69 +218,71 @@ export async function runJobSearchOnce(
     const slicedMatches = dedupedMatches.slice(0, maxResults);
 
     console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} passed scoring (${dupCount} dupes removed)`);
-    if (slicedMatches.length === 0 && freshJobs.length > 0) {
-      const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','site reliability','sre engineer','sre','infrastructure engineer','platform engineer','cloud engineer'];
-      const desiredLang = (profile.search.language ?? 'en').toLowerCase();
-      const expMin = profile.search.experience.min;
-      const expMax = profile.search.experience.max;
-      const counts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, mandatory: 0, score: 0 };
-      const locBreak = { usaRemote: 0, euOnsite: 0, euHybrid: 0, other: 0 };
-      const mandBreak = { nodeOnly: 0, tsOnly: 0, backendOnly: 0, none: 0 };
-      const nearMisses: Array<{ title: string; company: string; source: string; mandatory: number }> = [];
 
-      for (const job of freshJobs) {
-        const title = job.title.toLowerCase();
-        const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
-        const jobLang = (job.language ?? '').toLowerCase();
-        const isLangPrefCountry = profile.search.preferredCountries?.includes(job.countryCode ?? '');
-        if (jobLang && jobLang !== desiredLang && !hasEnglishTeamSignals(txt) && !isLangPrefCountry) { counts.lang++; continue; }
-        if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { counts.title++; continue; }
-        if (EXCL_ROLES.some((k) => title.includes(k))) { counts.role++; continue; }
+    // Always compute diagnostic counters so they can be persisted to state and
+    // surfaced via /health regardless of whether any matches were found.
+    const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','site reliability','sre engineer','sre','infrastructure engineer','platform engineer','cloud engineer'];
+    const desiredLang = (profile.search.language ?? 'en').toLowerCase();
+    const expMin = profile.search.experience.min;
+    const expMax = profile.search.experience.max;
+    const diagCounts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, mandatory: 0, score: 0 };
+    const diagLocBreak = { usaRemote: 0, euOnsite: 0, euHybrid: 0, other: 0 };
+    const mandBreak = { nodeOnly: 0, tsOnly: 0, backendOnly: 0, none: 0 };
+    const nearMisses: Array<{ title: string; company: string; source: string; mandatory: number }> = [];
 
-        const cc = job.countryCode;
-        const wm = job.workMode;
-        const isUsaRemote = wm === 'remote' && cc && profile.search.usaCountryCodes?.includes(cc) && !profile.search.usaJobs;
-        const isPrefCountry = profile.search.preferredCountries?.includes(cc ?? '');
-        const isEU = profile.search.europeCountryCodes?.includes(cc ?? '');
-        const locOk = isPrefCountry || (wm === 'remote' && !isUsaRemote) || (isEU && wm !== 'hybrid' && wm !== 'on-site') || (!cc && wm !== 'on-site');
-        if (!locOk) {
-          counts.location++;
-          if (isUsaRemote) locBreak.usaRemote++;
-          else if (isEU && wm === 'on-site') locBreak.euOnsite++;
-          else if (isEU && wm === 'hybrid') locBreak.euHybrid++;
-          else locBreak.other++;
-          continue;
-        }
+    for (const job of freshJobs) {
+      const title = job.title.toLowerCase();
+      const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
+      const jobLang = (job.language ?? '').toLowerCase();
+      const isLangPrefCountry = profile.search.preferredCountries?.includes(job.countryCode ?? '');
+      if (jobLang && jobLang !== desiredLang && !hasEnglishTeamSignals(txt) && !isLangPrefCountry) { diagCounts.lang++; continue; }
+      if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { diagCounts.title++; continue; }
+      if (EXCL_ROLES.some((k) => title.includes(k))) { diagCounts.role++; continue; }
 
-        const exp = job.experienceLevelMinimum;
-        if (exp !== null && exp !== undefined && (exp < expMin || exp > expMax)) { counts.exp++; continue; }
-
-        const hasNode = ['node.js','nodejs','nestjs','nest.js','express.js'].some((t) => txt.includes(t));
-        const hasTs = txt.includes('typescript') || txt.includes('javascript');
-        const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
-        const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
-        if (mandatory < 42) {
-          counts.mandatory++;
-          if (!hasNode && !hasTs && !hasBackend) mandBreak.none++;
-          else if (hasNode) mandBreak.nodeOnly++;
-          else if (hasTs) mandBreak.tsOnly++;
-          else mandBreak.backendOnly++;
-          continue;
-        }
-
-        // Passed all pre-filters + mandatory — scored <78 or failed salary in the real scorer
-        nearMisses.push({ title: job.title, company: job.company, source: job.source, mandatory });
-        counts.score++;
+      const cc = job.countryCode;
+      const wm = job.workMode;
+      const isUsaRemote = wm === 'remote' && cc && profile.search.usaCountryCodes?.includes(cc) && !profile.search.usaJobs;
+      const isPrefCountry = profile.search.preferredCountries?.includes(cc ?? '');
+      const isEU = profile.search.europeCountryCodes?.includes(cc ?? '');
+      const locOk = isPrefCountry || (wm === 'remote' && !isUsaRemote) || (isEU && wm !== 'hybrid' && wm !== 'on-site') || (!cc && wm !== 'on-site');
+      if (!locOk) {
+        diagCounts.location++;
+        if (isUsaRemote) diagLocBreak.usaRemote++;
+        else if (isEU && wm === 'on-site') diagLocBreak.euOnsite++;
+        else if (isEU && wm === 'hybrid') diagLocBreak.euHybrid++;
+        else diagLocBreak.other++;
+        continue;
       }
 
+      const exp = job.experienceLevelMinimum;
+      if (exp !== null && exp !== undefined && (exp < expMin || exp > expMax)) { diagCounts.exp++; continue; }
+
+      const hasNode = ['node.js','nodejs','nestjs','nest.js','express.js'].some((t) => txt.includes(t));
+      const hasTs = txt.includes('typescript') || txt.includes('javascript');
+      const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
+      const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
+      if (mandatory < 42) {
+        diagCounts.mandatory++;
+        if (!hasNode && !hasTs && !hasBackend) mandBreak.none++;
+        else if (hasNode) mandBreak.nodeOnly++;
+        else if (hasTs) mandBreak.tsOnly++;
+        else mandBreak.backendOnly++;
+        continue;
+      }
+
+      nearMisses.push({ title: job.title, company: job.company, source: job.source, mandatory });
+      diagCounts.score++;
+    }
+
+    if (slicedMatches.length === 0 && freshJobs.length > 0) {
       console.log(`[scorer-diag] ${freshJobs.length} fresh jobs → 0 matched. Breakdown:`);
-      console.log(`  lang=${counts.lang} | titleExcl=${counts.title} | roleExcl=${counts.role}`);
-      console.log(`  location=${counts.location} (usa-remote=${locBreak.usaRemote} eu-onsite=${locBreak.euOnsite} eu-hybrid=${locBreak.euHybrid} other=${locBreak.other})`);
-      console.log(`  exp=${counts.exp} | mandatory=${counts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
-      console.log(`  score<threshold=${counts.score} (adaptive: <120w→58, 120-350w→65, >350w→70)`);
+      console.log(`  lang=${diagCounts.lang} | titleExcl=${diagCounts.title} | roleExcl=${diagCounts.role}`);
+      console.log(`  location=${diagCounts.location} (usa-remote=${diagLocBreak.usaRemote} eu-onsite=${diagLocBreak.euOnsite} eu-hybrid=${diagLocBreak.euHybrid} other=${diagLocBreak.other})`);
+      console.log(`  exp=${diagCounts.exp} | mandatory=${diagCounts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
+      console.log(`  score<threshold=${diagCounts.score} (adaptive: <120w→55, 120-350w→60, >350w→65)`);
 
       if (nearMisses.length > 0) {
-        console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed mandatory but scored <78 — top 5:`);
+        console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed mandatory but scored <threshold — top 5:`);
         for (const nm of nearMisses.slice(0, 5)) {
           console.log(`  "${nm.title}" @ ${nm.company} [${nm.source}] mandatory=${nm.mandatory}`);
         }
@@ -345,6 +347,25 @@ export async function runJobSearchOnce(
     const reportLocation = await writeReport(reportPath, matches, BLOCKED_SOURCES);
 
     const liveNewMatches = await filterDeadUrls(newMatches);
+
+    const runDiagnostic: ScorerDiagnostic = {
+      freshJobs: freshJobs.length,
+      matched: slicedMatches.length,
+      filtered: {
+        lang: diagCounts.lang,
+        titleExcl: diagCounts.title,
+        roleExcl: diagCounts.role,
+        location: diagCounts.location,
+        exp: diagCounts.exp,
+        mandatory: diagCounts.mandatory,
+        score: diagCounts.score,
+      },
+      locationBreak: diagLocBreak,
+      geminiRejected: rejectedByAi.length,
+      deadUrls: newMatches.length - liveNewMatches.length,
+      sent: liveNewMatches.length,
+    };
+
     if (newMatches.length > liveNewMatches.length) {
       const deadCount = newMatches.length - liveNewMatches.length;
       const deadJobs = newMatches.filter((m) => !liveNewMatches.includes(m));
@@ -416,6 +437,7 @@ export async function runJobSearchOnce(
         intervalMinutes: getIntervalMinutes(profile),
         seenTtlHours,
         nextRunAt: new Date(Date.now() + getIntervalMinutes(profile) * 60 * 1000).toISOString(),
+        lastRunDiagnostic: runDiagnostic,
       }),
       profile,
     );

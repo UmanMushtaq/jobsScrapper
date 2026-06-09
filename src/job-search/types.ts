@@ -172,6 +172,24 @@ export interface PlatformHealth {
   updatedAt: string;
 }
 
+export interface ScorerDiagnostic {
+  freshJobs: number;
+  matched: number;
+  filtered: {
+    lang: number;
+    titleExcl: number;
+    roleExcl: number;
+    location: number;
+    exp: number;
+    mandatory: number;
+    score: number;
+  };
+  locationBreak: { usaRemote: number; euOnsite: number; euHybrid: number; other: number };
+  geminiRejected: number;
+  deadUrls: number;
+  sent: number;
+}
+
 export interface JobSearchState {
   lastRunAt: string | null;
   lastSuccessAt: string | null;
@@ -189,4 +207,5 @@ export interface JobSearchState {
   intervalMinutes: number;
   seenTtlHours: number;
   nextRunAt: string | null;
+  lastRunDiagnostic?: ScorerDiagnostic | null;
 }

@@ -74,13 +74,12 @@ export function scoreLocation(
   // Europe acceptance
   if (profile.europeCountryCodes.includes(countryCode)) {
     if (workMode === 'on-site') {
-      // On-site outside France: only acceptable if company offers relocation
-      if (offersRelocation) {
+      if (offersRelocation || profile.willingToRelocate) {
         return {
           isAcceptable: true,
-          score: 70,
+          score: offersRelocation ? 70 : 60,
           priority: 'acceptable',
-          reason: `Europe on-site (${countryCode}) with relocation support`,
+          reason: `Europe on-site (${countryCode})${offersRelocation ? ' with relocation support' : ', candidate willing to relocate'}`,
         };
       }
       return {
@@ -92,8 +91,6 @@ export function scoreLocation(
     }
 
     if (workMode === 'hybrid') {
-      // UK hybrid is never acceptable — Paris↔London commute is not viable
-      // regardless of relocation. Only UK remote or UK on-site+relocation qualify.
       if (countryCode === 'GB') {
         return {
           isAcceptable: false,
@@ -102,20 +99,19 @@ export function scoreLocation(
           reason: 'UK hybrid - not viable from Paris (remote or full relocation only)',
         };
       }
-      // Other European countries: hybrid only acceptable when relocation is offered.
-      if (!offersRelocation) {
+      if (offersRelocation || profile.willingToRelocate) {
         return {
-          isAcceptable: false,
-          score: 0,
-          priority: 'rejected',
-          reason: `Europe hybrid (${countryCode}) - no relocation offered`,
+          isAcceptable: true,
+          score: offersRelocation ? 80 : 70,
+          priority: 'acceptable',
+          reason: `Europe hybrid (${countryCode})${offersRelocation ? ' with relocation support' : ', candidate willing to relocate'}`,
         };
       }
       return {
-        isAcceptable: true,
-        score: 80,
-        priority: 'acceptable',
-        reason: `Europe hybrid (${countryCode}) with relocation support`,
+        isAcceptable: false,
+        score: 0,
+        priority: 'rejected',
+        reason: `Europe hybrid (${countryCode}) - no relocation offered`,
       };
     }
   }
