@@ -33,6 +33,12 @@ export class AppController {
     return this.appService.getPlatformStatusPage();
   }
 
+  @Get('logs')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async logsPage(): Promise<string> {
+    return this.appService.getLogsPage();
+  }
+
   @Get('api/platform-status')
   async platformStatusApi() {
     return this.appService.getPlatformStatusJson();

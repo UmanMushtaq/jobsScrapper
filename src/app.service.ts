@@ -25,7 +25,7 @@ import {
   resolveJobRef,
   sendTelegramMessages,
 } from './job-search/telegram';
-import { JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
+import { BotLogEntry, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetJobHistory, redisGetLogs } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
 import { JobSearchState, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 
@@ -387,6 +387,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return renderPlatformStatusHtml(health);
   }
 
+  async getLogsPage(): Promise<string> {
+    const logs = await redisGetLogs(300);
+    return renderLogsHtml(logs);
+  }
+
   async getPlatformStatusJson(): Promise<Record<string, unknown>> {
     const health = await getPlatformHealth();
     if (!health) {
@@ -616,6 +621,84 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 function shouldEnableScheduler(): boolean {
   const runMode = (process.env.RUN_MODE ?? 'continuous').toLowerCase();
   return runMode === 'continuous' || runMode === 'railway' || runMode === 'web';
+}
+
+function renderLogsHtml(logs: BotLogEntry[]): string {
+  const fmtTs = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch { return iso; }
+  };
+  const levelStyle: Record<string, string> = {
+    info:  'background:#dbeafe;color:#1e40af',
+    warn:  'background:#fef3c7;color:#92400e',
+    error: 'background:#fee2e2;color:#b91c1c',
+  };
+  const rows = logs.length === 0
+    ? `<tr><td colspan="4" style="text-align:center;padding:40px;color:#6b7280;">No logs yet — run the bot once to start seeing entries here.</td></tr>`
+    : logs.map((e) => {
+        const ls = levelStyle[e.level] ?? levelStyle['info'];
+        return `<tr>
+          <td style="padding:8px 12px;font-size:12px;color:#6b7280;white-space:nowrap;">${fmtTs(e.ts)}</td>
+          <td style="padding:8px 12px;">
+            <span style="display:inline-block;padding:2px 7px;border-radius:99px;font-size:11px;font-weight:700;${ls}">${escapeHtml(e.level.toUpperCase())}</span>
+          </td>
+          <td style="padding:8px 12px;font-size:12px;font-weight:600;color:#374151;white-space:nowrap;">${escapeHtml(e.tag)}</td>
+          <td style="padding:8px 12px;font-size:13px;color:#111827;word-break:break-word;">${escapeHtml(e.msg)}</td>
+        </tr>`;
+      }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bot Logs</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
+      .page { max-width: 1200px; margin: 0 auto; }
+      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
+      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 20px; }
+      .card { background: white; border-radius: 14px; overflow: hidden;
+              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); }
+      .nav { margin-bottom: 20px; display: flex; align-items: center; gap: 16px; }
+      .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
+      .refresh-btn { padding: 6px 14px; background: #2563eb; color: white; border: 0;
+                     border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+      table { width: 100%; border-collapse: collapse; }
+      thead th { background: #f8fafc; padding: 10px 12px; text-align: left;
+                 font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase;
+                 letter-spacing: .05em; border-bottom: 1px solid #e5e7eb; }
+      tbody tr:hover { background: #f8fafc; }
+      tbody td { border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+      tbody tr:last-child td { border-bottom: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="nav">
+        <a href="/">← Dashboard</a>
+        <button class="refresh-btn" onclick="location.reload()">Refresh</button>
+        <span style="font-size:13px;color:#9ca3af;">Showing last ${logs.length} entries (newest first)</span>
+      </div>
+      <h1>Bot Logs</h1>
+      <p class="subtitle">Persistent run log — survives restarts via Redis.</p>
+      <div class="card">
+        <table>
+          <thead><tr>
+            <th style="width:140px;">Time</th>
+            <th style="width:70px;">Level</th>
+            <th style="width:110px;">Tag</th>
+            <th>Message</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </body>
+</html>`;
 }
 
 function renderDiagnosticHtml(d: ScorerDiagnostic): string {

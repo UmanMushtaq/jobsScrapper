@@ -35,7 +35,7 @@ import {
   removeUrlsFromStore,
   writeJsonFile,
 } from './storage';
-import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisStoreJobHistory } from './redis-store';
+import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisLog, redisStoreJobHistory } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, ScorerDiagnostic, SearchProfile } from './types';
@@ -95,6 +95,7 @@ export async function runJobSearchOnce(
     lastRunStatus: 'running',
     lastError: null,
   }), profile);
+  await redisLog('info', 'run', 'Run started');
 
   try {
     const [seenUrls, appliedUrls, dismissedUrls, sentUrls] = await Promise.all([
@@ -108,6 +109,7 @@ export async function runJobSearchOnce(
       redisGetRoleSet('dismissed', 60 * 24 * 60 * 60 * 1000),
     ]);
     console.log(`[storage] seen=${seenUrls.size} applied=${appliedUrls.size} dismissed=${dismissedUrls.size} sent=${sentUrls.size} applied-roles=${appliedRoles.size} dismissed-roles=${dismissedRoles.size}`);
+    await redisLog('info', 'storage', `seen=${seenUrls.size} applied=${appliedUrls.size} dismissed=${dismissedUrls.size} sent=${sentUrls.size}`);
 
     // Preference learning: derive a scoring model + an AI context block from your
     // Applied/Dismissed history. Built once per run and reused for every job.
@@ -176,6 +178,8 @@ export async function runJobSearchOnce(
     );
 
     const jobs = Array.from(jobMap.values());
+    const sourceSummary = sourceResults.map((r) => `${r.source}:${r.jobs.length}${r.error ? '(ERR)' : ''}`).join(' ');
+    await redisLog('info', 'sources', `${jobs.length} jobs from ${sourceResults.length} sources — ${sourceSummary}`);
 
     // Always compare normalized URLs — sources may return raw URLs while Redis stores normalized ones.
     // Also check company+title role keys to catch reposts of the same role with a new URL.
@@ -219,6 +223,7 @@ export async function runJobSearchOnce(
     const slicedMatches = dedupedMatches.slice(0, maxResults);
 
     console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} passed scoring (${dupCount} dupes removed)`);
+    await redisLog('info', 'scorer', `${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} matched (${dupCount} dupes removed)`);
 
     // Always compute diagnostic counters so they can be persisted to state and
     // surfaced via /health regardless of whether any matches were found.
@@ -288,6 +293,11 @@ export async function runJobSearchOnce(
         }
       }
     }
+    await redisLog(
+      slicedMatches.length === 0 && freshJobs.length > 0 ? 'warn' : 'info',
+      'scorer-diag',
+      `lang=${diagCounts.lang} titleExcl=${diagCounts.title} roleExcl=${diagCounts.role} loc=${diagCounts.location}(eu-onsite=${diagLocBreak.euOnsite},eu-hybrid=${diagLocBreak.euHybrid},usa=${diagLocBreak.usaRemote}) exp=${diagCounts.exp} mandatory=${diagCounts.mandatory} score=${diagCounts.score}`,
+    );
 
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
     // Enrichment is sequential across jobs: each job's 3 parallel calls complete before the next
@@ -336,6 +346,7 @@ export async function runJobSearchOnce(
     }
     if (unseenRaw.length > 0) {
       console.log(`[notify] AI enrichment done: ${newMatches.length}/${unseenRaw.length} passed (${rejectedByAi.length} rejected)`);
+      await redisLog('info', 'gemini', `enrichment: ${newMatches.length}/${unseenRaw.length} passed, ${rejectedByAi.length} rejected`);
     }
 
     // All scored matches (new + already-sent) for the report and seenUrls tracking
@@ -373,8 +384,10 @@ export async function runJobSearchOnce(
       for (const m of deadJobs) {
         console.log(`  DEAD URL: "${m.job.title}" @ ${m.job.company} — ${m.job.applyUrl}`);
       }
+      await redisLog('warn', 'url-check', `${deadCount} dead URL(s) filtered, ${liveNewMatches.length} live`);
     } else if (newMatches.length > 0) {
       console.log(`[notify] URL check: all ${newMatches.length} URL(s) alive → sending to Telegram`);
+      await redisLog('info', 'url-check', `all ${newMatches.length} URL(s) alive`);
     }
     const messages = await buildTelegramPayload(liveNewMatches, reportLocation, profile);
 
@@ -382,8 +395,8 @@ export async function runJobSearchOnce(
     const chatId = process.env.TELEGRAM_CHAT_ID;
     if (botToken && chatId && messages.length > 0) {
       await sendTelegramMessages(botToken, chatId, messages);
-      // Permanently record every URL that was sent so it is never sent again
       await addUrlsToStore(sentFile, 'sent_urls', liveNewMatches.map((m) => m.job.canonicalUrl));
+      await redisLog('info', 'telegram', `Sent ${messages.length} message(s) — ${liveNewMatches.map((m) => `"${m.job.title}" @ ${m.job.company}`).join(', ')}`);
     }
 
     // Check for 7-day follow-up reminders on applied jobs
@@ -442,9 +455,11 @@ export async function runJobSearchOnce(
       profile,
     );
 
+    await redisLog('info', 'run', `Run complete — ${liveNewMatches.length} job(s) sent, ${slicedMatches.length} matched`);
     return summary;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    await redisLog('error', 'run', `Run failed: ${message}`);
     await updateState(
       stateFile,
       (current) => ({

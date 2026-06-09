@@ -382,3 +382,48 @@ export async function redisGetGeminiDailyCalls(day: string): Promise<number> {
     return Number(await r.get<string>(`gemini:calls:${day}`)) || 0;
   } catch { return 0; }
 }
+
+// --- Persistent run log (last 500 entries, stored as ZSET scored by timestamp ms) ---
+
+export interface BotLogEntry {
+  ts: string;
+  level: 'info' | 'warn' | 'error';
+  tag: string;
+  msg: string;
+}
+
+const LOG_KEY = 'bot:logs';
+const LOG_MAX = 500;
+
+export async function redisLog(level: BotLogEntry['level'], tag: string, msg: string): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  const entry: BotLogEntry = { ts: new Date().toISOString(), level, tag, msg };
+  const now = Date.now();
+  try {
+    type SM = { score: number; member: string };
+    await r.zadd(LOG_KEY, { score: now, member: JSON.stringify(entry) } as SM);
+    // Keep only the newest LOG_MAX entries
+    await r.zremrangebyrank(LOG_KEY, 0, -(LOG_MAX + 1));
+  } catch {
+    // logging failures must never crash the bot
+  }
+}
+
+export async function redisGetLogs(limit = 200): Promise<BotLogEntry[]> {
+  const r = getClient();
+  if (!r) return [];
+  try {
+    const members = await r.zrange(LOG_KEY, 0, -1);
+    const all = members
+      .map((m) => {
+        try { return (typeof m === 'string' ? JSON.parse(m) : m) as BotLogEntry; }
+        catch { return null; }
+      })
+      .filter((e): e is BotLogEntry => e !== null)
+      .reverse(); // newest first
+    return all.slice(0, limit);
+  } catch {
+    return [];
+  }
+}
