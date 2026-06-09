@@ -248,9 +248,16 @@ export async function redisGetJobHistory(): Promise<JobHistoryEntry[]> {
   const r = getClient();
   if (!r) return [];
   try {
-    const members = await r.zrange<string[]>(HISTORY_KEY, 0, -1);
+    const members = await r.zrange(HISTORY_KEY, 0, -1);
     const entries = members
-      .map((m) => { try { return JSON.parse(m) as JobHistoryEntry; } catch { return null; } })
+      .map((m) => {
+        try {
+          // Upstash may auto-deserialize the JSON string into an object on retrieval.
+          // Handle both cases: raw string (needs JSON.parse) and already-parsed object.
+          const obj = typeof m === 'string' ? JSON.parse(m) : m;
+          return obj as JobHistoryEntry;
+        } catch { return null; }
+      })
       .filter((e): e is JobHistoryEntry => e !== null);
     // Most recent first
     return entries.reverse();

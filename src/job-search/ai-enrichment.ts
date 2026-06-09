@@ -531,9 +531,8 @@ async function enrichSingle(
 function buildFallbackCoverLetter(
   job: JobPosting,
   profile: SearchProfile,
-  reasons: string[],
+  _reasons: string[],
 ): string {
-  const reasonLine = reasons[0] ?? 'the backend ownership in the role';
   const isParisArea = /paris|île-de-france|idf/i.test(job.locationLabel ?? '');
   const locationLine =
     job.workMode === 'remote'
@@ -548,9 +547,9 @@ function buildFallbackCoverLetter(
   return [
     `Hello ${job.company} team,`,
     '',
-    `${reasonLine.charAt(0).toUpperCase() + reasonLine.slice(1)} is exactly what drew me to this role.`,
+    `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears}+ years of production experience. The ${job.title} role at ${job.company} is a strong match for my background in backend microservices, TypeScript engineering, and fintech platforms.`,
     '',
-    `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears} years of production experience. At OptimusFox I designed and delivered production microservices across fintech and crypto platforms for a cross-functional team of roughly ten engineers, integrating Stripe, PayPal, and blockchain APIs, Dockerizing backend services, and building GitHub Actions CI/CD pipelines from scratch. I am applying these architecture patterns in NexusPay, an event-driven fintech platform I am building with NestJS, RabbitMQ, Kafka, and Clean Architecture.`,
+    `At OptimusFox I designed and delivered production NestJS and TypeScript microservices across fintech and crypto platforms, working in a cross-functional team of roughly ten engineers. I integrated Stripe, PayPal, and blockchain APIs, Dockerized all backend services, and built GitHub Actions CI/CD pipelines from scratch. I am applying the same patterns in NexusPay, an event-driven fintech platform I am building with NestJS, RabbitMQ, Kafka, and Clean Architecture.`,
     '',
     `${locationLine} I would welcome the chance to discuss how my background fits this role.`,
     '',
