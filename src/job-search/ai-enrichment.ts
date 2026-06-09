@@ -289,6 +289,46 @@ export async function generateTailoredCv(
   }, `tailored-cv:${company}`);
 }
 
+export async function generateShortAnswers(
+  company: string,
+  title: string,
+  description: string,
+  questions: string[],
+  profile: SearchProfile,
+): Promise<Array<{ question: string; answer: string }> | null> {
+  if (!getApiKeys().length || !questions.length) return null;
+  const cvText = profile.candidate.cvText ??
+    `${profile.candidate.name} | ${profile.candidate.experienceYears}yrs backend | Skills: ${profile.candidate.coreSkills.join(', ')}`;
+  const { statusLine } = resolveWorkAuth(profile);
+  const prompt =
+    `You are writing job application answers for ${profile.candidate.name}.\n\n` +
+    `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
+    `Work authorization: ${statusLine}\n\n` +
+    `JOB: ${title} at ${company}\n` +
+    (description.trim() ? `Role context:\n${description.slice(0, 600)}\n\n` : '\n') +
+    `Write a concise, specific answer to each question below. Reference real experience from the CV. ` +
+    `Keep each answer under 150 words. Write naturally, no buzzwords, no clichés.\n\n` +
+    `Questions:\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\n` +
+    `Return a JSON array of objects: [{"question":"...","answer":"..."}]. One object per question. No extra text.`;
+  return callWithRotation(async (ai, model) => {
+    const response = await ai.models.generateContent({
+      model,
+      config: { responseMimeType: 'application/json' },
+      contents: prompt,
+    });
+    const raw = JSON.parse(response.text ?? '[]');
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item: unknown, i: number) => ({
+      question: typeof item === 'object' && item !== null && 'question' in item
+        ? String((item as { question: unknown }).question)
+        : questions[i] ?? `Question ${i + 1}`,
+      answer: typeof item === 'object' && item !== null && 'answer' in item
+        ? String((item as { answer: unknown }).answer)
+        : String(item),
+    }));
+  }, `short-answers:${company}`);
+}
+
 const EUR_RATES: Record<string, number> = {
   EUR: 1, USD: 0.88, GBP: 1.16, CHF: 1.04,
   PLN: 0.23, SEK: 0.087, NOK: 0.086, DKK: 0.134, CZK: 0.041,

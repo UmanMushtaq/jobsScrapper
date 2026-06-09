@@ -142,5 +142,23 @@ export class AppController {
   ): Promise<void> {
     await this.appService.adminUpdatePermit(permitName, expiry, cookie, res);
   }
+
+  @Get('jobs/answer-questions')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async answerQuestionsForm(@Query('hash') hash?: string): Promise<string> {
+    return this.appService.getAnswerQuestionsPage(hash);
+  }
+
+  @Post('jobs/answer-questions')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async answerQuestionsSubmit(
+    @Body('company') company: string,
+    @Body('title') title: string,
+    @Body('description') description: string,
+    @Body('questions') questions: string,
+    @Body('hash') hash: string,
+  ): Promise<string> {
+    return this.appService.submitAnswerQuestions(company ?? '', title ?? '', description ?? '', questions ?? '', hash ?? '');
+  }
 }
 

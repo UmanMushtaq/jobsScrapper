@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Response } from 'express';
-import { enrichMatch, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
+import { enrichMatch, generateShortAnswers, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
   JobDecisionMeta,
@@ -27,7 +27,7 @@ import {
 } from './job-search/telegram';
 import { JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetJobHistory } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
-import { JobSearchState, PlatformHealth } from './job-search/types';
+import { JobSearchState, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 
 // Hardcoded recovery contact. Password recovery delivers to Telegram (already
 // configured); this address is shown on the login page so you always know where
@@ -191,6 +191,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       telegram: process.env.TELEGRAM_BOT_TOKEN ? 'configured' : 'not configured',
       scheduler: shouldEnableScheduler() ? 'enabled' : 'disabled',
       urlCounts,
+      lastRunDiagnostic: state.lastRunDiagnostic ?? null,
     };
   }
 
@@ -572,11 +573,208 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     await writeFile(profilePath, JSON.stringify(raw, null, 2), 'utf-8');
     res.redirect('/admin?updated=1');
   }
+
+  async getAnswerQuestionsPage(hash?: string): Promise<string> {
+    let company = '';
+    let title = '';
+    let description = '';
+    if (hash) {
+      const state = await readJobSearchState();
+      const match = state.latestMatches.find((m) => hashJobUrl(m.job.canonicalUrl) === hash);
+      if (match) {
+        company = match.job.company;
+        title = match.job.title;
+        description = match.job.description?.slice(0, 600) ?? '';
+      }
+    }
+    return renderAnswerQuestionsFormHtml(company, title, description, hash ?? '');
+  }
+
+  async submitAnswerQuestions(
+    company: string,
+    title: string,
+    description: string,
+    questionsText: string,
+    hash: string,
+  ): Promise<string> {
+    const questions = (questionsText ?? '')
+      .split('\n')
+      .map((q) => q.trim())
+      .filter(Boolean);
+    if (!questions.length) {
+      return renderAnswerQuestionsFormHtml(company, title, description, hash, 'Please enter at least one question.');
+    }
+    const profile = await loadSearchProfile();
+    const answers = await generateShortAnswers(company, title, description, questions, profile);
+    if (!answers) {
+      return renderAnswerQuestionsFormHtml(company, title, description, hash, 'Gemini is currently unavailable — all API keys are quota-exhausted. Try again after midnight Pacific time.');
+    }
+    return renderAnswerQuestionsResultHtml(company, title, answers, hash);
+  }
 }
 
 function shouldEnableScheduler(): boolean {
   const runMode = (process.env.RUN_MODE ?? 'continuous').toLowerCase();
   return runMode === 'continuous' || runMode === 'railway' || runMode === 'web';
+}
+
+function renderDiagnosticHtml(d: ScorerDiagnostic): string {
+  const pct = (n: number) => d.freshJobs > 0 ? ` (${Math.round(n / d.freshJobs * 100)}%)` : '';
+  const row = (label: string, n: number, sub?: string) =>
+    n > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f3f4f6;font-size:13px;">
+      <span style="color:#374151;">${label}${sub ? `<span style="color:#9ca3af;margin-left:8px;font-size:11px;">${sub}</span>` : ''}</span>
+      <span style="font-weight:600;color:#ef4444;">${n}${pct(n)}</span>
+    </div>` : '';
+  const zeroMatch = d.matched === 0 && d.freshJobs > 0;
+  const borderColor = zeroMatch ? '#f59e0b' : '#e5e7eb';
+  const headerColor = zeroMatch ? '#92400e' : '#6b7280';
+  return `
+    <div style="margin-top:14px;padding:14px 16px;border-radius:10px;border:1px solid ${borderColor};background:${zeroMatch ? '#fffbeb' : '#f9fafb'};">
+      <div style="font-size:12px;font-weight:700;color:${headerColor};text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">
+        ${zeroMatch ? 'Why 0 matches? — last run breakdown' : 'Last run breakdown'}
+      </div>
+      <div style="font-size:13px;color:#6b7280;margin-bottom:10px;">
+        <strong style="color:#111827;">${d.freshJobs}</strong> fresh jobs scanned →
+        <strong style="color:${d.matched > 0 ? '#15803d' : '#ef4444'};">${d.matched} matched</strong>
+        ${d.sent > 0 ? ` → <strong style="color:#2563eb;">${d.sent} sent to Telegram</strong>` : ''}
+      </div>
+      ${row('Language mismatch', d.filtered.lang)}
+      ${row('Title excluded (intern / senior / lead / etc)', d.filtered.titleExcl)}
+      ${row('Role excluded (frontend / AI / DevOps / etc)', d.filtered.roleExcl)}
+      ${row('Location rejected', d.filtered.location, (d.locationBreak.euOnsite || d.locationBreak.euHybrid) ? `EU on-site: ${d.locationBreak.euOnsite} | EU hybrid: ${d.locationBreak.euHybrid} | USA remote: ${d.locationBreak.usaRemote} | other: ${d.locationBreak.other}` : undefined)}
+      ${row('Experience out of range', d.filtered.exp)}
+      ${row('Missing mandatory keywords (Node.js / TS / backend)', d.filtered.mandatory)}
+      ${row('Score below threshold', d.filtered.score)}
+      ${d.geminiRejected > 0 ? row('Gemini relevance < 55', d.geminiRejected) : ''}
+      ${d.deadUrls > 0 ? row('Dead URLs filtered', d.deadUrls) : ''}
+    </div>`;
+}
+
+function renderAnswerQuestionsFormHtml(
+  company: string,
+  title: string,
+  description: string,
+  hash: string,
+  error?: string,
+): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Answer Application Questions</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
+      .page { max-width: 700px; margin: 0 auto; }
+      h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+      .card { background: white; border-radius: 14px; padding: 28px;
+              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); }
+      .nav { margin-bottom: 20px; }
+      .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
+      .field { margin-bottom: 18px; }
+      .field label { display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:6px; }
+      .field input, .field textarea { width:100%; padding:9px 12px; border:1px solid #d1d5db; border-radius:8px;
+        font-size:14px; font-family:inherit; color:#111827; outline:none; resize:vertical; }
+      .field input:focus, .field textarea:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+      .btn { padding:10px 24px; background:#2563eb; color:white; border:0; border-radius:8px;
+             font-size:14px; font-weight:600; cursor:pointer; }
+      .btn:hover { background:#1d4ed8; }
+      .error { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:10px 14px;
+               color:#dc2626; font-size:13px; margin-bottom:18px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="nav"><a href="/">← Back to Dashboard</a></div>
+      <div class="card">
+        <h1>Answer Application Questions</h1>
+        <p style="color:#6b7280;margin:0 0 22px;font-size:14px;">Paste the questions from a job application form. Gemini will write tailored answers based on your CV and the specific role.</p>
+        ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
+        <form method="post" action="/jobs/answer-questions">
+          <div class="field">
+            <label>Company *</label>
+            <input type="text" name="company" value="${escapeHtml(company)}" required placeholder="e.g. Stripe" />
+          </div>
+          <div class="field">
+            <label>Job Title *</label>
+            <input type="text" name="title" value="${escapeHtml(title)}" required placeholder="e.g. Backend Engineer" />
+          </div>
+          <div class="field">
+            <label>Job Description <span style="font-weight:400;color:#9ca3af;">(optional — helps tailor answers)</span></label>
+            <textarea name="description" rows="3" placeholder="Paste a few sentences about the role...">${escapeHtml(description)}</textarea>
+          </div>
+          <div class="field">
+            <label>Application Questions <span style="font-weight:400;color:#9ca3af;">(one per line) *</span></label>
+            <textarea name="questions" rows="8" required
+              placeholder="Why do you want to work here?&#10;Describe your experience with microservices.&#10;What is your greatest professional achievement?"></textarea>
+          </div>
+          <input type="hidden" name="hash" value="${escapeHtml(hash)}" />
+          <button type="submit" class="btn">Generate Answers</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>`;
+}
+
+function renderAnswerQuestionsResultHtml(
+  company: string,
+  title: string,
+  answers: Array<{ question: string; answer: string }>,
+  hash: string,
+): string {
+  const pairs = answers.map((a, i) => `
+    <div style="margin-bottom:20px;padding:16px;background:#f8fafc;border-radius:10px;border:1px solid #e5e7eb;">
+      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Question ${i + 1}</div>
+      <div style="font-size:14px;color:#374151;margin-bottom:10px;">${escapeHtml(a.question)}</div>
+      <div style="font-size:11px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Answer</div>
+      <div id="ans-${i}" style="font-size:14px;color:#111827;line-height:1.6;white-space:pre-wrap;">${escapeHtml(a.answer)}</div>
+      <button onclick="copyAns(${i})" style="margin-top:10px;padding:5px 14px;background:white;border:1px solid #d1d5db;border-radius:6px;font-size:12px;cursor:pointer;color:#374151;">Copy</button>
+    </div>`).join('');
+  const backLink = hash
+    ? `<a href="/jobs/answer-questions?hash=${encodeURIComponent(hash)}" style="color:#2563eb;text-decoration:none;">← Ask different questions</a> &nbsp;·&nbsp; `
+    : `<a href="/jobs/answer-questions" style="color:#2563eb;text-decoration:none;">← New questions</a> &nbsp;·&nbsp; `;
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Answers — ${escapeHtml(title)} at ${escapeHtml(company)}</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
+      .page { max-width: 700px; margin: 0 auto; }
+      h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+      .card { background: white; border-radius: 14px; padding: 28px;
+              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); }
+      .nav { margin-bottom: 20px; font-size: 14px; }
+      .nav a { color: #2563eb; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="nav">${backLink}<a href="/" style="color:#2563eb;text-decoration:none;">Dashboard</a></div>
+      <div class="card">
+        <h1>Answers</h1>
+        <p style="color:#6b7280;font-size:14px;margin:0 0 20px;">${escapeHtml(title)} at ${escapeHtml(company)}</p>
+        ${pairs}
+      </div>
+    </div>
+    <script>
+      function copyAns(i) {
+        var el = document.getElementById('ans-' + i);
+        navigator.clipboard.writeText(el.innerText).then(function() {
+          var btn = el.nextElementSibling;
+          btn.textContent = 'Copied!';
+          setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+        });
+      }
+    </script>
+  </body>
+</html>`;
 }
 
 function escapeHtml(value: string): string {
@@ -1515,6 +1713,7 @@ function renderHtml(state: JobSearchState): string {
                     </form>
                     <button type="button" onclick="toggleDet('${detId}')" style="width:100%;padding:6px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">${detBtnLabel}</button>
                     <a href="/jobs/tailored-cv?hash=${cvHash}" target="_blank" style="display:block;text-align:center;padding:6px 12px;background:#faf5ff;color:#6d28d9;border:1px solid #ddd6fe;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Tailored CV</a>
+                    <a href="/jobs/answer-questions?hash=${cvHash}" style="display:block;text-align:center;padding:6px 12px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Answer Questions</a>
                   </div>
                 </td>
               </tr>
@@ -1609,7 +1808,7 @@ function renderHtml(state: JobSearchState): string {
         <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
             <h1>Job Search Bot</h1>
-            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a> &nbsp;·&nbsp; <a href="/admin" style="color:#2563eb;text-decoration:none;">Admin →</a></p>
+            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/jobs/answer-questions" style="color:#2563eb;text-decoration:none;">Answer Questions →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a> &nbsp;·&nbsp; <a href="/admin" style="color:#2563eb;text-decoration:none;">Admin →</a></p>
           </div>
           <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
             ${statusDot(state.lastRunStatus)}
@@ -1645,6 +1844,8 @@ function renderHtml(state: JobSearchState): string {
         </div>
 
         ${state.lastError ? `<div class="error-box"><strong>Last error:</strong> ${escapeHtml(state.lastError)}</div>` : ''}
+
+        ${state.lastRunDiagnostic ? renderDiagnosticHtml(state.lastRunDiagnostic) : ''}
 
         <div style="margin-top:16px;">
           <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">

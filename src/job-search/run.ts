@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { enrichMatch } from './ai-enrichment';
+import { scoreLocation } from './sources/location-filter';
 import { checkFollowups } from './followup';
 import { scoreJob } from './matcher';
 import { buildPreferenceContext, buildPreferenceModel } from './preference';
@@ -241,12 +242,11 @@ export async function runJobSearchOnce(
 
       const cc = job.countryCode;
       const wm = job.workMode;
-      const isUsaRemote = wm === 'remote' && cc && profile.search.usaCountryCodes?.includes(cc) && !profile.search.usaJobs;
-      const isPrefCountry = profile.search.preferredCountries?.includes(cc ?? '');
-      const isEU = profile.search.europeCountryCodes?.includes(cc ?? '');
-      const locOk = isPrefCountry || (wm === 'remote' && !isUsaRemote) || (isEU && wm !== 'hybrid' && wm !== 'on-site') || (!cc && wm !== 'on-site');
-      if (!locOk) {
+      const locResult = scoreLocation(cc, job.city, wm, job.offersRelocation, profile.search);
+      if (!locResult.isAcceptable) {
         diagCounts.location++;
+        const isUsaRemote = wm === 'remote' && cc && profile.search.usaCountryCodes?.includes(cc) && !profile.search.usaJobs;
+        const isEU = profile.search.europeCountryCodes?.includes(cc ?? '');
         if (isUsaRemote) diagLocBreak.usaRemote++;
         else if (isEU && wm === 'on-site') diagLocBreak.euOnsite++;
         else if (isEU && wm === 'hybrid') diagLocBreak.euHybrid++;
