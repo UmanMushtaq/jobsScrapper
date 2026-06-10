@@ -35,6 +35,7 @@ import {
   removeUrlsFromStore,
   writeJsonFile,
 } from './storage';
+import { detectLanguage } from './sources/language-detect';
 import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisLog, redisStoreJobHistory } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
@@ -242,6 +243,9 @@ export async function runJobSearchOnce(
       const jobLang = (job.language ?? '').toLowerCase();
       const isLangPrefCountry = profile.search.preferredCountries?.includes(job.countryCode ?? '');
       if (jobLang && jobLang !== desiredLang && !hasEnglishTeamSignals(txt) && !isLangPrefCountry) { diagCounts.lang++; continue; }
+      // Replicate isLanguageFit()'s secondary title-accent check — jobs with French/German
+      // titles get mis-attributed to score<threshold without this check.
+      if (/[àâéèêëîïôùûüçœæäöüß]/i.test(job.title) && detectLanguage(job.title) !== desiredLang) { diagCounts.lang++; continue; }
       if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { diagCounts.title++; continue; }
       if (EXCL_ROLES.some((k) => title.includes(k))) { diagCounts.role++; continue; }
 
