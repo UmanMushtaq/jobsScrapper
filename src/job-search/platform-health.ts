@@ -42,7 +42,7 @@ function maskUrl(url: string): string {
 }
 
 // Ping the home proxy through proxyFetch by fetching a tiny, reliable endpoint.
-// This is the single most useful signal for "is my residential IP reachable?".
+// Retries up to 3 times to avoid false-negatives from transient Cloudflare 502s.
 async function pingProxy(): Promise<ProxyHealth> {
   const proxyUrl = process.env.JOB_PROXY_URL;
   const proxySecret = process.env.JOB_PROXY_SECRET;
@@ -59,36 +59,38 @@ async function pingProxy(): Promise<ProxyHealth> {
     };
   }
 
-  try {
-    const res = await proxyFetch('https://api.ipify.org', { signal: AbortSignal.timeout(12_000) });
-    if (res.status === 502 || res.status === 503 || res.status === 523) {
-      return {
-        configured: true,
-        online: false,
-        url: maskedUrl,
-        error: `Proxy tunnel is down (HTTP ${res.status}) — check the proxy + cloudflared are running on your laptop`,
-        checkedAt,
-      };
+  // Try multiple targets in case one is temporarily rate-limited or unreachable.
+  const PING_TARGETS = ['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://checkip.amazonaws.com'];
+  const MAX_ATTEMPTS = 3;
+  let lastError = '';
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const target = PING_TARGETS[attempt % PING_TARGETS.length];
+    try {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 2_000 * attempt));
+      const res = await proxyFetch(target, { signal: AbortSignal.timeout(12_000) });
+      if (res.status === 403) {
+        return {
+          configured: true, online: false, url: maskedUrl, checkedAt,
+          error: 'Proxy returned 403 Forbidden — JOB_PROXY_SECRET on Render does not match your laptop proxy\'s secret. Fix: open Render → Environment, copy the exact secret from your proxy script, paste it into JOB_PROXY_SECRET, and redeploy.',
+        };
+      }
+      if (res.ok) {
+        return { configured: true, online: true, url: maskedUrl, error: null, checkedAt };
+      }
+      lastError = `HTTP ${res.status} from ${target}`;
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
     }
-    if (res.status === 403) {
-      return {
-        configured: true, online: false, url: maskedUrl, checkedAt,
-        error: 'Proxy returned 403 Forbidden — JOB_PROXY_SECRET on Render does not match your laptop proxy\'s secret. Fix: open Render → Environment, copy the exact secret from your proxy script, paste it into JOB_PROXY_SECRET, and redeploy.',
-      };
-    }
-    if (!res.ok) {
-      return { configured: true, online: false, url: maskedUrl, error: `Proxy returned HTTP ${res.status}`, checkedAt };
-    }
-    return { configured: true, online: true, url: maskedUrl, error: null, checkedAt };
-  } catch (err) {
-    return {
-      configured: true,
-      online: false,
-      url: maskedUrl,
-      error: err instanceof Error ? err.message : String(err),
-      checkedAt,
-    };
   }
+
+  return {
+    configured: true,
+    online: false,
+    url: maskedUrl,
+    error: `Proxy tunnel appears down after ${MAX_ATTEMPTS} attempts — last error: ${lastError}. Check the proxy + cloudflared are running on your laptop.`,
+    checkedAt,
+  };
 }
 
 function classify(
@@ -128,7 +130,16 @@ export async function recordPlatformHealth(results: SourceRunResult[]): Promise<
   const prevBySource = new Map((prev?.sources ?? []).map((s) => [s.source, s]));
   const now = new Date().toISOString();
 
-  const proxy = await pingProxy();
+  let proxy = await pingProxy();
+
+  // If the ping failed but at least one proxy source returned real jobs this run,
+  // the tunnel is clearly reachable — the ping target was just transiently unreachable.
+  if (!proxy.online && proxy.configured) {
+    const hasProxyJobs = results.some((r) => PROXY_SOURCES.has(r.source) && r.jobs.length > 0);
+    if (hasProxyJobs) {
+      proxy = { ...proxy, online: true, error: null };
+    }
+  }
 
   const sources: SourceHealthRecord[] = results.map((r) => {
     const usesProxy = PROXY_SOURCES.has(r.source);
