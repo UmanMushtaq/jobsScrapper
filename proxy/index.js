@@ -72,6 +72,8 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     res.writeHead(502, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));
+    const ts = new Date().toLocaleTimeString();
+    console.log(`[${ts}] 502 ERROR ${url.slice(0, 80)} — ${err.message}`);
   }
 });
 
