@@ -5,10 +5,15 @@ import { JobSource } from './registry';
 
 const SOURCE = 'nodesk.co';
 
-// RSS feeds for remote developer jobs — development includes Node.js, backend, fullstack
+// RSS feeds for remote developer jobs — try several URL patterns in case they change.
+// Original /remote-jobs/*.rss paths returned 404 as of June 2026.
 const FEED_URLS = [
   'https://nodesk.co/remote-jobs/development.rss',
   'https://nodesk.co/remote-jobs/backend.rss',
+  'https://nodesk.co/remote-jobs/engineering.rss',
+  'https://nodesk.co/rss',
+  'https://nodesk.co/feed.rss',
+  'https://nodesk.co/remote-jobs.rss',
 ];
 
 const RELEVANT_KEYWORDS = ['backend', 'back-end', 'node', 'typescript', 'javascript', 'software engineer', 'fullstack', 'full stack', 'full-stack', 'api engineer', 'nestjs', 'express'];

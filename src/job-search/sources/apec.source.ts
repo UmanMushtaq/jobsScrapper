@@ -10,6 +10,8 @@ const SOURCE = 'apec.fr';
 // Public search endpoint used by their Angular frontend.
 
 const API_URL = 'https://www.apec.fr/cms/api/v1/offres/recherche';
+const PREFLIGHT_URL = 'https://www.apec.fr/candidat/recherche-emploi.html';
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 interface ApecOffer {
   numeroOffre?: string | number;
@@ -53,9 +55,12 @@ export class ApecJobsSource implements JobSource {
   async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
 
+    // Preflight GET to obtain session cookies — APEC's API returns 403 without them.
+    const sessionCookie = await fetchSessionCookie();
+
     for (const query of queries) {
       try {
-        const results = await fetchOffers(query, settings.maxAgeHours);
+        const results = await fetchOffers(query, settings.maxAgeHours, sessionCookie);
         for (const offer of results) {
           const job = mapOffer(offer);
           if (job) jobs.set(job.canonicalUrl, job);
@@ -73,7 +78,26 @@ export class ApecJobsSource implements JobSource {
   }
 }
 
-async function fetchOffers(query: string, maxAgeHours: number): Promise<ApecOffer[]> {
+async function fetchSessionCookie(): Promise<string> {
+  try {
+    const res = await proxyFetch(PREFLIGHT_URL, {
+      headers: {
+        'User-Agent': BROWSER_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+      },
+    });
+    // Proxy forwards upstream Set-Cookie via x-set-cookie to avoid browser cookie handling.
+    // Parse "name=value; Path=/" → "name=value" and join multiple cookies with "; ".
+    const raw = res.headers.get('x-set-cookie') ?? '';
+    if (!raw) return '';
+    return raw.split(',').map((c) => c.split(';')[0].trim()).filter(Boolean).join('; ');
+  } catch {
+    return '';
+  }
+}
+
+async function fetchOffers(query: string, maxAgeHours: number, sessionCookie: string): Promise<ApecOffer[]> {
   const dateMin = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const body = {
@@ -84,20 +108,27 @@ async function fetchOffers(query: string, maxAgeHours: number): Promise<ApecOffe
     datePublication: dateMin,
   };
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': BROWSER_UA,
+    'Referer': 'https://www.apec.fr/offres/offres-emploi.html',
+    'Origin': 'https://www.apec.fr',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+  };
+  if (sessionCookie) headers['Cookie'] = sessionCookie;
+
   const res = await proxyFetch(API_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer': 'https://www.apec.fr/offres/offres-emploi.html',
-      'Origin': 'https://www.apec.fr',
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
   if (res.status === 204) return [];
-  if (res.status === 403 || res.status === 429 || res.status === 502 || res.status === 530) return []; // cloud IP blocked — fail silently
+  if (res.status === 403 || res.status === 429 || res.status === 502 || res.status === 530) {
+    if (res.status === 403) console.warn(`[apec] 403 — session cookie: ${sessionCookie ? 'present' : 'missing'}`);
+    return [];
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`APEC API ${res.status}${text ? ': ' + text.slice(0, 150) : ''}`);

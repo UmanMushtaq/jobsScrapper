@@ -65,9 +65,17 @@ const server = http.createServer(async (req, res) => {
     const upstream = await fetch(url, safeOptions);
     const body = await upstream.text();
 
-    res.writeHead(upstream.status, {
-      'Content-Type': upstream.headers.get('content-type') ?? 'application/json',
-    });
+    const responseHeaders = {
+      'Content-Type': upstream.headers.get('content-type') ?? 'application/octet-stream',
+    };
+    // Forward session/auth headers so sources can implement cookie-based auth.
+    // Use x-set-cookie to avoid browser cookie-jar semantics on the receiving end.
+    const setCookie = upstream.headers.get('set-cookie');
+    if (setCookie) responseHeaders['x-set-cookie'] = setCookie;
+    const xsrf = upstream.headers.get('x-xsrf-token') || upstream.headers.get('x-csrf-token');
+    if (xsrf) responseHeaders['x-xsrf-token'] = xsrf;
+
+    res.writeHead(upstream.status, responseHeaders);
     res.end(body);
 
     const ts = new Date().toLocaleTimeString();

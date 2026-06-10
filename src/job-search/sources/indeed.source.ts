@@ -21,18 +21,27 @@ export class IndeedJobsSource implements JobSource {
     const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
     const fromage = String(Math.ceil(settings.maxAgeHours / 24) + 1);
 
-    const searches: Array<{ q: string; l: string; countryCode: string | null }> = [
-      { q: 'nodejs backend engineer', l: 'France', countryCode: 'FR' },
-      { q: 'typescript backend engineer', l: 'France', countryCode: 'FR' },
-      { q: 'nestjs developer', l: 'France', countryCode: 'FR' },
-      { q: 'nodejs backend remote', l: 'Europe', countryCode: null },
+    // France searches use fr.indeed.com — www.indeed.com (US) returns 404 for French job markets.
+    // Europe-wide remote searches stay on www.indeed.com with a location parameter.
+    const searches: Array<{ q: string; baseUrl: string; l?: string; countryCode: string | null }> = [
+      { q: 'nodejs backend engineer', baseUrl: 'https://fr.indeed.com/rss', countryCode: 'FR' },
+      { q: 'typescript backend engineer', baseUrl: 'https://fr.indeed.com/rss', countryCode: 'FR' },
+      { q: 'nestjs developer', baseUrl: 'https://fr.indeed.com/rss', countryCode: 'FR' },
+      { q: 'nodejs backend remote', baseUrl: 'https://www.indeed.com/rss', l: 'Europe', countryCode: null },
     ];
 
     for (const search of searches) {
       try {
-        const params = new URLSearchParams({ q: search.q, l: search.l, sort: 'date', fromage });
-        const response = await proxyFetch(`https://www.indeed.com/rss?${params}`, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; job-search-bot/1.0)' },
+        const paramObj: Record<string, string> = { q: search.q, sort: 'date', fromage };
+        if (search.l) paramObj['l'] = search.l;
+        const params = new URLSearchParams(paramObj);
+        const response = await proxyFetch(`${search.baseUrl}?${params}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+            'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+            'Referer': 'https://fr.indeed.com/',
+          },
           signal: AbortSignal.timeout(12_000),
         });
 
