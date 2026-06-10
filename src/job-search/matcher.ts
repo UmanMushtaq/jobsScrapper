@@ -7,9 +7,15 @@ import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types'
 const BASE_REQUIRED_WEIGHTS = [
   {
     // NestJS and Express.js are Node.js-only frameworks — if they appear, Node.js is implied.
-    matched: (text: string) => containsAny(text, ['node.js', 'nodejs', 'nestjs', 'nest.js', 'express.js']),
+    matched: (text: string) => containsAny(text, ['node.js', 'nodejs', 'express.js']),
     weight: 24,
     reason: 'Node.js is explicitly required',
+  },
+  {
+    // NestJS as a standalone signal — jobs mentioning only NestJS without "Node.js" still pass
+    matched: (text: string) => containsAny(text, ['nestjs', 'nest.js']),
+    weight: 24,
+    reason: 'NestJS is explicitly required',
   },
   {
     matched: (text: string) => containsAny(text, ['typescript', 'javascript']),
@@ -179,7 +185,7 @@ export function scoreJob(
   // Adaptive threshold based on description length:
   // Short descriptions can't physically contain many keywords — don't penalise them for it.
   const wordCount = job.description.trim().split(/\s+/).length;
-  const threshold = wordCount < 120 ? 55 : wordCount < 350 ? 60 : 65;
+  const threshold = wordCount < 120 ? 55 : wordCount < 350 ? 57 : 65;
 
   if (score < threshold) {
     return null;
