@@ -181,6 +181,7 @@ export interface ScorerDiagnostic {
     roleExcl: number;
     location: number;
     exp: number;
+    salary: number;
     mandatory: number;
     score: number;
   };

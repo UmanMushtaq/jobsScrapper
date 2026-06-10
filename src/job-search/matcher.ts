@@ -23,7 +23,7 @@ const BASE_REQUIRED_WEIGHTS = [
     reason: 'TypeScript/JavaScript matches your backend stack',
   },
   {
-    matched: (text: string) => containsAny(text, ['backend', 'back-end', 'api', 'rest', 'server-side', 'microservice']),
+    matched: (text: string) => containsAny(text, ['backend', 'back-end', 'api', 'rest', 'server-side', 'microservice', 'server']),
     weight: 18,
     reason: 'The role is centered on backend and API work',
   },
@@ -185,7 +185,7 @@ export function scoreJob(
   // Adaptive threshold based on description length:
   // Short descriptions can't physically contain many keywords — don't penalise them for it.
   const wordCount = job.description.trim().split(/\s+/).length;
-  const threshold = wordCount < 120 ? 55 : wordCount < 350 ? 57 : 65;
+  const threshold = wordCount < 120 ? 55 : wordCount < 350 ? 57 : 60;
 
   if (score < threshold) {
     return null;
@@ -351,7 +351,7 @@ function buildStartupSignals(job: JobPosting, text: string): string[] {
   return Array.from(signals);
 }
 
-function salaryMeetsMinimum(job: JobPosting, profile: SearchProfile): boolean {
+export function salaryMeetsMinimum(job: JobPosting, profile: SearchProfile): boolean {
   const monthlyEur = toMonthlyEur(job);
   if (monthlyEur === null) {
     return true;

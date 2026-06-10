@@ -726,6 +726,7 @@ function renderDiagnosticHtml(d: ScorerDiagnostic): string {
       ${row('Role excluded (frontend / AI / DevOps / etc)', d.filtered.roleExcl)}
       ${row('Location rejected', d.filtered.location, (d.locationBreak.euOnsite || d.locationBreak.euHybrid) ? `EU on-site: ${d.locationBreak.euOnsite} | EU hybrid: ${d.locationBreak.euHybrid} | USA remote: ${d.locationBreak.usaRemote} | other: ${d.locationBreak.other}` : undefined)}
       ${row('Experience out of range', d.filtered.exp)}
+      ${row('Salary below minimum (€3,300/mo)', d.filtered.salary ?? 0)}
       ${row('Missing mandatory keywords (Node.js / TS / backend)', d.filtered.mandatory)}
       ${row('Score below threshold', d.filtered.score)}
       ${d.geminiRejected > 0 ? row('Gemini relevance < 55', d.geminiRejected) : ''}

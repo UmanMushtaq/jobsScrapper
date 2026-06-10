@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { enrichMatch } from './ai-enrichment';
 import { scoreLocation } from './sources/location-filter';
 import { checkFollowups } from './followup';
-import { scoreJob } from './matcher';
+import { salaryMeetsMinimum, scoreJob } from './matcher';
 import { buildPreferenceContext, buildPreferenceModel } from './preference';
 import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
@@ -231,7 +231,7 @@ export async function runJobSearchOnce(
     const desiredLang = (profile.search.language ?? 'en').toLowerCase();
     const expMin = profile.search.experience.min;
     const expMax = profile.search.experience.max;
-    const diagCounts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, mandatory: 0, score: 0 };
+    const diagCounts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, salary: 0, mandatory: 0, score: 0 };
     const diagLocBreak = { usaRemote: 0, euOnsite: 0, euHybrid: 0, other: 0 };
     const mandBreak = { nodeOnly: 0, tsOnly: 0, backendOnly: 0, none: 0 };
     const nearMisses: Array<{ title: string; company: string; source: string; mandatory: number }> = [];
@@ -262,9 +262,11 @@ export async function runJobSearchOnce(
       const exp = job.experienceLevelMinimum;
       if (exp !== null && exp !== undefined && (exp < expMin || exp > expMax)) { diagCounts.exp++; continue; }
 
+      if (!salaryMeetsMinimum(job, profile)) { diagCounts.salary++; continue; }
+
       const hasNode = ['node.js','nodejs','nestjs','nest.js','express.js'].some((t) => txt.includes(t));
       const hasTs = txt.includes('typescript') || txt.includes('javascript');
-      const hasBackend = ['backend','back-end','api','rest','server-side','microservice'].some((t) => txt.includes(t));
+      const hasBackend = ['backend','back-end','api','rest','server-side','microservice','server'].some((t) => txt.includes(t));
       const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
       if (mandatory < 42) {
         diagCounts.mandatory++;
@@ -283,8 +285,8 @@ export async function runJobSearchOnce(
       console.log(`[scorer-diag] ${freshJobs.length} fresh jobs → 0 matched. Breakdown:`);
       console.log(`  lang=${diagCounts.lang} | titleExcl=${diagCounts.title} | roleExcl=${diagCounts.role}`);
       console.log(`  location=${diagCounts.location} (usa-remote=${diagLocBreak.usaRemote} eu-onsite=${diagLocBreak.euOnsite} eu-hybrid=${diagLocBreak.euHybrid} other=${diagLocBreak.other})`);
-      console.log(`  exp=${diagCounts.exp} | mandatory=${diagCounts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
-      console.log(`  score<threshold=${diagCounts.score} (adaptive: <120w→55, 120-350w→60, >350w→65)`);
+      console.log(`  exp=${diagCounts.exp} | salary<min=${diagCounts.salary} | mandatory=${diagCounts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
+      console.log(`  score<threshold=${diagCounts.score} (adaptive: <120w→55, 120-350w→57, >350w→60)`);
 
       if (nearMisses.length > 0) {
         console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed mandatory but scored <threshold — top 5:`);
@@ -368,6 +370,7 @@ export async function runJobSearchOnce(
         roleExcl: diagCounts.role,
         location: diagCounts.location,
         exp: diagCounts.exp,
+        salary: diagCounts.salary,
         mandatory: diagCounts.mandatory,
         score: diagCounts.score,
       },
