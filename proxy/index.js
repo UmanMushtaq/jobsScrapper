@@ -18,8 +18,6 @@ const http = require('http');
 const SECRET = process.env.JOB_PROXY_SECRET;
 const PORT = process.env.PORT ?? 9876;
 
-const ALLOWED_HOSTS = ['www.apec.fr', 'remoteok.com'];
-
 if (!SECRET) {
   console.error('ERROR: JOB_PROXY_SECRET env var is required.');
   process.exit(1);
@@ -52,18 +50,11 @@ const server = http.createServer(async (req, res) => {
 
   const { url, options } = payload;
 
-  let parsedHost;
   try {
-    parsedHost = new URL(url).hostname;
+    new URL(url);
   } catch {
     res.writeHead(400, { 'Content-Type': 'text/plain' });
     res.end('Invalid URL');
-    return;
-  }
-
-  if (!ALLOWED_HOSTS.includes(parsedHost)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' });
-    res.end(`Host not allowed: ${parsedHost}`);
     return;
   }
 
@@ -86,6 +77,6 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Job proxy listening on http://localhost:${PORT}`);
-  console.log(`Allowed hosts: ${ALLOWED_HOSTS.join(', ')}`);
+  console.log('Secret auth active. All HTTPS targets accepted.');
   console.log('Waiting for tunnel URL from cloudflared...');
 });
