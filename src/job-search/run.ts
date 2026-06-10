@@ -53,7 +53,8 @@ const ACTIVE_SOURCES = [
   'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
   'berlinstartupjobs.com', 'bundesagentur.de', 'startup.jobs',
   'indeed.com', 'news.ycombinator.com',
-  'europeremotely.com', 'nodesk.co',
+  'europeremotely.com',
+  // nodesk.co: RSS feeds permanently gone (all URL patterns return 404 as of June 2026)
 ];
 // linkedin.com has no public API — requires a paid partner integration
 const BLOCKED_SOURCES = ['linkedin.com'];

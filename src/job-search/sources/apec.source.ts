@@ -55,12 +55,12 @@ export class ApecJobsSource implements JobSource {
   async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
 
-    // Preflight GET to obtain session cookies — APEC's API returns 403 without them.
-    const sessionCookie = await fetchSessionCookie();
+    // Preflight GET to obtain session cookies + XSRF token — APEC's Angular API requires both.
+    const session = await fetchSession();
 
     for (const query of queries) {
       try {
-        const results = await fetchOffers(query, settings.maxAgeHours, sessionCookie);
+        const results = await fetchOffers(query, settings.maxAgeHours, session);
         for (const offer of results) {
           const job = mapOffer(offer);
           if (job) jobs.set(job.canonicalUrl, job);
@@ -78,7 +78,9 @@ export class ApecJobsSource implements JobSource {
   }
 }
 
-async function fetchSessionCookie(): Promise<string> {
+interface ApecSession { cookie: string; xsrfToken: string; }
+
+async function fetchSession(): Promise<ApecSession> {
   try {
     const res = await proxyFetch(PREFLIGHT_URL, {
       headers: {
@@ -87,17 +89,26 @@ async function fetchSessionCookie(): Promise<string> {
         'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
       },
     });
-    // Proxy forwards upstream Set-Cookie via x-set-cookie to avoid browser cookie handling.
-    // Parse "name=value; Path=/" → "name=value" and join multiple cookies with "; ".
+    // Proxy forwards upstream Set-Cookie via x-set-cookie to avoid browser cookie semantics.
     const raw = res.headers.get('x-set-cookie') ?? '';
-    if (!raw) return '';
-    return raw.split(',').map((c) => c.split(';')[0].trim()).filter(Boolean).join('; ');
-  } catch {
-    return '';
+    if (!raw) {
+      console.warn('[apec] preflight: no cookies received');
+      return { cookie: '', xsrfToken: '' };
+    }
+    const pairs = raw.split(',').map((c) => c.split(';')[0].trim()).filter(Boolean);
+    const cookieStr = pairs.join('; ');
+    // Angular XSRF: server sets XSRF-TOKEN cookie; client must echo it as X-XSRF-TOKEN header.
+    const xsrfPair = pairs.find((p) => /^xsrf-token=/i.test(p));
+    const xsrfToken = xsrfPair ? xsrfPair.split('=').slice(1).join('=') : '';
+    console.log(`[apec] preflight: ${pairs.length} cookie(s) — xsrf=${xsrfToken ? 'present' : 'missing'}`);
+    return { cookie: cookieStr, xsrfToken };
+  } catch (err) {
+    console.warn(`[apec] preflight failed: ${err instanceof Error ? err.message : String(err)}`);
+    return { cookie: '', xsrfToken: '' };
   }
 }
 
-async function fetchOffers(query: string, maxAgeHours: number, sessionCookie: string): Promise<ApecOffer[]> {
+async function fetchOffers(query: string, maxAgeHours: number, session: ApecSession): Promise<ApecOffer[]> {
   const dateMin = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const body = {
@@ -116,7 +127,8 @@ async function fetchOffers(query: string, maxAgeHours: number, sessionCookie: st
     'Origin': 'https://www.apec.fr',
     'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
   };
-  if (sessionCookie) headers['Cookie'] = sessionCookie;
+  if (session.cookie) headers['Cookie'] = session.cookie;
+  if (session.xsrfToken) headers['X-XSRF-TOKEN'] = session.xsrfToken;
 
   const res = await proxyFetch(API_URL, {
     method: 'POST',
@@ -126,7 +138,7 @@ async function fetchOffers(query: string, maxAgeHours: number, sessionCookie: st
 
   if (res.status === 204) return [];
   if (res.status === 403 || res.status === 429 || res.status === 502 || res.status === 530) {
-    if (res.status === 403) console.warn(`[apec] 403 — session cookie: ${sessionCookie ? 'present' : 'missing'}`);
+    if (res.status === 403) console.warn(`[apec] 403 — cookie=${session.cookie ? 'present' : 'missing'} xsrf=${session.xsrfToken ? 'present' : 'missing'}`);
     return [];
   }
   if (!res.ok) {

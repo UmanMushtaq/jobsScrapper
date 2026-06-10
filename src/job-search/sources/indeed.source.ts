@@ -23,18 +23,16 @@ export class IndeedJobsSource implements JobSource {
 
     // France searches use fr.indeed.com — www.indeed.com (US) returns 404 for French job markets.
     // Europe-wide remote searches stay on www.indeed.com with a location parameter.
-    const searches: Array<{ q: string; baseUrl: string; l?: string; countryCode: string | null }> = [
-      { q: 'nodejs backend engineer', baseUrl: 'https://fr.indeed.com/rss', countryCode: 'FR' },
-      { q: 'typescript backend engineer', baseUrl: 'https://fr.indeed.com/rss', countryCode: 'FR' },
-      { q: 'nestjs developer', baseUrl: 'https://fr.indeed.com/rss', countryCode: 'FR' },
-      { q: 'nodejs backend remote', baseUrl: 'https://www.indeed.com/rss', l: 'Europe', countryCode: null },
+    const searches: Array<{ q: string; baseUrl: string; l: string; label: string; countryCode: string | null }> = [
+      { q: 'nodejs backend engineer', baseUrl: 'https://fr.indeed.com/rss', l: 'France', label: 'FR', countryCode: 'FR' },
+      { q: 'typescript backend engineer', baseUrl: 'https://fr.indeed.com/rss', l: 'France', label: 'FR', countryCode: 'FR' },
+      { q: 'nestjs developer', baseUrl: 'https://fr.indeed.com/rss', l: 'France', label: 'FR', countryCode: 'FR' },
+      { q: 'nodejs backend remote', baseUrl: 'https://www.indeed.com/rss', l: 'Europe', label: 'EU', countryCode: null },
     ];
 
     for (const search of searches) {
       try {
-        const paramObj: Record<string, string> = { q: search.q, sort: 'date', fromage };
-        if (search.l) paramObj['l'] = search.l;
-        const params = new URLSearchParams(paramObj);
+        const params = new URLSearchParams({ q: search.q, l: search.l, sort: 'date', fromage });
         const response = await proxyFetch(`${search.baseUrl}?${params}`, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -46,7 +44,7 @@ export class IndeedJobsSource implements JobSource {
         });
 
         if (!response.ok) {
-          console.warn(`[indeed] ${search.q}/${search.l}: HTTP ${response.status}`);
+          console.warn(`[indeed] ${search.q}/${search.label}: HTTP ${response.status}`);
           continue;
         }
 
@@ -58,7 +56,7 @@ export class IndeedJobsSource implements JobSource {
         }
         await sleep(1200);
       } catch (err) {
-        console.error(`[indeed] ${search.q}/${search.l}:`, err instanceof Error ? err.message : String(err));
+        console.error(`[indeed] ${search.q}/${search.label}:`, err instanceof Error ? err.message : String(err));
       }
     }
 
