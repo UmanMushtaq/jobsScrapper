@@ -71,22 +71,25 @@ export function scoreLocation(
     };
   }
 
-  // Europe acceptance
+  // Europe acceptance — non-preferred EU countries (ES, IT, PL, GB, etc.).
+  // For preferred countries (FR, DE, NL…) the early-return above already handled it.
+  // Here we only accept if the company explicitly offers relocation/visa support;
+  // `willingToRelocate` alone is not enough because the candidate would bear all costs.
   if (profile.europeCountryCodes.includes(countryCode)) {
     if (workMode === 'on-site') {
-      if (offersRelocation || profile.willingToRelocate) {
+      if (offersRelocation) {
         return {
           isAcceptable: true,
-          score: offersRelocation ? 70 : 60,
+          score: 70,
           priority: 'acceptable',
-          reason: `Europe on-site (${countryCode})${offersRelocation ? ' with relocation support' : ', candidate willing to relocate'}`,
+          reason: `Europe on-site (${countryCode}) with relocation support`,
         };
       }
       return {
         isAcceptable: false,
         score: 0,
         priority: 'rejected',
-        reason: `Europe on-site (${countryCode}) - no relocation offered`,
+        reason: `Europe on-site (${countryCode}) — not in preferred countries and no relocation offered`,
       };
     }
 
@@ -96,22 +99,22 @@ export function scoreLocation(
           isAcceptable: false,
           score: 0,
           priority: 'rejected',
-          reason: 'UK hybrid - not viable from Paris (remote or full relocation only)',
+          reason: 'UK hybrid — not viable from Paris (remote or full relocation only)',
         };
       }
-      if (offersRelocation || profile.willingToRelocate) {
+      if (offersRelocation) {
         return {
           isAcceptable: true,
-          score: offersRelocation ? 80 : 70,
+          score: 80,
           priority: 'acceptable',
-          reason: `Europe hybrid (${countryCode})${offersRelocation ? ' with relocation support' : ', candidate willing to relocate'}`,
+          reason: `Europe hybrid (${countryCode}) with relocation support`,
         };
       }
       return {
         isAcceptable: false,
         score: 0,
         priority: 'rejected',
-        reason: `Europe hybrid (${countryCode}) - no relocation offered`,
+        reason: `Europe hybrid (${countryCode}) — not in preferred countries and no relocation offered`,
       };
     }
   }

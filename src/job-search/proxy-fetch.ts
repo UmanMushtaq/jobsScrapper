@@ -7,15 +7,21 @@ export async function proxyFetch(url: string, options?: RequestInit): Promise<Re
 
   if (proxyUrl && proxySecret) {
     const host = (() => { try { return new URL(url).hostname; } catch { return url; } })();
+
+    // AbortSignal is not JSON-serializable — strip it from the forwarded options.
+    // It controls the Render→proxy request only (applied to the outer fetch below).
+    const { signal, ...forwardedOptions } = (options ?? {}) as RequestInit & { signal?: AbortSignal };
+
     let res: Response;
     try {
       res = await fetch(proxyUrl, {
         method: 'POST',
+        signal,  // timeout/abort applies to the Render→proxy tunnel hop
         headers: {
           'Content-Type': 'application/json',
           'X-Proxy-Secret': proxySecret,
         },
-        body: JSON.stringify({ url, options }),
+        body: JSON.stringify({ url, options: forwardedOptions }),
       });
     } catch (err) {
       // Network failure — proxy tunnel is offline or DNS not resolving
