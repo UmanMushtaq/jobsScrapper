@@ -8,6 +8,45 @@
  *
  * Returns 'en', 'fr', or 'de'.
  */
+
+const ENGLISH_TEAM_SIGNALS = [
+  // Direct "english required/spoken" patterns
+  'english required', 'english is required', 'english mandatory',
+  'fluent english', 'fluent in english', 'english fluency',
+  'english proficiency', 'proficient in english',
+  'english speaker', 'english-speaking', 'english speaking',
+  'native english', 'business english',
+  // Working language signals
+  'working language.*english', 'language.*english', 'english.*working language',
+  'company language.*english', 'team language.*english',
+  'we work in english', 'work in english', 'communication in english',
+  'all.*english', 'english.*team',
+  // French signals (équipe anglophone, langue de travail anglais)
+  'équipe anglophone', 'environnement anglophone', 'milieu anglophone',
+  'langue.*anglais', 'anglais.*courant', 'anglais.*requis',
+  'maîtrise.*anglais', 'parler anglais', 'anglais.*obligatoire',
+  'anglais.*indispensable', 'très bon niveau.*anglais',
+  // Dutch/Flemish signals
+  'engelstalig', 'voertaal.*engels', 'engels.*vereist',
+  'werkvoertaal.*engels', 'goede.*engels', 'vlotte.*engels',
+  // German signals
+  'englischkenntnisse', 'englisch.*voraussetzung', 'arbeitssprache.*englisch',
+  'fließend.*englisch', 'sehr gute.*englischkenntnisse',
+  // Implicit international team signals (language-neutral)
+  'international team', 'international environment', 'international company',
+  'multicultural', 'multi-cultural', 'multinational',
+  'diverse team', 'global team', 'remote-first', 'fully remote',
+  'équipe internationale', 'environnement international', 'entreprise internationale',
+  'internationales team', 'internationales umfeld',
+  'international.*nationalities', 'nationalities.*international',
+  'team.*countries', 'countries.*team',
+];
+
+export function hasEnglishTeamSignals(txt: string): boolean {
+  return ENGLISH_TEAM_SIGNALS.some((s) => {
+    try { return new RegExp(s, 'i').test(txt); } catch { return txt.includes(s); }
+  });
+}
 export function detectLanguage(raw: string): string {
   const text = raw.toLowerCase();
   const words = text.split(/\s+/).filter(Boolean).length || 1;

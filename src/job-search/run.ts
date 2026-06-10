@@ -35,7 +35,7 @@ import {
   removeUrlsFromStore,
   writeJsonFile,
 } from './storage';
-import { detectLanguage } from './sources/language-detect';
+import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
 import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisLog, redisStoreJobHistory } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
@@ -228,7 +228,7 @@ export async function runJobSearchOnce(
 
     // Always compute diagnostic counters so they can be persisted to state and
     // surfaced via /health regardless of whether any matches were found.
-    const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','site reliability','sre engineer','sre','infrastructure engineer','platform engineer','cloud engineer'];
+    const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','site reliability','sre engineer','sre','infrastructure engineer','platform engineer','cloud engineer','mcp engineer','ai backend','ai infrastructure','mlops','ml ops','generative ai','genai engineer','solutions engineer','solution engineer','sales engineer','pre-sales','presales','solutions architect','solutions consultant','implementation engineer','implementation consultant','customer success','success engineer','support engineer','technical support','developer advocate','developer relations','devrel','technical account manager','technical advisor','field engineer','evangelist','sales development','account executive'];
     const desiredLang = (profile.search.language ?? 'en').toLowerCase();
     const expMin = profile.search.experience.min;
     const expMax = profile.search.experience.max;
@@ -738,48 +738,6 @@ async function buildTelegramPayload(
   return messages;
 }
 
-/**
- * Returns true when a non-English job description explicitly signals that
- * the team works in English. Used to pass through French/Dutch/German posts
- * that are still valid for an English-speaking candidate.
- */
-function hasEnglishTeamSignals(txt: string): boolean {
-  const signals = [
-    // Direct "english required/spoken" patterns
-    'english required', 'english is required', 'english mandatory',
-    'fluent english', 'fluent in english', 'english fluency',
-    'english proficiency', 'proficient in english',
-    'english speaker', 'english-speaking', 'english speaking',
-    'native english', 'business english',
-    // Working language signals
-    'working language.*english', 'language.*english', 'english.*working language',
-    'company language.*english', 'team language.*english',
-    'we work in english', 'work in english', 'communication in english',
-    'all.*english', 'english.*team',
-    // French signals (équipe anglophone, langue de travail anglais)
-    'équipe anglophone', 'environnement anglophone', 'milieu anglophone',
-    'langue.*anglais', 'anglais.*courant', 'anglais.*requis',
-    'maîtrise.*anglais', 'parler anglais', 'anglais.*obligatoire',
-    'anglais.*indispensable', 'très bon niveau.*anglais',
-    // Dutch/Flemish signals
-    'engelstalig', 'voertaal.*engels', 'engels.*vereist',
-    'werkvoertaal.*engels', 'goede.*engels', 'vlotte.*engels',
-    // German signals
-    'englischkenntnisse', 'englisch.*voraussetzung', 'arbeitssprache.*englisch',
-    'fließend.*englisch', 'sehr gute.*englischkenntnisse',
-    // Implicit international team signals (language-neutral)
-    'international team', 'international environment', 'international company',
-    'multicultural', 'multi-cultural', 'multinational',
-    'diverse team', 'global team', 'remote-first', 'fully remote',
-    'équipe internationale', 'environnement international', 'entreprise internationale',
-    'internationales team', 'internationales umfeld',
-    'international.*nationalities', 'nationalities.*international',
-    'team.*countries', 'countries.*team',
-  ];
-  return signals.some((s) => {
-    try { return new RegExp(s, 'i').test(txt); } catch { return txt.includes(s); }
-  });
-}
 
 function sortMatches(left: MatchResult, right: MatchResult): number {
   return (

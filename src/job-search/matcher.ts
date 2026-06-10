@@ -1,6 +1,6 @@
 import { PreferenceModel, scorePreference } from './preference';
 import { resolveWorkAuth } from './profile';
-import { detectLanguage } from './sources/language-detect';
+import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
 
@@ -227,14 +227,21 @@ export function scoreJob(
 function isLanguageFit(job: JobPosting, profile: SearchProfile, text: string): boolean {
   const desiredLanguage = profile.search.language.toLowerCase();
   const detectedLanguage = job.language ? job.language.toLowerCase() : detectLanguage(text);
-  if (detectedLanguage !== desiredLanguage) return false;
+  const isPreferredCountry = profile.search.preferredCountries?.includes(job.countryCode ?? '');
 
-  // Some sources (WTTJ) mark bilingual jobs as 'en' even when the title is in another language.
-  // If the job title contains accented characters strongly associated with French/German,
-  // run a second language check on the title alone and reject if it doesn't match.
+  if (detectedLanguage !== desiredLanguage) {
+    // Allow non-English jobs that explicitly signal an English-speaking team
+    if (hasEnglishTeamSignals(text)) return true;
+    // Allow jobs from preferred countries — candidate lives there and can work in local language
+    if (isPreferredCountry) return true;
+    return false;
+  }
+
+  // Language matches desired — secondary title check catches WTTJ-style jobs that are labelled
+  // 'en' but have a French/German title (accented characters are a strong non-English signal).
   if (/[àâéèêëîïôùûüçœæäöüß]/i.test(job.title)) {
     const titleLanguage = detectLanguage(job.title);
-    if (titleLanguage !== desiredLanguage) return false;
+    if (titleLanguage !== desiredLanguage && !isPreferredCountry) return false;
   }
 
   return true;
