@@ -194,7 +194,7 @@ export interface ScorerDiagnostic {
 export interface JobSearchState {
   lastRunAt: string | null;
   lastSuccessAt: string | null;
-  lastRunStatus: 'idle' | 'running' | 'success' | 'error';
+  lastRunStatus: 'idle' | 'running' | 'success' | 'error' | 'gemini_waiting';
   lastError: string | null;
   latestMatches: MatchResult[];
   reportPath: string | null;
@@ -209,4 +209,6 @@ export interface JobSearchState {
   seenTtlHours: number;
   nextRunAt: string | null;
   lastRunDiagnostic?: ScorerDiagnostic | null;
+  // Non-null while the run is paused waiting for Gemini to recover from 503 high-demand.
+  geminiRetry?: { count: number; max: number; nextAt: string } | null;
 }

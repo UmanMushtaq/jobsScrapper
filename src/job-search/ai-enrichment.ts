@@ -20,6 +20,11 @@ const _quotaExhaustedKeyIndices = new Set<number>();
 // calendar day on which we went down and resume as soon as that day rolls over.
 let _allKeysDown = false;
 let _allKeysDownPacificDay: string | null = null;
+// Set to true when Gemini returns HTTP 503 "high demand" — different from quota exhaustion.
+// run.ts checks this flag after each enrichment pass and retries after a 5-minute wait.
+let _isCurrentlyOverloaded = false;
+export function isGeminiOverloaded(): boolean { return _isCurrentlyOverloaded; }
+export function clearGeminiOverloadFlag(): void { _isCurrentlyOverloaded = false; }
 // Successful Gemini calls today (Pacific day). Resets on day rollover.
 let _dailyCallCount = 0;
 let _dailyCallPacificDay = '';
@@ -76,6 +81,14 @@ function isInvalidKeyError(err: unknown): boolean {
     msg.includes('api key not valid') ||
     (msg.includes('401') && !msg.includes('rate'))
   );
+}
+
+// Google returns 503 when a model is temporarily overloaded with traffic.
+// Unlike quota exhaustion (429), rotating keys won't help — the whole model is busy.
+// The right response is to pause and retry in a few minutes.
+function is503OverloadError(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : err);
+  return msg.includes('"code":503') || (msg.includes('503') && msg.toLowerCase().includes('demand'));
 }
 
 // Temporary rate limit (per-minute) — rotating to another key may help.
@@ -159,6 +172,11 @@ async function callWithRotation<T>(
             console.warn(`[gemini] ${label}: key ${idx + 1}/${keys.length} model=${model} ${msg.slice(0, 100)} trying next`);
           }
           // Do NOT mutate _currentKeyIndex here — startIdx is fixed for this pass.
+        } else if (is503OverloadError(err)) {
+          // Model-level overload — no point trying other keys for this model
+          _isCurrentlyOverloaded = true;
+          console.warn(`[gemini] ${label}: model=${model} 503 high demand — retry scheduled`);
+          break;
         } else {
           console.error(`[gemini] ${label}: model=${model} non-retryable error ${msg.slice(0, 150)}`);
           break;
@@ -175,6 +193,8 @@ async function callWithRotation<T>(
     _allKeysDown = true;
     _allKeysDownPacificDay = pacificDay();
     console.error('[gemini] all keys quota-exhausted — skipping Gemini until next Pacific-day quota reset');
+  } else if (_isCurrentlyOverloaded) {
+    // Already logged per-model above — run.ts will retry after a 5-minute wait.
   } else {
     console.error(`[gemini] ${label}: all keys/models failed — sending job without AI enrichment`);
   }

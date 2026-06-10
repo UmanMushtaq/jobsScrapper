@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { enrichMatch } from './ai-enrichment';
+import { AiEnrichment, enrichMatch, clearGeminiOverloadFlag, isGeminiOverloaded } from './ai-enrichment';
 import { scoreLocation } from './sources/location-filter';
 import { checkFollowups } from './followup';
 import { salaryMeetsMinimum, scoreJob } from './matcher';
@@ -312,10 +312,65 @@ export async function runJobSearchOnce(
     const alreadySentCount = slicedMatches.length - unseenRaw.length;
     console.log(`[notify] ${slicedMatches.length} scored → ${unseenRaw.length} not yet sent (${alreadySentCount} already sent before)`);
 
+    // ── AI enrichment with Gemini-overload (503) retry ───────────────────────
+    // When Gemini returns 503 "high demand", we pause up to 1 hour and retry
+    // every 5 minutes rather than immediately sending jobs without enrichment.
+    // Other failures (quota exhausted, 404 model not found) fall through normally.
+    const MAX_GEMINI_OVERLOAD_RETRIES = 12;  // 12 × 5 min = 1 hour
+    const GEMINI_OVERLOAD_RETRY_MS = 5 * 60 * 1000;
+
+    type EnrichEntry = { match: MatchResult; ai: AiEnrichment | null; overloaded: boolean };
+
+    const runEnrichPass = async (jobs: MatchResult[]): Promise<EnrichEntry[]> => {
+      clearGeminiOverloadFlag();
+      const out: EnrichEntry[] = [];
+      for (const match of jobs) {
+        const ai = await enrichMatch(match, profile, prefContext);
+        out.push({ match, ai, overloaded: ai === null && isGeminiOverloaded() });
+      }
+      return out;
+    };
+
+    let enrichPassResults = await runEnrichPass(unseenRaw);
+    let pendingOverload = enrichPassResults.filter((r) => r.overloaded).map((r) => r.match);
+    const enrichSettled: EnrichEntry[] = enrichPassResults.filter((r) => !r.overloaded);
+    let geminiOverloadGaveUp = false;
+
+    if (pendingOverload.length > 0) {
+      const _tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      const _tgChat = process.env.TELEGRAM_CHAT_ID;
+      if (_tgToken && _tgChat) {
+        await sendTelegramMessages(_tgToken, _tgChat, [{
+          text: `⚠️ Gemini is experiencing high demand right now.\n${pendingOverload.length} job(s) are waiting for AI enrichment.\nRetrying every 5 minutes (up to ${MAX_GEMINI_OVERLOAD_RETRIES} attempts = 1 hour).`,
+        }]);
+      }
+      await redisLog('warn', 'gemini', `503 overloaded — ${pendingOverload.length} job(s) pending enrichment, retrying every 5 min`);
+
+      for (let retry = 1; pendingOverload.length > 0 && retry <= MAX_GEMINI_OVERLOAD_RETRIES; retry++) {
+        const nextAt = new Date(Date.now() + GEMINI_OVERLOAD_RETRY_MS).toISOString();
+        await updateState(stateFile, (current) => ({
+          ...current,
+          lastRunStatus: 'gemini_waiting',
+          geminiRetry: { count: retry, max: MAX_GEMINI_OVERLOAD_RETRIES, nextAt },
+        }), profile);
+        await redisLog('warn', 'gemini', `Overload retry ${retry}/${MAX_GEMINI_OVERLOAD_RETRIES} — next attempt at ${nextAt.slice(11, 16)} UTC`);
+        await new Promise<void>((resolve) => setTimeout(resolve, GEMINI_OVERLOAD_RETRY_MS));
+
+        const retryResults = await runEnrichPass(pendingOverload);
+        enrichSettled.push(...retryResults.filter((r) => !r.overloaded));
+        pendingOverload = retryResults.filter((r) => r.overloaded).map((r) => r.match);
+      }
+
+      if (pendingOverload.length > 0) {
+        geminiOverloadGaveUp = true;
+        enrichSettled.push(...pendingOverload.map((match) => ({ match, ai: null, overloaded: false })));
+        await redisLog('warn', 'gemini', `Gemini still overloaded after ${MAX_GEMINI_OVERLOAD_RETRIES} retries (1 hour) — sending ${pendingOverload.length} job(s) without enrichment`);
+      }
+    }
+
     const newMatches: MatchResult[] = [];
     const rejectedByAi: MatchResult[] = [];
-    for (const match of unseenRaw) {
-      const ai = await enrichMatch(match, profile, prefContext);
+    for (const { match, ai } of enrichSettled) {
       if (ai && ai.relevanceScore < 55) {
         console.log(`[notify] LOW RELEVANCE (${ai.relevanceScore}/100) — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]${ai.relevanceIssues.length ? ` — ${ai.relevanceIssues[0]}` : ''}`);
         rejectedByAi.push(match);
@@ -396,7 +451,14 @@ export async function runJobSearchOnce(
       console.log(`[notify] URL check: all ${newMatches.length} URL(s) alive → sending to Telegram`);
       await redisLog('info', 'url-check', `all ${newMatches.length} URL(s) alive`);
     }
-    const messages = await buildTelegramPayload(liveNewMatches, reportLocation, profile);
+    const messages = await buildTelegramPayload(
+      liveNewMatches,
+      reportLocation,
+      profile,
+      geminiOverloadGaveUp
+        ? `AI enrichment skipped — Gemini was overloaded for the full 1-hour retry window (${MAX_GEMINI_OVERLOAD_RETRIES} attempts). Scores and cover letters below are template-only.`
+        : undefined,
+    );
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -441,6 +503,7 @@ export async function runJobSearchOnce(
         lastSuccessAt: summary.ranAt,
         lastRunStatus: 'success',
         lastError: null,
+        geminiRetry: null,
         // Strip large fields (description, coverLetter) before persisting to Redis.
         // The dashboard only uses title, company, location, score, reasons and applyUrl.
         // Keeping state small prevents silent Redis write failures that would cause
@@ -551,11 +614,13 @@ async function buildTelegramPayload(
   matches: MatchResult[],
   reportPath: string,
   profile: SearchProfile,
+  overloadNote?: string,
 ): Promise<TelegramOutgoingMessage[]> {
   if (matches.length === 0) {
     return [
       {
         text: [
+          ...(overloadNote ? [`⚠️ ${overloadNote}`, ''] : []),
           `No new strong matches for ${profile.candidate.name} in this run.`,
           `Active sources: ${ACTIVE_SOURCES.join(', ')}`,
           `Blocked sources: ${BLOCKED_SOURCES.join(', ')}`,
@@ -568,6 +633,7 @@ async function buildTelegramPayload(
 
   // Message 1: quick overview of all matches
   const summaryLines = [
+    ...(overloadNote ? [`⚠️ ${overloadNote}`, ''] : []),
     `${matches.length} new match${matches.length > 1 ? 'es' : ''} for ${profile.candidate.name}:`,
     '',
   ];

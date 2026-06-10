@@ -892,7 +892,7 @@ function workModeBadge(mode: string): string {
 }
 
 function statusDot(status: string): string {
-  const colors: Record<string, string> = { success: '#16a34a', error: '#dc2626', running: '#d97706', idle: '#9ca3af' };
+  const colors: Record<string, string> = { success: '#16a34a', error: '#dc2626', running: '#d97706', gemini_waiting: '#7c3aed', idle: '#9ca3af' };
   const color = colors[status] ?? colors['idle'];
   return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle;"></span>`;
 }
@@ -1809,7 +1809,10 @@ function renderHtml(state: JobSearchState): string {
            No current matches. The bot will check again at the next scheduled run.
          </td></tr>`;
 
-  const statusLabel = state.lastRunStatus === 'running' ? 'Running…' : state.lastRunStatus;
+  const statusLabel = state.lastRunStatus === 'running' ? 'Running…'
+    : state.lastRunStatus === 'gemini_waiting'
+      ? `Waiting for Gemini (retry ${state.geminiRetry?.count ?? '?'}/${state.geminiRetry?.max ?? 12})`
+      : state.lastRunStatus;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1894,9 +1897,14 @@ function renderHtml(state: JobSearchState): string {
             <h1>Job Search Bot</h1>
             <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/jobs/answer-questions" style="color:#2563eb;text-decoration:none;">Answer Questions →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a> &nbsp;·&nbsp; <a href="/admin" style="color:#2563eb;text-decoration:none;">Admin →</a></p>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
-            ${statusDot(state.lastRunStatus)}
-            <span style="font-size:13px;font-weight:600;color:#374151;">${escapeHtml(statusLabel)}</span>
+          <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              ${statusDot(state.lastRunStatus)}
+              <span style="font-size:13px;font-weight:600;color:#374151;">${escapeHtml(statusLabel)}</span>
+            </div>
+            ${state.lastRunStatus === 'gemini_waiting' && state.geminiRetry
+              ? `<span style="font-size:11px;color:#7c3aed;">Next retry: ${state.geminiRetry.nextAt.slice(11, 16)} UTC &nbsp;·&nbsp; will try up to ${state.geminiRetry.max} times</span>`
+              : ''}
           </div>
         </div>
 
