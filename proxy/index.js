@@ -50,6 +50,9 @@ const server = http.createServer(async (req, res) => {
 
   const { url, options } = payload;
 
+  // AbortSignal can't cross process boundaries — strip it if Render accidentally serialised it.
+  const { signal: _sig, ...safeOptions } = options ?? {};
+
   try {
     new URL(url);
   } catch {
@@ -59,7 +62,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    const upstream = await fetch(url, options ?? {});
+    const upstream = await fetch(url, safeOptions);
     const body = await upstream.text();
 
     res.writeHead(upstream.status, {
