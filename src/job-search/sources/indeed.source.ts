@@ -4,6 +4,7 @@ import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 
 const SOURCE = 'indeed.com';
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 interface RssItem {
   title: string;
@@ -22,23 +23,29 @@ export class IndeedJobsSource implements JobSource {
     const fromage = String(Math.ceil(settings.maxAgeHours / 24) + 1);
 
     // All searches use www.indeed.com/rss — fr.indeed.com does not have an /rss endpoint (404).
-    // France searches use "Paris, France" as location (more reliable than just "France").
+    // France searches use "Paris, France" as location.
     const searches: Array<{ q: string; l: string; label: string; countryCode: string | null }> = [
-      { q: 'nodejs typescript backend', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
-      { q: 'nestjs backend developer', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
+      { q: 'nodejs backend engineer', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
+      { q: 'typescript backend developer', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
+      { q: 'nestjs developer', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
       { q: 'nodejs backend remote', l: 'Europe', label: 'EU', countryCode: null },
     ];
+
+    // Preflight: visit the indeed.com homepage to get session cookies (CTK, JSESSIONID, LC).
+    // Including these makes subsequent RSS requests look like a real browser session.
+    const sessionCookie = await fetchSessionCookie();
 
     for (const search of searches) {
       try {
         const params = new URLSearchParams({ q: search.q, l: search.l, sort: 'date', fromage });
         const url = `https://www.indeed.com/rss?${params}`;
-        const headers = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        const headers: Record<string, string> = {
+          'User-Agent': BROWSER_UA,
           'Accept': 'application/rss+xml, application/xml, text/xml, */*',
           'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
           'Referer': 'https://www.indeed.com/',
         };
+        if (sessionCookie) headers['Cookie'] = sessionCookie;
 
         let response = await proxyFetch(url, { headers, signal: AbortSignal.timeout(12_000) });
 
@@ -55,7 +62,14 @@ export class IndeedJobsSource implements JobSource {
         }
 
         const xml = await response.text();
+        // If indeed returns an HTML page (bot challenge) instead of XML, skip silently
+        if (!xml.includes('<item>') && xml.trim().startsWith('<html')) {
+          console.warn(`[indeed] ${search.label}: got HTML instead of RSS (bot challenge)`);
+          continue;
+        }
+
         const items = extractRssItems(xml, cutoff);
+        console.log(`[indeed] ${search.label}: ${items.length} items`);
         for (const item of items) {
           const posting = mapRssItem(item, search.countryCode);
           if (posting) jobs.set(posting.canonicalUrl, posting);
@@ -67,6 +81,43 @@ export class IndeedJobsSource implements JobSource {
     }
 
     return Array.from(jobs.values());
+  }
+}
+
+async function fetchSessionCookie(): Promise<string> {
+  try {
+    const res = await proxyFetch('https://www.indeed.com/', {
+      headers: {
+        'User-Agent': BROWSER_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const raw = res.headers.get('x-set-cookie') ?? '';
+    if (!raw) return '';
+    const pairs = raw
+      .split(',')
+      .map((c) => c.split(';')[0].trim())
+      .filter((p) => {
+        if (!p.includes('=')) return false;
+        const name = p.split('=')[0].trim();
+        return /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(name);
+      });
+    const cookieStr = pairs.join('; ');
+    const names = pairs.map((p) => p.split('=')[0]).join(', ');
+    console.log(`[indeed] session cookies: [${names}]`);
+    return cookieStr;
+  } catch {
+    return '';
   }
 }
 
@@ -87,7 +138,6 @@ function extractRssItems(xml: string, cutoff: number): RssItem[] {
 }
 
 function extractTag(xml: string, tag: string): string {
-  // Handle CDATA and plain text content
   const m = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, 'i'));
   return m?.[1]?.trim() || '';
 }
