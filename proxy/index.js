@@ -93,3 +93,17 @@ server.listen(PORT, () => {
   console.log('Secret auth active. All HTTPS targets accepted.');
   console.log('Waiting for tunnel URL from cloudflared...');
 });
+
+server.on('error', (err) => {
+  const ts = new Date().toLocaleTimeString();
+  console.error(`[${ts}] SERVER ERROR — ${err.message}`);
+  // EADDRINUSE = port 9876 already in use; exit so launchd can restart after the conflict clears
+  if (err.code === 'EADDRINUSE') process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  const ts = new Date().toLocaleTimeString();
+  console.error(`[${ts}] UNCAUGHT EXCEPTION — ${err.message}`);
+  console.error(err.stack);
+  process.exit(1); // exit so launchd KeepAlive restarts the process
+});
