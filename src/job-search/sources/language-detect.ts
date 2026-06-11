@@ -32,12 +32,15 @@ const ENGLISH_TEAM_SIGNALS = [
   // German signals
   'englischkenntnisse', 'englisch.*voraussetzung', 'arbeitssprache.*englisch',
   'fließend.*englisch', 'sehr gute.*englischkenntnisse',
+  'englisch erforderlich', 'englisch ist.*pflicht', 'englisch.*notwendig',
   // Implicit international team signals (language-neutral)
   'international team', 'international environment', 'international company',
   'multicultural', 'multi-cultural', 'multinational',
   'diverse team', 'global team', 'remote-first', 'fully remote',
+  'our team speaks english', 'team speaks english',
   'équipe internationale', 'environnement international', 'entreprise internationale',
-  'internationales team', 'internationales umfeld',
+  'internationales team', 'internationales umfeld', 'internationale umgebung',
+  'internationale kollegen', 'internationales unternehmen',
   'international.*nationalities', 'nationalities.*international',
   'team.*countries', 'countries.*team',
 ];
