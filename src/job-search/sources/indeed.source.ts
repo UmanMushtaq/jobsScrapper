@@ -24,24 +24,30 @@ export class IndeedJobsSource implements JobSource {
     // All searches use www.indeed.com/rss — fr.indeed.com does not have an /rss endpoint (404).
     // France searches use "Paris, France" as location (more reliable than just "France").
     const searches: Array<{ q: string; l: string; label: string; countryCode: string | null }> = [
-      { q: 'nodejs backend engineer', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
-      { q: 'typescript backend engineer', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
-      { q: 'nestjs developer', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
+      { q: 'nodejs typescript backend', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
+      { q: 'nestjs backend developer', l: 'Paris, France', label: 'FR', countryCode: 'FR' },
       { q: 'nodejs backend remote', l: 'Europe', label: 'EU', countryCode: null },
     ];
 
     for (const search of searches) {
       try {
         const params = new URLSearchParams({ q: search.q, l: search.l, sort: 'date', fromage });
-        const response = await proxyFetch(`https://www.indeed.com/rss?${params}`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-            'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-            'Referer': 'https://www.indeed.com/',
-          },
-          signal: AbortSignal.timeout(12_000),
-        });
+        const url = `https://www.indeed.com/rss?${params}`;
+        const headers = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+          'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+          'Referer': 'https://www.indeed.com/',
+        };
+
+        let response = await proxyFetch(url, { headers, signal: AbortSignal.timeout(12_000) });
+
+        // On rate limit, wait and retry once
+        if (response.status === 429) {
+          console.warn(`[indeed] ${search.label} 429 — waiting 20s before retry`);
+          await sleep(20_000);
+          response = await proxyFetch(url, { headers, signal: AbortSignal.timeout(12_000) });
+        }
 
         if (!response.ok) {
           console.warn(`[indeed] ${search.q}/${search.label}: HTTP ${response.status}`);
@@ -54,7 +60,7 @@ export class IndeedJobsSource implements JobSource {
           const posting = mapRssItem(item, search.countryCode);
           if (posting) jobs.set(posting.canonicalUrl, posting);
         }
-        await sleep(1200);
+        await sleep(3000);
       } catch (err) {
         console.error(`[indeed] ${search.q}/${search.label}:`, err instanceof Error ? err.message : String(err));
       }

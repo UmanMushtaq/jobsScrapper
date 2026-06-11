@@ -59,8 +59,11 @@ export class ApecJobsSource implements JobSource {
   async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
 
-    // Try RSS feed first — no auth required, completely bypasses the XSRF issue.
-    const rssJobs = await fetchViaRss(settings.maxAgeHours);
+    // Always fetch session first so DataDome cookie is included in every request.
+    const session = await fetchSession();
+
+    // Try RSS feed with session cookies — DataDome needs the cookie even for RSS.
+    const rssJobs = await fetchViaRss(settings.maxAgeHours, session);
     for (const job of rssJobs) jobs.set(job.canonicalUrl, job);
 
     if (rssJobs.length > 0) {
@@ -69,8 +72,6 @@ export class ApecJobsSource implements JobSource {
     }
 
     // RSS returned nothing — fall back to the API with session cookies.
-    // This still 403s without XSRF but keeps the attempt in case APEC changes behaviour.
-    const session = await fetchSession();
     for (const query of queries) {
       try {
         const results = await fetchOffers(query, settings.maxAgeHours, session);
@@ -94,7 +95,7 @@ export class ApecJobsSource implements JobSource {
 
 const RSS_QUERIES = ['nodejs typescript', 'nestjs', 'node.js backend'];
 
-async function fetchViaRss(maxAgeHours: number): Promise<JobPosting[]> {
+async function fetchViaRss(maxAgeHours: number, session: ApecSession): Promise<JobPosting[]> {
   const jobs = new Map<string, JobPosting>();
   const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
 
@@ -106,17 +107,18 @@ async function fetchViaRss(maxAgeHours: number): Promise<JobPosting[]> {
         flux: 'rss',
       });
       const url = `${RSS_BASE}?${params}`;
-      const res = await proxyFetch(url, {
-        headers: {
-          'User-Agent': BROWSER_UA,
-          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-          'Referer': 'https://www.apec.fr/',
-        },
-      });
+      const headers: Record<string, string> = {
+        'User-Agent': BROWSER_UA,
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        'Referer': 'https://www.apec.fr/',
+      };
+      if (session.cookie) headers['Cookie'] = session.cookie;
+      const res = await proxyFetch(url, { headers });
 
       if (res.status === 403 || res.status === 404 || res.status === 429 || res.status === 530) {
-        console.log(`[apec] RSS ${res.status} for "${q}" — trying API fallback`);
-        return [];
+        console.log(`[apec] RSS ${res.status} for "${q}" — skipping`);
+        continue;
       }
       if (!res.ok) continue;
 
@@ -209,8 +211,16 @@ async function fetchSession(): Promise<ApecSession> {
     const res = await proxyFetch(PREFLIGHT_URL, {
       headers: {
         'User-Agent': BROWSER_UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
       },
     });
     const raw = res.headers.get('x-set-cookie') ?? '';
@@ -218,7 +228,15 @@ async function fetchSession(): Promise<ApecSession> {
       console.warn('[apec] preflight: no cookies received');
       return { cookie: '', xsrfToken: '' };
     }
-    const pairs = raw.split(',').map((c) => c.split(';')[0].trim()).filter(Boolean);
+    // Split by comma but only keep valid name=value pairs (filter out date fragments from Expires= values)
+    const pairs = raw
+      .split(',')
+      .map((c) => c.split(';')[0].trim())
+      .filter((p) => {
+        if (!p.includes('=')) return false;
+        const name = p.split('=')[0].trim();
+        return /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(name);
+      });
     const cookieStr = pairs.join('; ');
     const cookieNames = pairs.map((p) => p.split('=')[0]).join(', ');
     const xsrfPair = pairs.find((p) => /^xsrf-token=/i.test(p));
