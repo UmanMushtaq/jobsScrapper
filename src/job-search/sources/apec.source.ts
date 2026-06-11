@@ -7,9 +7,13 @@ const SOURCE = 'apec.fr';
 
 // APEC — Association Pour l'Emploi des Cadres
 // France's primary professional job board for experienced engineers and managers.
-// Public search endpoint used by their Angular frontend.
+//
+// Auth strategy: their Angular API (/cms/api/v1/offres/recherche) requires a
+// JavaScript-generated XSRF token we can't obtain without a real browser.
+// Fallback: their RSS feed (?flux=rss) is public and requires no auth.
 
 const API_URL = 'https://www.apec.fr/cms/api/v1/offres/recherche';
+const RSS_BASE = 'https://www.apec.fr/candidat/recherche-emploi.html/emploi';
 const PREFLIGHT_URL = 'https://www.apec.fr/candidat/recherche-emploi.html';
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -55,9 +59,18 @@ export class ApecJobsSource implements JobSource {
   async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
 
-    // Preflight GET to obtain session cookies + XSRF token — APEC's Angular API requires both.
-    const session = await fetchSession();
+    // Try RSS feed first — no auth required, completely bypasses the XSRF issue.
+    const rssJobs = await fetchViaRss(settings.maxAgeHours);
+    for (const job of rssJobs) jobs.set(job.canonicalUrl, job);
 
+    if (rssJobs.length > 0) {
+      console.log(`[apec] RSS: ${rssJobs.length} jobs fetched`);
+      return Array.from(jobs.values());
+    }
+
+    // RSS returned nothing — fall back to the API with session cookies.
+    // This still 403s without XSRF but keeps the attempt in case APEC changes behaviour.
+    const session = await fetchSession();
     for (const query of queries) {
       try {
         const results = await fetchOffers(query, settings.maxAgeHours, session);
@@ -67,7 +80,6 @@ export class ApecJobsSource implements JobSource {
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        // Only log non-connectivity errors to avoid noise if endpoint changes
         if (!msg.includes('fetch failed') && !msg.includes('ECONNREFUSED') && !msg.includes('404')) {
           console.error(`[apec] error for "${query}": ${msg}`);
         }
@@ -77,6 +89,118 @@ export class ApecJobsSource implements JobSource {
     return Array.from(jobs.values());
   }
 }
+
+// ── RSS approach (no auth) ────────────────────────────────────────────────────
+
+const RSS_QUERIES = ['nodejs typescript', 'nestjs', 'node.js backend'];
+
+async function fetchViaRss(maxAgeHours: number): Promise<JobPosting[]> {
+  const jobs = new Map<string, JobPosting>();
+  const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+
+  for (const q of RSS_QUERIES) {
+    try {
+      const params = new URLSearchParams({
+        motsCles: q,
+        typeContrat: '102888', // CDI
+        flux: 'rss',
+      });
+      const url = `${RSS_BASE}?${params}`;
+      const res = await proxyFetch(url, {
+        headers: {
+          'User-Agent': BROWSER_UA,
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+          'Referer': 'https://www.apec.fr/',
+        },
+      });
+
+      if (res.status === 403 || res.status === 404 || res.status === 429 || res.status === 530) {
+        console.log(`[apec] RSS ${res.status} for "${q}" — trying API fallback`);
+        return [];
+      }
+      if (!res.ok) continue;
+
+      const xml = await res.text();
+      if (!xml.includes('<item>')) continue;
+
+      const items = parseRssItems(xml, cutoff);
+      for (const job of items) jobs.set(job.canonicalUrl, job);
+    } catch {
+      // ignore — will fall back to API
+    }
+  }
+
+  return Array.from(jobs.values());
+}
+
+interface RssItem { title: string; link: string; description: string; pubDate: number; }
+
+function parseRssItems(xml: string, cutoff: number): JobPosting[] {
+  const jobs: JobPosting[] = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/g;
+  let m: RegExpExecArray | null;
+
+  while ((m = itemRe.exec(xml)) !== null) {
+    const block = m[1];
+    const title = extractXmlTag(block, 'title');
+    const link = extractXmlTag(block, 'link') || extractXmlTag(block, 'guid');
+    const description = extractXmlTag(block, 'description');
+    const pubDateStr = extractXmlTag(block, 'pubDate');
+    if (!title || !link) continue;
+
+    const pubMs = pubDateStr ? new Date(pubDateStr).getTime() : Date.now();
+    if (isNaN(pubMs) || pubMs < cutoff) continue;
+
+    const id = link.split('/').pop() ?? link;
+    const canonicalUrl = `https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/${id}`;
+    const desc = stripHtml(description);
+    const text = `${title} ${desc}`.toLowerCase();
+
+    jobs.push({
+      source: SOURCE,
+      sourcePriority: 4,
+      canonicalUrl,
+      title,
+      company: extractXmlTag(block, 'author') || 'Non communiqué',
+      companySummary: '',
+      companySlug: 'apec',
+      locationLabel: 'France',
+      countryCode: 'FR',
+      city: null,
+      workMode: inferWorkMode('', text),
+      language: detectLanguage(`${title} ${desc}`),
+      description: desc,
+      keyMissions: [],
+      experienceLevelMinimum: null,
+      salaryCurrency: null,
+      salaryPeriod: null,
+      salaryMinimum: null,
+      salaryMaximum: null,
+      salaryYearlyMinimum: null,
+      publishedAt: new Date(pubMs).toISOString(),
+      publishedAtTimestamp: Math.floor(pubMs / 1000),
+      startupSignals: [],
+      applyUrl: link,
+      offersRelocation: false,
+      isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage']),
+      employeeCount: null,
+      companyCreationYear: null,
+    });
+  }
+
+  return jobs;
+}
+
+function extractXmlTag(xml: string, tag: string): string {
+  const re = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, 'i');
+  return xml.match(re)?.[1]?.trim() ?? '';
+}
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// ── API approach (fallback) ───────────────────────────────────────────────────
 
 interface ApecSession { cookie: string; xsrfToken: string; }
 
@@ -89,7 +213,6 @@ async function fetchSession(): Promise<ApecSession> {
         'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
       },
     });
-    // Proxy forwards upstream Set-Cookie via x-set-cookie to avoid browser cookie semantics.
     const raw = res.headers.get('x-set-cookie') ?? '';
     if (!raw) {
       console.warn('[apec] preflight: no cookies received');
@@ -97,10 +220,10 @@ async function fetchSession(): Promise<ApecSession> {
     }
     const pairs = raw.split(',').map((c) => c.split(';')[0].trim()).filter(Boolean);
     const cookieStr = pairs.join('; ');
-    // Angular XSRF: server sets XSRF-TOKEN cookie; client must echo it as X-XSRF-TOKEN header.
+    const cookieNames = pairs.map((p) => p.split('=')[0]).join(', ');
     const xsrfPair = pairs.find((p) => /^xsrf-token=/i.test(p));
     const xsrfToken = xsrfPair ? xsrfPair.split('=').slice(1).join('=') : '';
-    console.log(`[apec] preflight: ${pairs.length} cookie(s) — xsrf=${xsrfToken ? 'present' : 'missing'}`);
+    console.log(`[apec] preflight: [${cookieNames}] — xsrf=${xsrfToken ? 'present' : 'missing'}`);
     return { cookie: cookieStr, xsrfToken };
   } catch (err) {
     console.warn(`[apec] preflight failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -115,7 +238,7 @@ async function fetchOffers(query: string, maxAgeHours: number, session: ApecSess
     motsCles: query,
     nbResultat: 50,
     debut: 0,
-    typesContrats: ['102888'], // CDI
+    typesContrats: ['102888'],
     datePublication: dateMin,
   };
 
@@ -237,8 +360,7 @@ function parseSalaryMax(libelle: string | undefined): number | null {
   if (!libelle) return null;
   const match = libelle.match(/(?:jusqu'à|à|et)\s*([\d\s,.]+)\s*(?:k€|€|EUR|Euros)/i);
   if (!match) return null;
-  const val = parseFloat(match[1].replace(/\s/g, '').replace(',', '.'));
-  return val || null;
+  return parseFloat(match[1].replace(/\s/g, '').replace(',', '.')) || null;
 }
 
 function parseSalaryYearly(libelle: string | undefined): number | null {
