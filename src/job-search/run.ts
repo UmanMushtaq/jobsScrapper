@@ -244,9 +244,9 @@ export async function runJobSearchOnce(
       const jobLang = (job.language ?? '').toLowerCase();
       const isLangPrefCountry = profile.search.preferredCountries?.includes(job.countryCode ?? '');
       if (jobLang && jobLang !== desiredLang && !hasEnglishTeamSignals(txt) && !isLangPrefCountry) { diagCounts.lang++; continue; }
-      // Replicate isLanguageFit()'s secondary title-accent check — jobs with French/German
-      // titles get mis-attributed to score<threshold without this check.
-      if (/[àâéèêëîïôùûüçœæäöüß]/i.test(job.title) && detectLanguage(job.title) !== desiredLang) { diagCounts.lang++; continue; }
+      // Secondary title-accent check — skip for preferred countries (DE, NL, FR, etc.)
+      // because those companies commonly write titles in their local language.
+      if (!isLangPrefCountry && /[àâéèêëîïôùûüçœæäöüß]/i.test(job.title) && detectLanguage(job.title) !== desiredLang) { diagCounts.lang++; continue; }
       if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { diagCounts.title++; continue; }
       if (EXCL_ROLES.some((k) => title.includes(k))) { diagCounts.role++; continue; }
 

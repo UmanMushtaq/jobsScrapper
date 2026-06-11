@@ -10,37 +10,60 @@
  */
 
 const ENGLISH_TEAM_SIGNALS = [
-  // Direct "english required/spoken" patterns
-  'english required', 'english is required', 'english mandatory',
+  // ── English: proficiency / requirement ────────────────────────────────────
+  'english required', 'english is required', 'english mandatory', 'english is mandatory',
+  'english is a must', 'english language required', 'english language skills',
   'fluent english', 'fluent in english', 'english fluency',
   'english proficiency', 'proficient in english',
+  'professional english', 'strong english', 'excellent english', 'good english',
   'english speaker', 'english-speaking', 'english speaking',
   'native english', 'business english',
-  // Working language signals
-  'working language.*english', 'language.*english', 'english.*working language',
-  'company language.*english', 'team language.*english',
-  'we work in english', 'work in english', 'communication in english',
-  'all.*english', 'english.*team',
-  // French signals (équipe anglophone, langue de travail anglais)
+  'written and spoken english', 'spoken and written english',
+  'strong written and verbal english',
+  'b2.*english', 'english.*b2', 'c1.*english', 'english.*c1', 'c2.*english', 'english.*c2',
+  'internationally',
+  // ── English: working/company language ─────────────────────────────────────
+  'working language.*english', 'english.*working language',
+  'business language.*english', 'company language.*english', 'team language.*english',
+  'we work in english', 'work in english',
+  'communicate in english', 'communication in english',
+  'meetings in english', 'daily communication in english',
+  'team speaks english', 'our team speaks english',
+  // ── French signals ─────────────────────────────────────────────────────────
   'équipe anglophone', 'environnement anglophone', 'milieu anglophone',
+  'equipe internationale', 'équipe internationale',
+  'environnement international', 'contexte international',
+  'entreprise internationale',
   'langue.*anglais', 'anglais.*courant', 'anglais.*requis',
-  'maîtrise.*anglais', 'parler anglais', 'anglais.*obligatoire',
-  'anglais.*indispensable', 'très bon niveau.*anglais',
-  // Dutch/Flemish signals
-  'engelstalig', 'voertaal.*engels', 'engels.*vereist',
-  'werkvoertaal.*engels', 'goede.*engels', 'vlotte.*engels',
-  // German signals
-  'englischkenntnisse', 'englisch.*voraussetzung', 'arbeitssprache.*englisch',
-  'fließend.*englisch', 'sehr gute.*englischkenntnisse',
+  'maîtrise.*anglais', 'maitrise.*anglais',
+  'parler anglais', 'anglais.*obligatoire', 'anglais.*indispensable',
+  'très bon niveau.*anglais', 'bon niveau.*anglais',
+  'nous travaillons en anglais', 'anglais est notre langue de travail',
+  // ── Dutch/Flemish signals ──────────────────────────────────────────────────
+  'engelstalig',
+  'voertaal.*engels', 'werktaal.*engels', 'werkvoertaal.*engels',
+  'engels.*vereist', 'engels is verplicht',
+  'goede.*engels', 'vlotte.*engels', 'vloeiend engels',
+  'uitstekende beheersing van het engels',
+  'internationale omgeving', 'internationaal team', 'internationale samenwerking',
+  // ── German signals ─────────────────────────────────────────────────────────
+  'englischkenntnisse', 'englisch.*voraussetzung',
+  'arbeitssprache.*englisch', 'englisch als arbeitssprache',
+  'fließend.*englisch', 'englisch fließend',
+  'englisch verhandlungssicher', 'verhandlungssicheres englisch',
+  'sehr gute.*englischkenntnisse', 'gute englischkenntnisse',
   'englisch erforderlich', 'englisch ist.*pflicht', 'englisch.*notwendig',
-  // Implicit international team signals (language-neutral)
+  'unternehmenssprache englisch', 'firmensprache englisch', 'firmensprache ist englisch',
+  'wir arbeiten auf englisch', 'kommunikation auf englisch', 'meetings auf englisch',
+  'unsere arbeitssprache ist englisch',
+  // ── International team signals (language-neutral) ─────────────────────────
   'international team', 'international environment', 'international company',
   'multicultural', 'multi-cultural', 'multinational',
-  'diverse team', 'global team', 'remote-first', 'fully remote',
-  'our team speaks english', 'team speaks english',
-  'équipe internationale', 'environnement international', 'entreprise internationale',
-  'internationales team', 'internationales umfeld', 'internationale umgebung',
-  'internationale kollegen', 'internationales unternehmen',
+  'diverse team', 'global team', 'globales team', 'remote-first', 'fully remote',
+  'internationales team', 'internationale teams',
+  'internationales umfeld', 'internationale umgebung',
+  'internationale kollegen', 'internationale zusammenarbeit',
+  'internationales unternehmen',
   'international.*nationalities', 'nationalities.*international',
   'team.*countries', 'countries.*team',
 ];
