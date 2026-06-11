@@ -122,10 +122,10 @@ export function scoreJob(
     return sum + (check.matched(text) ? check.weight : 0);
   }, 0);
 
-  // 42 = Node.js(24) + either TypeScript(18) or backend(18).
-  // 36 (TypeScript + backend without Node.js) is no longer enough —
-  // that pattern matches C#/.NET/Java full-stack jobs that mention TypeScript for their React frontend.
-  if (mandatoryScore < 42) {
+  // 36 = TypeScript(18) + backend(18) — enough to pass without Node.js.
+  // The nonJsRequiredPattern check below handles the false-positive case where
+  // TypeScript is only used for a React frontend while Java/C# is the required backend.
+  if (mandatoryScore < 36) {
     return null;
   }
 
