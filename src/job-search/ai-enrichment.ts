@@ -411,6 +411,10 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  companyQualityScore: integer 0-100. Red flags: rockstar/ninja, "wear many hats", no salary, unlimited PTO only perk.\n` +
   `  companyRedFlags: array of up to 3 short strings.\n` +
   `  atsMissingKeywords: array of up to 8 technical keywords from the job description NOT clearly present in the candidate CV above.\n` +
+  `    STRICT CRITERIA — only flag a keyword as a gap if it meets at least ONE of the following:\n` +
+  `    (a) It appears inside a clearly labelled required/must-have section (e.g. "Requirements", "Must have", "You must have", "Required skills", "What we require", "Must-have skills").\n` +
+  `    (b) It appears 2 or more times anywhere in the full job description text.\n` +
+  `    Do NOT flag skills mentioned only once outside a required section — those are nice-to-haves, not gaps.\n` +
   `    Focus on: specific frameworks, databases, tools, protocols, testing frameworks, cloud services.\n` +
   `    Do NOT list things clearly in the CV (NestJS, Docker, PostgreSQL, RabbitMQ, Kafka etc. are already there).\n` +
   `  atsPlacementSuggestions: array of up to 3 short strings on WHERE to add the top missing keywords.\n` +

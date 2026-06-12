@@ -89,6 +89,18 @@ export function scoreJob(
     }
   }
 
+  // Hard reject: explicit US-only or no-sponsorship clause — applies even to remote roles
+  const US_ONLY_CLAUSES = [
+    'us citizens only', 'green card holders only', 'authorized to work in the us',
+    'us work authorization required', 'unable to sponsor', 'cannot sponsor',
+    'no visa sponsorship', 'must be located in the us', 'must reside in the us',
+    'us residents only', 'legally authorized to work in the united states',
+  ];
+  if (US_ONLY_CLAUSES.some((clause) => text.includes(clause))) {
+    console.log(`[scorer] FILTERED: ${job.company} hard rejected, explicit US-only or no-sponsorship clause found`);
+    return null;
+  }
+
   const locationScore = scoreLocation(
     job.countryCode,
     job.city,
@@ -397,13 +409,37 @@ function toMonthlyEur(job: JobPosting): number | null {
   return Math.round((amount * exchangeRate) / 12);
 }
 
+function fmtNum(n: number): string {
+  return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
 function buildSalaryLabel(job: JobPosting): string {
-  const monthlyEur = toMonthlyEur(job);
-  if (monthlyEur === null) {
-    return 'salary not listed';
+  const useYearly = job.salaryYearlyMinimum !== null && job.salaryYearlyMinimum !== undefined;
+  const amount = useYearly ? job.salaryYearlyMinimum! : job.salaryMinimum;
+  if (amount === null || amount === undefined) return 'salary not listed';
+
+  const currency = (job.salaryCurrency ?? 'EUR').toUpperCase();
+  const exchangeRates: Record<string, number> = { EUR: 1, USD: 0.88, GBP: 1.16, CHF: 1.04 };
+  const rate = exchangeRates[currency];
+  if (!rate) return 'salary not listed';
+
+  const descLower = job.description.toLowerCase();
+  const annualSignals = ['per year', '/year', 'annual', 'annually', 'a year'];
+  const isExplicitlyMonthly = !useYearly && (job.salaryPeriod === 'monthly' || job.salaryPeriod === 'month');
+  const isAnnual = useYearly || (!isExplicitlyMonthly && amount > 50000 && annualSignals.some((s) => descLower.includes(s)));
+
+  if (isAnnual) {
+    const monthlyLocal = Math.round(amount / 12);
+    const monthlyEur = Math.round(monthlyLocal * rate);
+    if (currency === 'EUR') {
+      return `EUR ${fmtNum(amount)}/year (~EUR ${fmtNum(monthlyEur)}/month)`;
+    }
+    return `${currency} ${fmtNum(amount)}/year (~${currency} ${fmtNum(monthlyLocal)}/month, ~EUR ${fmtNum(monthlyEur)}/month)`;
   }
 
-  return `~EUR ${monthlyEur}/month`;
+  const monthlyEur = Math.round(amount * rate);
+  if (currency === 'EUR') return `~EUR ${fmtNum(amount)}/month`;
+  return `~${currency} ${fmtNum(amount)}/month (~EUR ${fmtNum(monthlyEur)}/month)`;
 }
 
 function buildCoverLetter(job: JobPosting, profile: SearchProfile, _reasons: string[]): string {
