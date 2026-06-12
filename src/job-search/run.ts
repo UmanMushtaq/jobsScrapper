@@ -202,6 +202,7 @@ export async function runJobSearchOnce(
     const rawMatches = freshJobs
       .map((job) => scoreJob(job, profile, prefModel))
       .filter((match): match is MatchResult => match !== null)
+      .filter((match) => checkLocationEligibility(match.job))
       .sort(sortMatches);
 
     // Deduplicate: job aggregators (Adzuna) post the same role across many cities.
@@ -740,6 +741,64 @@ async function buildTelegramPayload(
   return messages;
 }
 
+
+const FR_CITIES = ['paris','lyon','marseille','bordeaux','toulouse','nantes','nice','strasbourg','lille','rennes','montpellier','grenoble','reims','le havre','saint-étienne','toulon','dijon','angers','brest','le mans','aix-en-provence','clermont-ferrand','amiens','tours','limoges','metz','besançon','perpignan','orléans','mulhouse','rouen'];
+
+const TIER2_SIGNALS = ['relocation','visa sponsorship','blue card','remote','hybrid','relocation support','relocation package','we sponsor','work from anywhere','fully remote','open to relocation'];
+
+const TIER3_SIGNALS = ['remote','relocation','visa sponsorship','relocation support','relocation package','we sponsor'];
+
+const UK_VISA_SIGNALS = ['visa sponsorship','we sponsor','right to work','skilled worker visa'];
+
+const EU_WORLDWIDE_SIGNALS = ['eu candidates welcome','eu applicants','open to eu','european candidates','worldwide'];
+
+function checkLocationEligibility(job: JobPosting): boolean {
+  const cc = (job.countryCode ?? '').toUpperCase();
+  const locLabel = (job.locationLabel ?? '').toLowerCase();
+  const combined = `${job.title} ${job.description}`.toLowerCase();
+
+  // Rule 1: France — always accept
+  if (cc === 'FR') return true;
+  if (FR_CITIES.some((city) => locLabel.includes(city))) return true;
+
+  // Rule 2: BE, DE, LU, NL, IE — need remote/relocation/visa/hybrid signal
+  if (['BE','DE','LU','NL','IE'].includes(cc)) {
+    const pass = TIER2_SIGNALS.some((s) => combined.includes(s));
+    if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${cc}), no remote/relocation/visa signal`);
+    return pass;
+  }
+
+  // Rule 3: Other EU
+  const OTHER_EU = ['ES','IT','PT','PL','SE','DK','NO','AT','CZ','RO','FI','HR','SK','HU','BG','EE','LV','LT','SI','CY','MT'];
+  if (OTHER_EU.includes(cc)) {
+    const pass = TIER3_SIGNALS.some((s) => combined.includes(s));
+    if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${cc}), no remote or relocation signal`);
+    return pass;
+  }
+
+  // Rule 4: UK
+  if (cc === 'GB' || cc === 'UK') {
+    const hasRemote = combined.includes('remote');
+    const hasVisa = UK_VISA_SIGNALS.some((s) => combined.includes(s));
+    const pass = hasRemote && hasVisa;
+    if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (GB), needs remote + visa sponsorship signal`);
+    return pass;
+  }
+
+  // Rule 5: US, CA
+  if (cc === 'US' || cc === 'CA') {
+    const hasRemote = combined.includes('remote');
+    const hasEuWelcome = EU_WORLDWIDE_SIGNALS.some((s) => combined.includes(s));
+    const pass = hasRemote && hasEuWelcome;
+    if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${cc}), US/CA requires remote + EU-welcome signal`);
+    return pass;
+  }
+
+  // Rule 6: Any other country — remote only
+  const pass = combined.includes('remote');
+  if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${cc || 'unknown'}), non-listed country requires remote`);
+  return pass;
+}
 
 function sortMatches(left: MatchResult, right: MatchResult): number {
   return (
