@@ -742,7 +742,14 @@ async function buildTelegramPayload(
 }
 
 
-const FR_CITIES = ['paris','lyon','marseille','bordeaux','toulouse','nantes','nice','strasbourg','lille','rennes','montpellier','grenoble','reims','le havre','saint-étienne','toulon','dijon','angers','brest','le mans','aix-en-provence','clermont-ferrand','amiens','tours','limoges','metz','besançon','perpignan','orléans','mulhouse','rouen'];
+const FR_CITIES = [
+  'paris','lyon','marseille','bordeaux','toulouse','nantes','nice','strasbourg',
+  'lille','rennes','montpellier','grenoble','reims','le havre','saint-étienne',
+  'toulon','dijon','angers','brest','le mans','aix-en-provence','clermont-ferrand',
+  'amiens','tours','limoges','metz','besançon','perpignan','orléans','mulhouse','rouen',
+  // broader France signals
+  'ile-de-france','île-de-france','idf','france',
+];
 
 const TIER2_SIGNALS = ['relocation','visa sponsorship','blue card','remote','hybrid','relocation support','relocation package','we sponsor','work from anywhere','fully remote','open to relocation'];
 
@@ -777,9 +784,21 @@ function checkLocationEligibility(job: JobPosting): boolean {
     }
   }
 
-  // Rule 1: France — always accept
-  if (cc === 'FR') return true;
-  if (FR_CITIES.some((city) => locLabel.includes(city))) return true;
+  // Rule 1: France — always accept.
+  // Check cc, locLabel, and the full combined text for any France signal.
+  const isFranceSignal = cc === 'FR'
+    || FR_CITIES.some((city) => locLabel.includes(city))
+    || FR_CITIES.some((city) => combined.includes(city));
+  if (isFranceSignal) return true;
+
+  // Fix 2: Hybrid job in a Paris/France location — always pass even without relocation signal.
+  // A hybrid role that explicitly mentions France/Paris is by definition accessible from Paris.
+  if (job.workMode === 'hybrid' && (
+    locLabel.includes('paris') || locLabel.includes('france') || locLabel.includes('idf') ||
+    locLabel.includes('ile-de-france') || locLabel.includes('île-de-france')
+  )) {
+    return true;
+  }
 
   // Rule 2: BE, DE, LU, NL, IE — need remote/relocation/visa/hybrid signal
   if (['BE','DE','LU','NL','IE'].includes(cc)) {
@@ -814,7 +833,13 @@ function checkLocationEligibility(job: JobPosting): boolean {
     return pass;
   }
 
-  // Rule 6: Any other country — remote only
+  // Rule 6: Any other country or unknown country code.
+  // Fix 1: remote job with no detected country defaults to PASS — more likely worldwide than restricted.
+  // Only reject if explicitly on-site with an unknown/unlisted country.
+  if (!cc && job.workMode === 'remote') {
+    console.log(`[loc-filter] PASSED: ${job.company}, remote job with undetected country, defaulting to pass`);
+    return true;
+  }
   const pass = combined.includes('remote');
   if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${cc || 'unknown'}), non-listed country requires remote`);
   return pass;
