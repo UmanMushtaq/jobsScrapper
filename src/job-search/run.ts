@@ -52,7 +52,7 @@ const ACTIVE_SOURCES = [
   'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'himalayas.app', 'jobicy.com',
   'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
   'berlinstartupjobs.com', 'bundesagentur.de', 'startup.jobs',
-  'indeed.com', 'news.ycombinator.com',
+  'news.ycombinator.com',
   'europeremotely.com',
   // nodesk.co: RSS feeds permanently gone (all URL patterns return 404 as of June 2026)
 ];

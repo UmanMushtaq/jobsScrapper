@@ -2,6 +2,9 @@ import { JobPosting, SearchSettings } from '../types';
 import { proxyFetch } from '../proxy-fetch';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { redisSetIndeedLastRun } from '../redis-store';
+
+const INDEED_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const SOURCE = 'indeed.com';
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -97,7 +100,15 @@ export class IndeedJobsSource implements JobSource {
       console.warn(`[indeed] all ${rateLimitedCount} searches rate-limited (429) — IP may be flagged, will retry next run`);
     }
 
-    return Array.from(jobs.values());
+    const result = Array.from(jobs.values());
+    const status = result.length > 0 ? 'success' : rateLimitedCount > 0 ? 'failed' : 'success';
+    await redisSetIndeedLastRun({
+      timestamp: new Date().toISOString(),
+      jobsFound: result.length,
+      status,
+      nextRunAt: new Date(Date.now() + INDEED_INTERVAL_MS).toISOString(),
+    });
+    return result;
   }
 }
 

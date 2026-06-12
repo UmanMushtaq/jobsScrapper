@@ -25,7 +25,7 @@ import {
   resolveJobRef,
   sendTelegramMessages,
 } from './job-search/telegram';
-import { BotLogEntry, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetJobHistory, redisGetLogs } from './job-search/redis-store';
+import { BotLogEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
 import { JobSearchState, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 
@@ -373,8 +373,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async renderDashboard(): Promise<string> {
-    const state = await readJobSearchState();
-    return renderHtml(state);
+    const [state, indeedStatus] = await Promise.all([
+      readJobSearchState(),
+      redisGetIndeedLastRun(),
+    ]);
+    return renderHtml(state, indeedStatus);
   }
 
   async getHistoryPage(): Promise<string> {
@@ -1580,7 +1583,7 @@ function escapeBr(value: string): string {
   return escapeHtml(value).replace(/\n/g, '<br>');
 }
 
-function renderHtml(state: JobSearchState): string {
+function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null): string {
   const rows =
     state.latestMatches.length > 0
       ? state.latestMatches
@@ -1941,10 +1944,10 @@ function renderHtml(state: JobSearchState): string {
 
         <div style="margin-top:16px;">
           <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">
-            Active sources (${state.activeSources.length})
+            Active sources (${state.activeSources.filter((s) => s !== 'indeed.com').length})
           </div>
           <div class="sources-row">
-            ${state.activeSources.map((s) => `<span class="source-chip">${escapeHtml(s)}</span>`).join('')}
+            ${state.activeSources.filter((s) => s !== 'indeed.com').map((s) => `<span class="source-chip">${escapeHtml(s)}</span>`).join('')}
           </div>
           ${state.blockedSources.length ? `
           <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin:10px 0 8px;">
@@ -1953,6 +1956,41 @@ function renderHtml(state: JobSearchState): string {
           <div class="sources-row">
             ${state.blockedSources.map((s) => `<span class="source-chip blocked-chip">${escapeHtml(s)}</span>`).join('')}
           </div>` : ''}
+
+          <div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+            <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">
+              Indeed (separate timer)
+            </div>
+            <table style="font-size:13px;color:#374151;border-collapse:collapse;width:100%;">
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;width:160px;">Last run</td>
+                <td style="padding:3px 0;">${indeedStatus ? escapeHtml(new Date(indeedStatus.timestamp).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })) : 'never'}</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Next run</td>
+                <td style="padding:3px 0;">${indeedStatus ? escapeHtml(new Date(indeedStatus.nextRunAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })) : 'pending first run'}</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Timer</td>
+                <td style="padding:3px 0;">24 hours</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Jobs found (last run)</td>
+                <td style="padding:3px 0;">${indeedStatus ? String(indeedStatus.jobsFound) : '—'}</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Status</td>
+                <td style="padding:3px 0;">${indeedStatus
+                  ? `<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;${
+                      indeedStatus.status === 'success' ? 'background:#dcfce7;color:#166534;'
+                      : indeedStatus.status === 'failed' ? 'background:#fee2e2;color:#991b1b;'
+                      : 'background:#fef9c3;color:#854d0e;'
+                    }">${escapeHtml(indeedStatus.status)}</span>`
+                  : '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#fef9c3;color:#854d0e;">pending</span>'
+                }</td>
+              </tr>
+            </table>
+          </div>
         </div>
 
         <div class="actions-row">

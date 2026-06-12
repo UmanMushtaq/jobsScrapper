@@ -383,6 +383,41 @@ export async function redisGetGeminiDailyCalls(day: string): Promise<number> {
   } catch { return 0; }
 }
 
+// --- Indeed separate-timer run tracking ---
+
+export interface IndeedRunData {
+  timestamp: string;   // ISO 8601
+  jobsFound: number;
+  status: 'success' | 'failed' | 'pending';
+  nextRunAt: string;   // ISO 8601
+}
+
+const INDEED_LAST_RUN_KEY = 'indeed:lastRun';
+const INDEED_TTL_SECONDS = 48 * 60 * 60; // 48h — survives restarts
+
+export async function redisSetIndeedLastRun(data: IndeedRunData): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await r.set(INDEED_LAST_RUN_KEY, JSON.stringify(data), { ex: INDEED_TTL_SECONDS });
+  } catch (err) {
+    console.error('[redis] setIndeedLastRun failed:', (err as Error).message);
+  }
+}
+
+export async function redisGetIndeedLastRun(): Promise<IndeedRunData | null> {
+  const r = getClient();
+  if (!r) return null;
+  try {
+    const raw = await r.get<string>(INDEED_LAST_RUN_KEY);
+    if (!raw) return null;
+    return JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as IndeedRunData;
+  } catch (err) {
+    console.error('[redis] getIndeedLastRun failed:', (err as Error).message);
+    return null;
+  }
+}
+
 // --- Persistent run log (last 500 entries, stored as ZSET scored by timestamp ms) ---
 
 export interface BotLogEntry {
