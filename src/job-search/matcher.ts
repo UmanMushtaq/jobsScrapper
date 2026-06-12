@@ -168,6 +168,20 @@ export function scoreJob(
       : 0;
 
   const startupScore = computeStartupScore(job, text, profile);
+  // +5 for mid-size accessible companies (Series A/B, scale-ups, consulting, ESN, etc.)
+  // explicitly excluded: Series C/D, unicorn, CAC40, Fortune 500 — hyper-competitive or too large.
+  const TIER2_POSITIVE = [
+    'series a', 'série a', 'series b', 'série b',
+    'scale-up', 'scaleup',
+    'esn', 'conseil', 'consulting',
+    'mission', 'freelance', 'portage',
+    'cdd', 'interim',
+    '50 to 200 employees', 'moins de 200', 'startup',
+  ];
+  const TIER2_NEGATIVE = ['series c', 'series d', 'unicorn', 'cac40', 'cac 40', 'fortune 500', 'fortune500'];
+  const hasTier2 = TIER2_POSITIVE.some((s) => text.includes(s)) && !TIER2_NEGATIVE.some((s) => text.includes(s));
+  const tier2Score = hasTier2 ? 5 : 0;
+
   // Boost jobs where the employer mentions visa sponsorship or relocation support.
   // These are the minority of postings that can actually proceed with a non-EU hire.
   const SPONSOR_SIGNALS = [
@@ -190,7 +204,7 @@ export function scoreJob(
     0,
     Math.min(
       100,
-      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + preference.delta,
+      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + tier2Score + preference.delta,
     ),
   );
 
@@ -209,6 +223,7 @@ export function scoreJob(
     location: locScore,
     startup: startupScore,
     sponsor: sponsorScore,
+    tier2: tier2Score || undefined,
     preference: preference.delta,
   };
 
