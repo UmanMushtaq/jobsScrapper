@@ -418,6 +418,76 @@ export async function redisGetIndeedLastRun(): Promise<IndeedRunData | null> {
   }
 }
 
+// --- Persistent dashboard jobs ---
+// Each job is stored as dashboard:job:{jobId} (SET NX, 7d TTL).
+// An index ZSET (dashboard:jobs:index, score=foundAt ms) tracks all active jobIds.
+
+const DASHBOARD_INDEX_KEY = 'dashboard:jobs:index';
+const DASHBOARD_JOB_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
+export interface DashboardJobEntry {
+  jobId: string;        // hashJobUrl result
+  foundAt: number;      // ms timestamp when first stored
+  match: unknown;       // serialised MatchResult (slim)
+}
+
+export async function redisSaveDashboardJob(jobId: string, match: unknown, foundAt: number): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    const key = `dashboard:job:${jobId}`;
+    const entry: DashboardJobEntry = { jobId, foundAt, match };
+    // NX = only write if not already present (don't overwrite existing cards)
+    await r.set(key, JSON.stringify(entry), { nx: true, ex: DASHBOARD_JOB_TTL_SECONDS });
+    type SM = { score: number; member: string };
+    await r.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: foundAt, member: jobId } as SM);
+  } catch (err) {
+    console.error('[redis] saveDashboardJob failed:', (err as Error).message);
+  }
+}
+
+export async function redisGetDashboardJobs(): Promise<DashboardJobEntry[]> {
+  const r = getClient();
+  if (!r) return [];
+  try {
+    const jobIds = await r.zrange(DASHBOARD_INDEX_KEY, 0, -1);
+    if (!jobIds.length) return [];
+    const keys = (jobIds as string[]).map((id) => `dashboard:job:${id}`);
+    const raws = await r.mget<string[]>(...keys);
+    const entries: DashboardJobEntry[] = [];
+    const orphanIds: string[] = [];
+    for (let i = 0; i < raws.length; i++) {
+      const raw = raws[i];
+      if (!raw) { orphanIds.push(jobIds[i] as string); continue; }
+      try {
+        entries.push(JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as DashboardJobEntry);
+      } catch { orphanIds.push(jobIds[i] as string); }
+    }
+    if (orphanIds.length) {
+      // Clean up index entries whose keys have expired
+      await r.zrem(DASHBOARD_INDEX_KEY, ...orphanIds).catch(() => {});
+    }
+    // Sort newest first (highest foundAt last in ZSET, so reverse)
+    return entries.sort((a, b) => b.foundAt - a.foundAt);
+  } catch (err) {
+    console.error('[redis] getDashboardJobs failed:', (err as Error).message);
+    return [];
+  }
+}
+
+export async function redisDeleteDashboardJob(jobId: string): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await Promise.all([
+      r.del(`dashboard:job:${jobId}`),
+      r.zrem(DASHBOARD_INDEX_KEY, jobId),
+    ]);
+  } catch (err) {
+    console.error('[redis] deleteDashboardJob failed:', (err as Error).message);
+  }
+}
+
 // --- Persistent run log (last 500 entries, stored as ZSET scored by timestamp ms) ---
 
 export interface BotLogEntry {

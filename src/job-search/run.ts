@@ -36,9 +36,9 @@ import {
   writeJsonFile,
 } from './storage';
 import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
-import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisLog, redisStoreJobHistory } from './redis-store';
+import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisLog, redisStoreJobHistory, redisSaveDashboardJob } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
-import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef } from './telegram';
+import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef, hashJobUrl } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, ScorerDiagnostic, SearchProfile } from './types';
 
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
@@ -526,6 +526,13 @@ export async function runJobSearchOnce(
         lastRunDiagnostic: runDiagnostic,
       }),
       profile,
+    );
+
+    // Persist matched jobs to dashboard store (SET NX — never overwrite existing cards).
+    const slimMatches = slimMatchesForState(summary.matches);
+    const foundAt = Date.now();
+    await Promise.all(
+      slimMatches.map((m) => redisSaveDashboardJob(hashJobUrl(m.job.canonicalUrl), m, foundAt)),
     );
 
     await redisLog('info', 'run', `Run complete — ${liveNewMatches.length} job(s) sent, ${slicedMatches.length} matched`);

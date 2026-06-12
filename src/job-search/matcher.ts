@@ -29,6 +29,12 @@ const BASE_REQUIRED_WEIGHTS = [
   },
 ];
 
+// Group-based keyword filter (replaces hard mandatoryScore threshold).
+// A job passes if it matches Group A alone OR (Group B AND Group C).
+const KEYWORD_GROUP_A = ['node.js', 'nodejs', 'node js', 'nestjs', 'nest.js', 'express.js', 'expressjs'];
+const KEYWORD_GROUP_B = ['typescript', ' ts ', 'type script'];
+const KEYWORD_GROUP_C = ['backend', 'back-end', 'back end', 'server-side', 'api development', 'microservices', 'rest api', 'graphql'];
+
 export function scoreJob(
   job: JobPosting,
   profile: SearchProfile,
@@ -130,27 +136,27 @@ export function scoreJob(
     return null;
   }
 
-  const mandatoryScore = BASE_REQUIRED_WEIGHTS.reduce((sum, check) => {
-    return sum + (check.matched(text) ? check.weight : 0);
-  }, 0);
+  // Group-based keyword filter: pass if Group A OR (Group B AND Group C)
+  const hasGroupA = containsAny(text, KEYWORD_GROUP_A);
+  const hasGroupB = containsAny(text, KEYWORD_GROUP_B) || text.includes('typescript');
+  const hasGroupC = containsAny(text, KEYWORD_GROUP_C);
 
-  // 36 = TypeScript(18) + backend(18) — enough to pass without Node.js.
-  // The nonJsRequiredPattern check below handles the false-positive case where
-  // TypeScript is only used for a React frontend while Java/C# is the required backend.
-  if (mandatoryScore < 36) {
+  if (!hasGroupA && !(hasGroupB && hasGroupC)) {
+    console.log(`[keyword-filter] FILTERED: ${job.company}, no Node.js or backend+TS signal found`);
     return null;
   }
 
   // Reject jobs where a non-JS backend language is explicitly required and Node.js is absent.
-  // Catches "Experience with C# is required" / "Java is required" etc. when Node.js never appears.
-  const hasNodeJs = containsAny(text, ['node.js', 'nodejs', 'nestjs', 'nest.js', 'express.js']);
-  if (!hasNodeJs) {
+  if (!hasGroupA) {
     const nonJsRequiredPattern = /\b(?:c#|\.net|java(?!script)|golang|go\s+lang|ruby|php|kotlin|scala)\b.{0,60}(?:required|is\s+a\s+must|mandatory|must\s+have)/i;
-    const requiredNonJs = nonJsRequiredPattern.test(text);
-    if (requiredNonJs) {
+    if (nonJsRequiredPattern.test(text)) {
       return null;
     }
   }
+
+  const mandatoryScore = BASE_REQUIRED_WEIGHTS.reduce((sum, check) => {
+    return sum + (check.matched(text) ? check.weight : 0);
+  }, 0);
 
   const matchedReasons = BASE_REQUIRED_WEIGHTS.filter((check) => check.matched(text)).map(
     (check) => check.reason,

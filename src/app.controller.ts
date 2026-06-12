@@ -4,6 +4,7 @@ import {
   Get,
   Header,
   Headers,
+  Param,
   Post,
   Query,
   Res,
@@ -73,6 +74,28 @@ export class AppController {
   @Post('run-now')
   async runNow(@Res() response: Response): Promise<void> {
     await this.appService.runNow();
+    response.redirect('/');
+  }
+
+  @Post('jobs/:jobId/applied')
+  async dashboardJobApplied(
+    @Param('jobId') jobId: string,
+    @Body('title') title: string,
+    @Body('company') company: string,
+    @Body('score') score: string,
+    @Body('source') source: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.appService.dashboardJobApplied(jobId, { title, company, score: Number(score) || 0, source });
+    response.redirect('/history?tab=applied');
+  }
+
+  @Post('jobs/:jobId/dismiss')
+  async dashboardJobDismiss(
+    @Param('jobId') jobId: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.appService.dashboardJobDismiss(jobId);
     response.redirect('/');
   }
 
