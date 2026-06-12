@@ -4,6 +4,8 @@ import { JobSource } from './registry';
 const SOURCE = 'news.ycombinator.com';
 const ALGOLIA = 'https://hn.algolia.com/api/v1';
 
+const HN_CURRENT_THREAD_ID = '48357725';
+
 const RELEVANT_KEYWORDS = [
   'node.js', 'nodejs', 'node ', 'typescript', 'nestjs', 'express',
   'backend', 'back-end', 'postgresql', 'postgres',
@@ -27,8 +29,43 @@ interface AlgoliaResponse<T> {
   hits: T[];
 }
 
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// Resolved once at startup, reused for the entire session
+let resolvedThreadId: string | null = null;
+
 // In-memory cache: re-fetch when the month changes or on first run
 let cache: { monthKey: string; storyId: string; jobs: JobPosting[] } | null = null;
+
+async function getCurrentHNThreadId(): Promise<string> {
+  try {
+    const now = new Date();
+    const month = MONTHS[now.getMonth()];
+    const year = now.getFullYear();
+    const pattern = new RegExp(`Ask HN: Who is hiring\\? \\(${month} ${year}\\)`, 'i');
+
+    const res = await fetch(
+      'https://hn.algolia.com/api/v1/search?query=Ask+HN+Who+is+hiring&tags=ask_hn&hitsPerPage=5',
+      { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; job-search-bot/1.0)' } },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as AlgoliaResponse<AlgoliaStoryHit>;
+      const hit = data.hits.find((h) => pattern.test(h.title ?? ''));
+      if (hit) {
+        console.log(`[hackernews] HN thread resolved: ${hit.objectID} (${month} ${year})`);
+        return hit.objectID;
+      }
+    }
+  } catch (err) {
+    console.error('[hackernews] thread auto-detect failed:', err instanceof Error ? err.message : String(err));
+  }
+
+  const now = new Date();
+  const month = MONTHS[now.getMonth()];
+  const year = now.getFullYear();
+  console.log(`[hackernews] HN thread resolved: ${HN_CURRENT_THREAD_ID} (${month} ${year}) [fallback]`);
+  return HN_CURRENT_THREAD_ID;
+}
 
 export class HackerNewsJobsSource implements JobSource {
   name = SOURCE;
@@ -43,18 +80,11 @@ export class HackerNewsJobsSource implements JobSource {
         return cache.jobs;
       }
 
-      const storyRes = await fetch(
-        `${ALGOLIA}/search?query=Ask+HN%3A+Who+is+Hiring%3F&tags=story%2Cauthor_whoishiring&hitsPerPage=1`,
-        { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; job-search-bot/1.0)' } },
-      );
-      if (!storyRes.ok) return [];
-
-      const storyData = (await storyRes.json()) as AlgoliaResponse<AlgoliaStoryHit>;
-      const story = storyData.hits[0];
-      if (!story) return [];
-
-      const storyId = story.objectID;
-      console.log(`[hackernews] fetching "${story.title ?? 'Who is Hiring'}" (${storyId})`);
+      if (!resolvedThreadId) {
+        resolvedThreadId = await getCurrentHNThreadId();
+      }
+      const storyId = resolvedThreadId;
+      console.log(`[hackernews] fetching thread ${storyId}`);
 
       // Fetch top-level comments only (direct replies to the story)
       const commentsRes = await fetch(
