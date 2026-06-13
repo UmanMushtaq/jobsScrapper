@@ -2,6 +2,7 @@ import { proxyFetch } from '../proxy-fetch';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { ApecPlaywrightJob, scrapeApecWithPlaywright } from './apec.playwright';
 
 const SOURCE = 'apec.fr';
 
@@ -59,6 +60,22 @@ export class ApecJobsSource implements JobSource {
   async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
 
+    // Try Playwright stealth scraper first (bypasses DataDome JS challenge)
+    try {
+      const playwrightJobs = await scrapeApecWithPlaywright();
+      if (playwrightJobs.length > 0) {
+        console.log(`[apec] playwright: ${playwrightJobs.length} jobs found`);
+        for (const j of playwrightJobs) {
+          const mapped = this.mapPlaywrightJob(j);
+          if (mapped) jobs.set(mapped.canonicalUrl, mapped);
+        }
+        return Array.from(jobs.values());
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`[apec] playwright failed: ${msg}, falling back to direct`);
+    }
+
     // Always fetch session first so DataDome cookie is included in every request.
     const session = await fetchSession();
 
@@ -88,6 +105,44 @@ export class ApecJobsSource implements JobSource {
     }
 
     return Array.from(jobs.values());
+  }
+
+  private mapPlaywrightJob(j: ApecPlaywrightJob): JobPosting | null {
+    if (!j.title || !j.url) return null;
+    const text = `${j.title} ${j.description}`.toLowerCase();
+    const pubMs = j.date ? new Date(j.date).getTime() : Date.now();
+    const publishedAt = new Date(isNaN(pubMs) ? Date.now() : pubMs).toISOString();
+    const publishedAtTimestamp = Math.floor((isNaN(pubMs) ? Date.now() : pubMs) / 1000);
+    return {
+      source: SOURCE,
+      sourcePriority: 4,
+      canonicalUrl: j.url,
+      title: j.title,
+      company: j.company || 'Non communiqué',
+      companySummary: '',
+      companySlug: (j.company || 'apec').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      locationLabel: j.location || 'France',
+      countryCode: 'FR',
+      city: j.location ? extractCity(j.location) : null,
+      workMode: inferWorkMode('', text),
+      language: detectLanguage(`${j.title} ${j.description}`),
+      description: j.description,
+      keyMissions: [],
+      experienceLevelMinimum: null,
+      salaryCurrency: null,
+      salaryPeriod: null,
+      salaryMinimum: null,
+      salaryMaximum: null,
+      salaryYearlyMinimum: null,
+      publishedAt,
+      publishedAtTimestamp,
+      startupSignals: [],
+      applyUrl: j.url,
+      offersRelocation: false,
+      isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage']),
+      employeeCount: null,
+      companyCreationYear: null,
+    };
   }
 }
 
