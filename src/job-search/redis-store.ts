@@ -390,6 +390,7 @@ export interface IndeedRunData {
   jobsFound: number;
   status: 'success' | 'failed' | 'pending';
   nextRunAt: string;   // ISO 8601
+  via?: 'scraperapi' | 'direct'; // routing method used for this run
 }
 
 const INDEED_LAST_RUN_KEY = 'indeed:lastRun';

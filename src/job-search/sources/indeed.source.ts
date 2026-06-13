@@ -24,6 +24,23 @@ const EU_SEARCHES: Array<{ q: string; l: string; label: string; countryCode: str
   { q: 'nodejs backend remote',    l: 'Europe', label: 'EU-remote', countryCode: null },
 ];
 
+// Wrap a target URL through ScraperAPI when SCRAPERAPI_KEY is set.
+// render=false  — no JS rendering needed for RSS feeds (saves credits)
+// country_code=fr — use French IP for French job searches
+// keep_headers=true — forward original request headers to Indeed
+function buildScraperUrl(targetUrl: string): string {
+  const key = process.env.SCRAPERAPI_KEY;
+  if (!key) return targetUrl;
+  const params = new URLSearchParams({
+    api_key: key,
+    url: targetUrl,
+    render: 'false',
+    country_code: 'fr',
+    keep_headers: 'true',
+  });
+  return `https://api.scraperapi.com?${params}`;
+}
+
 export class IndeedJobsSource implements JobSource {
   name = SOURCE;
   priority = 8;
@@ -32,10 +49,17 @@ export class IndeedJobsSource implements JobSource {
     const jobs = new Map<string, JobPosting>();
     const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
     const fromage = String(Math.ceil(settings.maxAgeHours / 24) + 1);
+    const useScraperApi = !!process.env.SCRAPERAPI_KEY;
 
-    // Preflight to indeed.com to obtain session cookies — increases chance of
-    // passing Indeed's rate limiter vs. a completely cookieless request.
-    const sessionCookie = await fetchSessionCookie();
+    if (useScraperApi) {
+      console.log('[indeed] using ScraperAPI proxy (SCRAPERAPI_KEY is set)');
+    } else {
+      console.warn('[indeed] SCRAPERAPI_KEY not set — falling back to direct requests (may be rate-limited on Render)');
+    }
+
+    // Preflight session cookie only makes sense for direct requests.
+    // ScraperAPI manages its own session/cookie handling server-side.
+    const sessionCookie = useScraperApi ? '' : await fetchSessionCookie();
 
     let successCount = 0;
     let rateLimitedCount = 0;
@@ -43,7 +67,9 @@ export class IndeedJobsSource implements JobSource {
     for (const search of EU_SEARCHES) {
       try {
         const params = new URLSearchParams({ q: search.q, l: search.l, sort: 'date', fromage });
-        const url = `https://www.indeed.com/rss?${params}`;
+        const targetUrl = `https://www.indeed.com/rss?${params}`;
+        const fetchUrl = buildScraperUrl(targetUrl);
+
         const headers: Record<string, string> = {
           'User-Agent': BROWSER_UA,
           'Accept': 'application/rss+xml, application/xml, text/xml, */*',
@@ -52,7 +78,7 @@ export class IndeedJobsSource implements JobSource {
         };
         if (sessionCookie) headers['Cookie'] = sessionCookie;
 
-        let response = await proxyFetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+        let response = await proxyFetch(fetchUrl, { headers, signal: AbortSignal.timeout(30_000) });
 
         if (response.status === 429) {
           rateLimitedCount++;
@@ -103,6 +129,7 @@ export class IndeedJobsSource implements JobSource {
       timestamp: new Date().toISOString(),
       jobsFound: result.length,
       status,
+      via: useScraperApi ? 'scraperapi' : 'direct',
       nextRunAt: new Date(Date.now() + nextIntervalMs).toISOString(),
     });
     return result;

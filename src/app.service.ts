@@ -2023,7 +2023,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
           <div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
             <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">
-              Indeed (separate timer)
+              Indeed (separate timer)${indeedStatus?.via === 'scraperapi' ? ' <span style="font-size:11px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:4px;padding:1px 6px;vertical-align:middle;text-transform:none;letter-spacing:0;">via ScraperAPI proxy</span>' : indeedStatus?.via === 'direct' ? ' <span style="font-size:11px;font-weight:600;background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:4px;padding:1px 6px;vertical-align:middle;text-transform:none;letter-spacing:0;">direct (no proxy)</span>' : ''}
             </div>
             <table style="font-size:13px;color:#374151;border-collapse:collapse;width:100%;">
               <tr>
