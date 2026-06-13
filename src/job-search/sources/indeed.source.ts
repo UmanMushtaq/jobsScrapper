@@ -2,7 +2,9 @@ import { JobPosting, SearchSettings } from '../types';
 import { proxyFetch } from '../proxy-fetch';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
-import { redisSetIndeedLastRun } from '../redis-store';
+import { redisSetIndeedLastRun, redisSaveIndeedJob } from '../redis-store';
+import { buildScraperUrl } from '../scraperapi.helper';
+import { createHash } from 'crypto';
 
 const INDEED_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const INDEED_BACKOFF_MS  = 48 * 60 * 60 * 1000; // 48 hours — full 429 backoff
@@ -24,22 +26,6 @@ const EU_SEARCHES: Array<{ q: string; l: string; label: string; countryCode: str
   { q: 'nodejs backend remote',    l: 'Europe', label: 'EU-remote', countryCode: null },
 ];
 
-// Wrap a target URL through ScraperAPI when SCRAPERAPI_KEY is set.
-// render=false  — no JS rendering needed for RSS feeds (saves credits)
-// country_code=fr — use French IP for French job searches
-// keep_headers=true — forward original request headers to Indeed
-function buildScraperUrl(targetUrl: string): string {
-  const key = process.env.SCRAPERAPI_KEY;
-  if (!key) return targetUrl;
-  const params = new URLSearchParams({
-    api_key: key,
-    url: targetUrl,
-    render: 'false',
-    country_code: 'fr',
-    keep_headers: 'true',
-  });
-  return `https://api.scraperapi.com?${params}`;
-}
 
 export class IndeedJobsSource implements JobSource {
   name = SOURCE;
@@ -275,4 +261,80 @@ function containsAny(text: string, tokens: string[]): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hashUrl(url: string): string {
+  return createHash('sha1').update(url).digest('hex').slice(0, 16);
+}
+
+// Standalone 6h Indeed loop — fetches EU_SEARCHES and saves raw JobPostings to Redis.
+// Returns the interval ms to use for the next run (6h normal, 12h on full 429 backoff).
+export async function runIndeed6hLoop(): Promise<number> {
+  const NORMAL_MS  = 6  * 60 * 60 * 1000;
+  const BACKOFF_MS = 12 * 60 * 60 * 1000;
+  const fromage = '2'; // last ~2 days
+  const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+
+  let savedCount = 0;
+  let successCount = 0;
+  let rateLimitedCount = 0;
+
+  for (const search of EU_SEARCHES) {
+    try {
+      const params = new URLSearchParams({ q: search.q, l: search.l, sort: 'date', fromage });
+      const targetUrl = `https://www.indeed.com/rss?${params}`;
+      const fetchUrl = buildScraperUrl(targetUrl);
+
+      const headers: Record<string, string> = {
+        'User-Agent': BROWSER_UA,
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://www.indeed.com/',
+      };
+
+      const response = await proxyFetch(fetchUrl, { headers, signal: AbortSignal.timeout(30_000) });
+
+      if (response.status === 429) {
+        rateLimitedCount++;
+        console.warn(`[indeed-6h] ${search.label} 429 — skipping`);
+        continue;
+      }
+      if (!response.ok) {
+        console.warn(`[indeed-6h] ${search.label}: HTTP ${response.status}`);
+        continue;
+      }
+
+      const xml = await response.text();
+      if (!xml.includes('<item>')) {
+        if (xml.trim().startsWith('<html')) {
+          console.warn(`[indeed-6h] ${search.label}: bot-challenge page`);
+        }
+        continue;
+      }
+
+      const items = extractRssItems(xml, cutoff);
+      if (items.length > 0) successCount++;
+
+      for (const item of items) {
+        const posting = mapRssItem(item, search.countryCode, search.label);
+        if (!posting) continue;
+        const jobId = hashUrl(posting.canonicalUrl);
+        const isNew = await redisSaveIndeedJob(jobId, posting);
+        if (isNew) savedCount++;
+      }
+
+      const delayMs = 8_000 + Math.floor(Math.random() * 7_000);
+      await sleep(delayMs);
+    } catch (err) {
+      console.error(`[indeed-6h] ${search.label}:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const allRateLimited = rateLimitedCount > 0 && successCount === 0;
+  if (allRateLimited) {
+    console.warn('[indeed-6h] all queries rate-limited, backing off to 12h');
+    return BACKOFF_MS;
+  }
+  console.log(`[indeed-6h] saved ${savedCount} new jobs to Redis`);
+  return NORMAL_MS;
 }

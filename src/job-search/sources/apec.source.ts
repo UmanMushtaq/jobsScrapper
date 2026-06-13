@@ -2,6 +2,7 @@ import { proxyFetch } from '../proxy-fetch';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { buildScraperUrl } from '../scraperapi.helper';
 
 const SOURCE = 'apec.fr';
 
@@ -106,7 +107,7 @@ async function fetchViaRss(maxAgeHours: number, session: ApecSession): Promise<J
         typeContrat: '102888', // CDI
         flux: 'rss',
       });
-      const url = `${RSS_BASE}?${params}`;
+      const url = buildScraperUrl(`${RSS_BASE}?${params}`);
       const headers: Record<string, string> = {
         'User-Agent': BROWSER_UA,
         'Accept': 'application/rss+xml, application/xml, text/xml, */*',
@@ -208,7 +209,7 @@ interface ApecSession { cookie: string; xsrfToken: string; }
 
 async function fetchSession(): Promise<ApecSession> {
   try {
-    const res = await proxyFetch(PREFLIGHT_URL, {
+    const res = await proxyFetch(buildScraperUrl(PREFLIGHT_URL), {
       headers: {
         'User-Agent': BROWSER_UA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',

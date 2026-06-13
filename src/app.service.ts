@@ -16,6 +16,7 @@ import {
   readJobSearchState,
   runJobSearchOnce,
 } from './job-search/run';
+import { runIndeed6hLoop } from './job-search/sources/indeed.source';
 import {
   answerCallbackQuery,
   editTelegramMessage,
@@ -39,6 +40,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AppService.name);
   private intervalHandle: NodeJS.Timeout | null = null;
   private pingHandle: NodeJS.Timeout | null = null;
+  private indeedLoopHandle: NodeJS.Timeout | null = null;
   private activeRun: Promise<void> | null = null;
   private intervalMinutes = 0;
   private _keyStatusCache: { result: Record<string, unknown>; at: number } | null = null;
@@ -52,6 +54,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
     this.startSelfPing();
     void this.registerTelegramWebhook();
+    this.scheduleIndeedLoop();
 
     if (!shouldEnableScheduler()) {
       this.logger.log('Scheduler disabled; web app is running in health/dashboard mode only.');
@@ -94,6 +97,25 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       clearInterval(this.pingHandle);
       this.pingHandle = null;
     }
+    if (this.indeedLoopHandle) {
+      clearTimeout(this.indeedLoopHandle);
+      this.indeedLoopHandle = null;
+    }
+  }
+
+  private scheduleIndeedLoop(): void {
+    const run = async (): Promise<void> => {
+      try {
+        const nextMs = await runIndeed6hLoop();
+        this.indeedLoopHandle = setTimeout(() => void run(), nextMs);
+      } catch (err) {
+        this.logger.error('[indeed-6h] loop error:', err instanceof Error ? err.message : String(err));
+        // retry in 1h on unexpected error
+        this.indeedLoopHandle = setTimeout(() => void run(), 60 * 60 * 1000);
+      }
+    };
+    // Start first run immediately
+    void run();
   }
 
   // Ping own /health endpoint every 4 minutes so Render free tier never spins down.

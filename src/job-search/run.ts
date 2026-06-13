@@ -33,7 +33,7 @@ import {
   writeJsonFile,
 } from './storage';
 import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
-import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisLog, redisStoreJobHistory, redisSaveDashboardJob } from './redis-store';
+import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisLog, redisStoreJobHistory, redisSaveDashboardJob, redisGetSavedIndeedJobs } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef, hashJobUrl } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, ScorerDiagnostic, SearchProfile } from './types';
@@ -165,6 +165,15 @@ export async function runJobSearchOnce(
       }
       for (const job of result.jobs) {
         jobMap.set(job.canonicalUrl, job);
+      }
+    }
+
+    // Inject pre-fetched Indeed jobs from the independent 6h loop
+    const savedIndeedJobs = await redisGetSavedIndeedJobs().catch(() => []);
+    if (savedIndeedJobs.length > 0) {
+      console.log(`[indeed-6h] injecting ${savedIndeedJobs.length} pre-fetched jobs into pipeline`);
+      for (const job of savedIndeedJobs) {
+        if (!jobMap.has(job.canonicalUrl)) jobMap.set(job.canonicalUrl, job);
       }
     }
 

@@ -590,6 +590,72 @@ export async function redisGetJobDecisionHistory(
   }
 }
 
+// --- Indeed saved jobs (6h loop pre-fetch, 7d TTL) ---
+// Key per job: indeed:saved:{jobId} (SET NX EX 604800).
+// Index ZSET: indeed:saved:index (score = savedAt ms).
+
+import type { JobPosting } from './types';
+
+const INDEED_SAVED_INDEX_KEY = 'indeed:saved:index';
+const INDEED_SAVED_JOB_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
+export async function redisSaveIndeedJob(jobId: string, job: JobPosting): Promise<boolean> {
+  const r = getClient();
+  if (!r) return false;
+  try {
+    const key = `indeed:saved:${jobId}`;
+    const now = Date.now();
+    const res = await r.set(key, JSON.stringify(job), { nx: true, ex: INDEED_SAVED_JOB_TTL_SECONDS });
+    if (res === null) return false; // already exists (NX rejected)
+    type SM = { score: number; member: string };
+    await r.zadd<string>(INDEED_SAVED_INDEX_KEY, { nx: true }, { score: now, member: jobId } as SM);
+    return true;
+  } catch (err) {
+    console.error('[redis] saveIndeedJob failed:', (err as Error).message);
+    return false;
+  }
+}
+
+export async function redisGetSavedIndeedJobs(): Promise<JobPosting[]> {
+  const r = getClient();
+  if (!r) return [];
+  try {
+    const jobIds = await r.zrange(INDEED_SAVED_INDEX_KEY, 0, -1);
+    if (!jobIds.length) return [];
+    const keys = (jobIds as string[]).map((id) => `indeed:saved:${id}`);
+    const raws = await r.mget<string[]>(...keys);
+    const jobs: JobPosting[] = [];
+    const orphanIds: string[] = [];
+    for (let i = 0; i < raws.length; i++) {
+      const raw = raws[i];
+      if (!raw) { orphanIds.push(jobIds[i] as string); continue; }
+      try {
+        jobs.push(JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as JobPosting);
+      } catch { orphanIds.push(jobIds[i] as string); }
+    }
+    if (orphanIds.length) {
+      await r.zrem(INDEED_SAVED_INDEX_KEY, ...orphanIds).catch(() => {});
+    }
+    return jobs;
+  } catch (err) {
+    console.error('[redis] getSavedIndeedJobs failed:', (err as Error).message);
+    return [];
+  }
+}
+
+export async function redisDeleteSavedIndeedJob(jobId: string): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await Promise.all([
+      r.del(`indeed:saved:${jobId}`),
+      r.zrem(INDEED_SAVED_INDEX_KEY, jobId),
+    ]);
+  } catch (err) {
+    console.error('[redis] deleteSavedIndeedJob failed:', (err as Error).message);
+  }
+}
+
 // --- Persistent run log (last 500 entries, stored as ZSET scored by timestamp ms) ---
 
 export interface BotLogEntry {
