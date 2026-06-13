@@ -10,22 +10,19 @@ import { writeReport } from './report';
 import { AdzunaJobsSource } from './sources/adzuna.source';
 import { ApecJobsSource } from './sources/apec.source';
 import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
+import { AshbyJobsSource } from './sources/ashby.source';
 import { BerlinStartupJobsSource } from './sources/berlinstartupjobs.source';
 import { BundesagenturJobsSource } from './sources/bundesagentur.source';
-import { EuropeRemotelyJobsSource } from './sources/europeremotely.source';
 import { FranceTravailJobsSource } from './sources/france-travail.source';
 import { GreenhouseJobsSource } from './sources/greenhouse.source';
 import { HackerNewsJobsSource } from './sources/hackernews.source';
 import { IndeedJobsSource } from './sources/indeed.source';
-import { HimalayasJobsSource } from './sources/himalayas.source';
 import { JobicyJobsSource } from './sources/jobicy.source';
 import { LeverJobsSource } from './sources/lever.source';
-import { NodeskJobsSource } from './sources/nodesk.source';
 import { RemoteOKJobsSource } from './sources/remoteok.source';
 import { RemotiveJobsSource } from './sources/remotive.source';
-import { StartupJobsSource } from './sources/startupjobs.source';
+import { TalentioJobsSource } from './sources/talentio.source';
 import { WeWorkRemotelyJobsSource } from './sources/weworkremotely.source';
-import { WellfoundJobsSource } from './sources/wellfound.source';
 import { WttjJobsSource } from './sources/wttj.source';
 import {
   addUrlsToStore,
@@ -48,13 +45,14 @@ const DEFAULT_SENT_FILE = 'job_search_sent.json';
 const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
 const ACTIVE_SOURCES = [
-  'welcometothejungle.com', 'wellfound.com', 'adzuna.com', 'francetravail.fr',
-  'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'himalayas.app', 'jobicy.com',
+  'welcometothejungle.com', 'adzuna.com', 'francetravail.fr',
+  'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'jobicy.com',
   'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
-  'berlinstartupjobs.com', 'bundesagentur.de', 'startup.jobs',
+  'berlinstartupjobs.com', 'bundesagentur.de',
   'news.ycombinator.com',
-  'europeremotely.com',
-  // nodesk.co: RSS feeds permanently gone (all URL patterns return 404 as of June 2026)
+  'jobs.ashbyhq.com', 'eu.talent.io',
+  // removed (blocked/dead): nodesk.co (404), europeremotely.com (502),
+  // startup.jobs (403), wellfound.com (cloud IP block), himalayas.app (0 matches)
 ];
 // linkedin.com has no public API — requires a paid partner integration
 const BLOCKED_SOURCES = ['linkedin.com'];
@@ -124,13 +122,12 @@ export async function runJobSearchOnce(
 
     const sources = [
       new WttjJobsSource(),
-      new WellfoundJobsSource(),
       new AdzunaJobsSource(),
       new FranceTravailJobsSource(),
       new ApecJobsSource(),
       new GreenhouseJobsSource(),
+      new AshbyJobsSource(),
       new LeverJobsSource(),
-      new HimalayasJobsSource(),
       new JobicyJobsSource(),
       new WeWorkRemotelyJobsSource(),
       new RemotiveJobsSource(),
@@ -138,11 +135,9 @@ export async function runJobSearchOnce(
       new ArbeitnowJobsSource(),
       new BerlinStartupJobsSource(),
       new BundesagenturJobsSource(),
-      new StartupJobsSource(),
+      new TalentioJobsSource(),
       new IndeedJobsSource(),
       new HackerNewsJobsSource(),
-      new EuropeRemotelyJobsSource(),
-      new NodeskJobsSource(),
     ];
     const sourceResults: SourceRunResult[] = await Promise.all(
       sources.map(async (s): Promise<SourceRunResult> => {
