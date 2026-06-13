@@ -488,6 +488,58 @@ export async function redisDeleteDashboardJob(jobId: string): Promise<void> {
   }
 }
 
+// --- Gemini learning history (applied / dismissed job summaries for AI calibration) ---
+// Stored as Redis lists (LPUSH + LTRIM), newest entry at index 0.
+// Keys: history:applied, history:dismissed. Max 50 entries each.
+
+export interface JobDecisionHistoryEntry {
+  title: string;
+  company: string;
+  countryCode: string | null;
+  score: number;
+  foundAt: number; // ms epoch
+}
+
+const HISTORY_APPLIED_KEY = 'history:applied';
+const HISTORY_DISMISSED_KEY = 'history:dismissed';
+const HISTORY_DECISION_MAX = 50;
+
+export async function redisRecordJobDecisionHistory(
+  type: 'applied' | 'dismissed',
+  entry: JobDecisionHistoryEntry,
+): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  const key = type === 'applied' ? HISTORY_APPLIED_KEY : HISTORY_DISMISSED_KEY;
+  try {
+    await r.lpush(key, JSON.stringify(entry));
+    await r.ltrim(key, 0, HISTORY_DECISION_MAX - 1);
+  } catch (err) {
+    console.error(`[redis] recordJobDecisionHistory(${type}) failed:`, (err as Error).message);
+  }
+}
+
+export async function redisGetJobDecisionHistory(
+  type: 'applied' | 'dismissed',
+  limit = 20,
+): Promise<JobDecisionHistoryEntry[]> {
+  const r = getClient();
+  if (!r) return [];
+  const key = type === 'applied' ? HISTORY_APPLIED_KEY : HISTORY_DISMISSED_KEY;
+  try {
+    const raws = await r.lrange(key, 0, limit - 1);
+    return (raws as string[])
+      .map((raw) => {
+        try { return (typeof raw === 'string' ? JSON.parse(raw) : raw) as JobDecisionHistoryEntry; }
+        catch { return null; }
+      })
+      .filter((e): e is JobDecisionHistoryEntry => e !== null);
+  } catch (err) {
+    console.error(`[redis] getJobDecisionHistory(${type}) failed:`, (err as Error).message);
+    return [];
+  }
+}
+
 // --- Persistent run log (last 500 entries, stored as ZSET scored by timestamp ms) ---
 
 export interface BotLogEntry {

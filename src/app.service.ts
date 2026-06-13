@@ -25,7 +25,7 @@ import {
   resolveJobRef,
   sendTelegramMessages,
 } from './job-search/telegram';
-import { BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs } from './job-search/redis-store';
+import { BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 
@@ -177,19 +177,39 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   async dashboardJobApplied(jobId: string, meta?: JobDecisionMeta): Promise<void> {
     if (!jobId) return;
-    // Get the job from dashboard store to retrieve its URL, then log to history
     const jobs = await redisGetDashboardJobs();
     const entry = jobs.find((j) => j.jobId === jobId);
     if (entry) {
-      const m = entry.match as { job?: { canonicalUrl?: string } };
+      const m = entry.match as { job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null }; score?: number };
       const url = m?.job?.canonicalUrl;
       if (url) await markJobDecision('applied', url, meta);
+      // Record for Gemini calibration
+      await redisRecordJobDecisionHistory('applied', {
+        title: m?.job?.title ?? meta?.title ?? '',
+        company: m?.job?.company ?? meta?.company ?? '',
+        countryCode: m?.job?.countryCode ?? null,
+        score: m?.score ?? meta?.score ?? 0,
+        foundAt: entry.foundAt,
+      });
     }
     await redisDeleteDashboardJob(jobId);
   }
 
   async dashboardJobDismiss(jobId: string): Promise<void> {
     if (!jobId) return;
+    const jobs = await redisGetDashboardJobs();
+    const entry = jobs.find((j) => j.jobId === jobId);
+    if (entry) {
+      const m = entry.match as { job?: { title?: string; company?: string; countryCode?: string | null }; score?: number };
+      // Record for Gemini calibration
+      await redisRecordJobDecisionHistory('dismissed', {
+        title: m?.job?.title ?? '',
+        company: m?.job?.company ?? '',
+        countryCode: m?.job?.countryCode ?? null,
+        score: m?.score ?? 0,
+        foundAt: entry.foundAt,
+      });
+    }
     await redisDeleteDashboardJob(jobId);
   }
 

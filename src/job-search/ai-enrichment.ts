@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { redisIncrGeminiDailyCalls } from './redis-store';
+import { redisGetJobDecisionHistory, redisIncrGeminiDailyCalls } from './redis-store';
 import { resolveWorkAuth } from './profile';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
@@ -473,8 +473,35 @@ async function enrichSingle(
     job.companySummary ? `About: ${job.companySummary.slice(0, 300)}` : '',
   ].filter(Boolean).join('\n');
 
+  // Fetch applied/dismissed history in parallel for Gemini calibration context
+  const [appliedHistory, dismissedHistory] = await Promise.all([
+    redisGetJobDecisionHistory('applied', 20),
+    redisGetJobDecisionHistory('dismissed', 20),
+  ]);
+
+  let historyContext = '';
+  if (appliedHistory.length > 0 || dismissedHistory.length > 0) {
+    const lines: string[] = ['=== CANDIDATE JOB DECISION HISTORY ==='];
+    if (appliedHistory.length > 0) {
+      lines.push('Jobs this candidate APPLIED TO recently (good matches — calibrate higher if similar):');
+      appliedHistory.forEach((e) => lines.push(`  - ${e.title} @ ${e.company}${e.countryCode ? ` (${e.countryCode})` : ''} [score: ${e.score}]`));
+    }
+    if (dismissedHistory.length > 0) {
+      lines.push('Jobs this candidate DISMISSED recently (bad matches — calibrate lower if similar):');
+      dismissedHistory.forEach((e) => lines.push(`  - ${e.title} @ ${e.company}${e.countryCode ? ` (${e.countryCode})` : ''} [score: ${e.score}]`));
+    }
+    lines.push(
+      'Use this history to calibrate your relevanceScore.',
+      'If the new job is very similar to a dismissed job (same company type, same stack, same role type), score relevance lower.',
+      'If it is similar to an applied job, score relevance higher.',
+      '=== END HISTORY ===',
+    );
+    historyContext = lines.join('\n');
+  }
+
   const prompt =
     (preferenceContext ? `${preferenceContext}\n\n` : '') +
+    (historyContext ? `${historyContext}\n\n` : '') +
     `${companyInfo}\n` +
     `Role: ${job.title}\n` +
     `Location: ${job.locationLabel} (${job.workMode})\n` +
