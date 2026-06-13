@@ -5,6 +5,7 @@ import { JobSource } from './registry';
 import { redisSetIndeedLastRun } from '../redis-store';
 
 const INDEED_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const INDEED_BACKOFF_MS  = 48 * 60 * 60 * 1000; // 48 hours — full 429 backoff
 
 const SOURCE = 'indeed.com';
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -16,19 +17,11 @@ interface RssItem {
   pubDate: string;
 }
 
-// European countries to search — each gets its own countryCode so the location filter
-// can decide: FR = preferred (on-site/hybrid/remote OK), other EU = relocation required
-// for on-site/hybrid, remote always OK.
 const EU_SEARCHES: Array<{ q: string; l: string; label: string; countryCode: string | null }> = [
-  { q: 'nodejs backend developer',    l: 'France',      label: 'FR', countryCode: 'FR' },
-  { q: 'nestjs developer',            l: 'France',      label: 'FR-nestjs', countryCode: 'FR' },
-  { q: 'nodejs backend developer',    l: 'Germany',     label: 'DE', countryCode: 'DE' },
-  { q: 'nodejs backend developer',    l: 'Netherlands', label: 'NL', countryCode: 'NL' },
-  { q: 'nodejs backend developer',    l: 'Poland',      label: 'PL', countryCode: 'PL' },
-  { q: 'nodejs backend developer',    l: 'Sweden',      label: 'SE', countryCode: 'SE' },
-  { q: 'nodejs backend developer',    l: 'Spain',       label: 'ES', countryCode: 'ES' },
+  { q: 'nodejs backend developer', l: 'France', label: 'FR',        countryCode: 'FR' },
+  { q: 'nestjs developer',         l: 'France', label: 'FR-nestjs', countryCode: 'FR' },
   // Broad EU remote — null countryCode means location filter will accept remote only
-  { q: 'nodejs backend remote',       l: 'Europe',      label: 'EU-remote', countryCode: null },
+  { q: 'nodejs backend remote',    l: 'Europe', label: 'EU-remote', countryCode: null },
 ];
 
 export class IndeedJobsSource implements JobSource {
@@ -63,9 +56,8 @@ export class IndeedJobsSource implements JobSource {
 
         if (response.status === 429) {
           rateLimitedCount++;
-          console.warn(`[indeed] ${search.label} 429 — waiting 30s before retry`);
-          await sleep(30_000);
-          response = await proxyFetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+          console.warn(`[indeed] ${search.label} 429 — skipping`);
+          continue;
         }
 
         if (!response.ok) {
@@ -90,23 +82,28 @@ export class IndeedJobsSource implements JobSource {
           const posting = mapRssItem(item, search.countryCode, search.label);
           if (posting) jobs.set(posting.canonicalUrl, posting);
         }
-        await sleep(4000);
+
+        // Random delay 8–15s between queries to reduce rate-limit risk
+        const delayMs = 8_000 + Math.floor(Math.random() * 7_000);
+        await sleep(delayMs);
       } catch (err) {
         console.error(`[indeed] ${search.label}:`, err instanceof Error ? err.message : String(err));
       }
     }
 
-    if (rateLimitedCount > 0 && successCount === 0) {
-      console.warn(`[indeed] all ${rateLimitedCount} searches rate-limited (429) — IP may be flagged, will retry next run`);
+    const allRateLimited = rateLimitedCount > 0 && successCount === 0;
+    if (allRateLimited) {
+      console.warn(`[indeed] all queries rate-limited, backing off to 48h`);
     }
 
     const result = Array.from(jobs.values());
-    const status = result.length > 0 ? 'success' : rateLimitedCount > 0 ? 'failed' : 'success';
+    const nextIntervalMs = allRateLimited ? INDEED_BACKOFF_MS : INDEED_INTERVAL_MS;
+    const status = result.length > 0 ? 'success' : allRateLimited ? 'failed' : 'success';
     await redisSetIndeedLastRun({
       timestamp: new Date().toISOString(),
       jobsFound: result.length,
       status,
-      nextRunAt: new Date(Date.now() + INDEED_INTERVAL_MS).toISOString(),
+      nextRunAt: new Date(Date.now() + nextIntervalMs).toISOString(),
     });
     return result;
   }
