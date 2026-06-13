@@ -488,6 +488,55 @@ export async function redisDeleteDashboardJob(jobId: string): Promise<void> {
   }
 }
 
+// --- Applied jobs dashboard (10-day TTL, for follow-up tracking) ---
+// Key per job: dashboard:applied:{jobId} (SET EX 864000).
+// Scanned via KEYS (small dataset — max 50 entries in practice).
+
+export interface AppliedJobEntry {
+  jobId: string;
+  title: string;
+  company: string;
+  locationLabel: string;
+  countryCode: string | null;
+  workMode: string;
+  score: number;
+  appliedAt: number; // ms epoch
+}
+
+const APPLIED_JOB_TTL_SECONDS = 10 * 24 * 60 * 60; // 10 days
+
+export async function redisSaveAppliedJob(entry: AppliedJobEntry): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await r.set(`dashboard:applied:${entry.jobId}`, JSON.stringify(entry), { ex: APPLIED_JOB_TTL_SECONDS });
+  } catch (err) {
+    console.error('[redis] saveAppliedJob failed:', (err as Error).message);
+  }
+}
+
+export async function redisGetAppliedJobs(): Promise<AppliedJobEntry[]> {
+  const r = getClient();
+  if (!r) return [];
+  try {
+    const keys = await r.keys('dashboard:applied:*');
+    if (!keys.length) return [];
+    const raws = await r.mget<string[]>(...(keys as string[]));
+    const entries = raws
+      .map((raw) => {
+        if (!raw) return null;
+        try { return (typeof raw === 'string' ? JSON.parse(raw) : raw) as AppliedJobEntry; }
+        catch { return null; }
+      })
+      .filter((e): e is AppliedJobEntry => e !== null);
+    // Newest first
+    return entries.sort((a, b) => b.appliedAt - a.appliedAt);
+  } catch (err) {
+    console.error('[redis] getAppliedJobs failed:', (err as Error).message);
+    return [];
+  }
+}
+
 // --- Gemini learning history (applied / dismissed job summaries for AI calibration) ---
 // Stored as Redis lists (LPUSH + LTRIM), newest entry at index 0.
 // Keys: history:applied, history:dismissed. Max 50 entries each.

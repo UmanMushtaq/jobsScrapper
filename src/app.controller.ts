@@ -45,6 +45,11 @@ export class AppController {
     return this.appService.getPlatformStatusJson();
   }
 
+  @Get('api/applied')
+  async appliedJobsApi() {
+    return this.appService.getAppliedJobs();
+  }
+
   @Get('jobs/tailored-cv')
   @Header('content-type', 'text/html; charset=utf-8')
   async tailoredCv(@Query('hash') hash: string): Promise<string> {

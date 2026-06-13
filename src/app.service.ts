@@ -25,7 +25,7 @@ import {
   resolveJobRef,
   sendTelegramMessages,
 } from './job-search/telegram';
-import { BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory } from './job-search/redis-store';
+import { AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 
@@ -180,9 +180,13 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const jobs = await redisGetDashboardJobs();
     const entry = jobs.find((j) => j.jobId === jobId);
     if (entry) {
-      const m = entry.match as { job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null }; score?: number };
+      const m = entry.match as {
+        job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null; locationLabel?: string; workMode?: string };
+        score?: number;
+      };
       const url = m?.job?.canonicalUrl;
       if (url) await markJobDecision('applied', url, meta);
+      const appliedAt = Date.now();
       // Record for Gemini calibration
       await redisRecordJobDecisionHistory('applied', {
         title: m?.job?.title ?? meta?.title ?? '',
@@ -190,6 +194,17 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         countryCode: m?.job?.countryCode ?? null,
         score: m?.score ?? meta?.score ?? 0,
         foundAt: entry.foundAt,
+      });
+      // Save full entry for Applied tab (10-day TTL)
+      await redisSaveAppliedJob({
+        jobId,
+        title: m?.job?.title ?? meta?.title ?? '',
+        company: m?.job?.company ?? meta?.company ?? '',
+        locationLabel: m?.job?.locationLabel ?? '',
+        countryCode: m?.job?.countryCode ?? null,
+        workMode: m?.job?.workMode ?? '',
+        score: m?.score ?? meta?.score ?? 0,
+        appliedAt,
       });
     }
     await redisDeleteDashboardJob(jobId);
@@ -211,6 +226,10 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       });
     }
     await redisDeleteDashboardJob(jobId);
+  }
+
+  async getAppliedJobs(): Promise<AppliedJobEntry[]> {
+    return redisGetAppliedJobs();
   }
 
   async getHealth(): Promise<Record<string, unknown>> {
@@ -2076,25 +2095,62 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
         <div id="key-status" style="color:#9ca3af;font-size:13px;">Loading key status…</div>
       </div>
 
-      <div class="card">
-        <h2>Current matches <span style="font-size:14px;font-weight:400;color:#6b7280;">(${displayMatches.length})</span></h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Role</th>
-                <th>Company</th>
-                <th>Location</th>
-                <th>Mode</th>
-                <th>Salary</th>
-                <th>Score</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
+      <div class="card" id="matches-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+          <div style="display:flex;gap:8px;">
+            <button id="tab-matches-btn" onclick="switchDashTab('matches')"
+              style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:#2563eb;color:white;">
+              Matches <span id="tab-matches-count" style="font-weight:400;opacity:0.8;">(${displayMatches.length})</span>
+            </button>
+            <button id="tab-applied-btn" onclick="switchDashTab('applied')"
+              style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:#f3f4f6;color:#374151;">
+              Applied <span id="tab-applied-count" style="font-weight:400;opacity:0.8;"></span>
+            </button>
+          </div>
+        </div>
+
+        <div id="tab-matches-panel">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Company</th>
+                  <th>Location</th>
+                  <th>Mode</th>
+                  <th>Salary</th>
+                  <th>Score</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tab-applied-panel" style="display:none;">
+          <div id="applied-loading" style="color:#9ca3af;font-size:13px;padding:20px 0;">Loading…</div>
+          <div id="applied-table-wrap" class="table-wrap" style="display:none;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Company</th>
+                  <th>Location</th>
+                  <th>Score</th>
+                  <th>Applied date</th>
+                  <th>Days since</th>
+                  <th>Follow-up</th>
+                </tr>
+              </thead>
+              <tbody id="applied-tbody"></tbody>
+            </table>
+          </div>
+          <div id="applied-empty" style="display:none;text-align:center;padding:40px;color:#6b7280;">
+            No applied jobs in the last 10 days.
+          </div>
         </div>
       </div>
 
@@ -2366,6 +2422,74 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
       loadHealth();
       setInterval(loadHealth, 30000);
+
+      // ── Applied jobs tab ────────────────────────────────────────────
+      var _appliedLoaded = false;
+
+      function switchDashTab(tab) {
+        var isMatches = tab === 'matches';
+        document.getElementById('tab-matches-panel').style.display = isMatches ? '' : 'none';
+        document.getElementById('tab-applied-panel').style.display = isMatches ? 'none' : '';
+        document.getElementById('tab-matches-btn').style.cssText = 'padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:' + (isMatches ? '#2563eb;color:white' : '#f3f4f6;color:#374151') + ';';
+        document.getElementById('tab-applied-btn').style.cssText  = 'padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:' + (isMatches ? '#f3f4f6;color:#374151' : '#15803d;color:white') + ';';
+        if (!isMatches && !_appliedLoaded) loadAppliedJobs();
+      }
+
+      function workModeBadge(mode) {
+        if (mode === 'remote')  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#d1fae5;color:#065f46;">remote</span>';
+        if (mode === 'hybrid')  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e;">hybrid</span>';
+        return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#f3f4f6;color:#374151;">on-site</span>';
+      }
+
+      function daysBadge(days) {
+        if (days > 10) return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#fee2e2;color:#991b1b;">Overdue</span>';
+        if (days > 7)  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#fef3c7;color:#92400e;">Follow up</span>';
+        return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#f3f4f6;color:#6b7280;">Waiting</span>';
+      }
+
+      function loadAppliedJobs() {
+        _appliedLoaded = true;
+        var loading = document.getElementById('applied-loading');
+        var tableWrap = document.getElementById('applied-table-wrap');
+        var empty = document.getElementById('applied-empty');
+        var tbody = document.getElementById('applied-tbody');
+        if (loading) loading.style.display = '';
+        if (tableWrap) tableWrap.style.display = 'none';
+        if (empty) empty.style.display = 'none';
+
+        fetch('/api/applied')
+          .then(function(r) { return r.json(); })
+          .then(function(jobs) {
+            if (loading) loading.style.display = 'none';
+            var countEl = document.getElementById('tab-applied-count');
+            if (countEl) countEl.textContent = '(' + jobs.length + ')';
+            if (!jobs.length) { if (empty) empty.style.display = ''; return; }
+            var now = Date.now();
+            var html = '';
+            jobs.forEach(function(j) {
+              var days = Math.floor((now - j.appliedAt) / 86400000);
+              var appliedDate = new Date(j.appliedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+              html += '<tr>' +
+                '<td style="font-weight:600;font-size:14px;">' + escHtml(j.title) + '</td>' +
+                '<td>' + escHtml(j.company) + '</td>' +
+                '<td style="font-size:13px;color:#374151;">' + escHtml(j.locationLabel || '') + (j.countryCode ? ' (' + escHtml(j.countryCode) + ')' : '') + '</td>' +
+                '<td><span style="padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;background:#eff6ff;color:#1d4ed8;">' + j.score + '%</span></td>' +
+                '<td style="font-size:13px;white-space:nowrap;">' + appliedDate + '</td>' +
+                '<td style="font-size:13px;">' + days + ' day' + (days === 1 ? '' : 's') + '</td>' +
+                '<td>' + daysBadge(days) + '</td>' +
+                '</tr>';
+            });
+            if (tbody) tbody.innerHTML = html;
+            if (tableWrap) tableWrap.style.display = '';
+          })
+          .catch(function() {
+            if (loading) loading.textContent = 'Could not load applied jobs.';
+          });
+      }
+
+      function escHtml(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
     </script>
   </body>
 </html>`;
