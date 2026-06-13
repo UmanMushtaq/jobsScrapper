@@ -27,6 +27,7 @@ import {
 } from './job-search/telegram';
 import { AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
+import { ApecPlaywrightStatus, getApecPlaywrightStatus } from './job-search/sources/apec.playwright';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 
 // Hardcoded recovery contact. Password recovery delivers to Telegram (already
@@ -430,12 +431,13 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async renderDashboard(): Promise<string> {
-    const [state, indeedStatus, dashboardJobs] = await Promise.all([
+    const [state, indeedStatus, dashboardJobs, apecStatus] = await Promise.all([
       readJobSearchState(),
       redisGetIndeedLastRun(),
       redisGetDashboardJobs(),
+      getApecPlaywrightStatus(),
     ]);
-    return renderHtml(state, indeedStatus, dashboardJobs);
+    return renderHtml(state, indeedStatus, dashboardJobs, apecStatus);
   }
 
   async getHistoryPage(): Promise<string> {
@@ -1641,7 +1643,7 @@ function escapeBr(value: string): string {
   return escapeHtml(value).replace(/\n/g, '<br>');
 }
 
-function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, dashboardJobs?: DashboardJobEntry[]): string {
+function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, dashboardJobs?: DashboardJobEntry[], apecStatus?: ApecPlaywrightStatus | null): string {
   // Use persistent dashboard jobs if available, fall back to state.latestMatches
   const now = Date.now();
   const displayMatches: Array<{ match: MatchResult; foundAt?: number }> =
@@ -2055,6 +2057,38 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
               </tr>
             </table>
           </div>
+        </div>
+
+        <!-- APEC Playwright status -->
+        <div style="margin-top:12px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;letter-spacing:0.03em;text-transform:uppercase;">APEC Playwright</div>
+          <table style="border-collapse:collapse;font-size:13px;width:100%;">
+            <tr>
+              <td style="padding:3px 0;color:#6b7280;width:120px;">Last run</td>
+              <td style="padding:3px 0;">${apecStatus?.lastRun ? escapeHtml(new Date(apecStatus.lastRun).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })) : 'never'}</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 0;color:#6b7280;">Jobs found</td>
+              <td style="padding:3px 0;">${apecStatus ? String(apecStatus.jobsFound) : '—'}</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 0;color:#6b7280;">Next run</td>
+              <td style="padding:3px 0;">${apecStatus?.nextRun ? escapeHtml(new Date(apecStatus.nextRun).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })) : 'pending first run'}</td>
+            </tr>
+            <tr>
+              <td style="padding:3px 0;color:#6b7280;">Status</td>
+              <td style="padding:3px 0;">${apecStatus
+                ? `<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;${
+                    apecStatus.status === 'ok' ? 'background:#dcfce7;color:#166534;'
+                    : apecStatus.status === 'timeout' ? 'background:#fef9c3;color:#854d0e;'
+                    : apecStatus.status === 'blocked' ? 'background:#fee2e2;color:#991b1b;'
+                    : apecStatus.status === 'never run' ? 'background:#f1f5f9;color:#64748b;'
+                    : 'background:#fee2e2;color:#991b1b;'
+                  }">${escapeHtml(apecStatus.status)}</span>`
+                : '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#f1f5f9;color:#64748b;">never run</span>'
+              }</td>
+            </tr>
+          </table>
         </div>
 
         <div class="actions-row">
