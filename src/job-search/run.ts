@@ -18,6 +18,8 @@ import { GreenhouseJobsSource } from './sources/greenhouse.source';
 import { HackerNewsJobsSource } from './sources/hackernews.source';
 import { IndeedJobsSource } from './sources/indeed.source';
 import { JobicyJobsSource } from './sources/jobicy.source';
+import { JustJoinSource } from './sources/justjoin.source';
+import { NoFluffJobsSource } from './sources/nofluffjobs.source';
 import { LeverJobsSource } from './sources/lever.source';
 import { RemoteOKJobsSource } from './sources/remoteok.source';
 import { RemotiveJobsSource } from './sources/remotive.source';
@@ -51,6 +53,7 @@ const ACTIVE_SOURCES = [
   'berlinstartupjobs.com', 'bundesagentur.de',
   'news.ycombinator.com',
   'jobs.ashbyhq.com', 'eu.talent.io',
+  'nofluffjobs.com', 'justjoin.it',
   // removed (blocked/dead): nodesk.co (404), europeremotely.com (502),
   // startup.jobs (403), wellfound.com (cloud IP block), himalayas.app (0 matches)
 ];
@@ -138,6 +141,8 @@ export async function runJobSearchOnce(
       new TalentioJobsSource(),
       new IndeedJobsSource(),
       new HackerNewsJobsSource(),
+      new NoFluffJobsSource(),
+      new JustJoinSource(),
     ];
     const sourceResults: SourceRunResult[] = await Promise.all(
       sources.map(async (s): Promise<SourceRunResult> => {
