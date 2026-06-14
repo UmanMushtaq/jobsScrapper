@@ -47,6 +47,7 @@ const ENGLISH_SIGNALS = [
 const SEARCH_URLS = [
   'https://nofluffjobs.com/api/search/posting?criteria=requirement%3Dnode.js&salaryCurrency=PLN&salaryPeriod=month',
   'https://nofluffjobs.com/api/search/posting?criteria=requirement%3Dtypescript&salaryCurrency=PLN&salaryPeriod=month',
+  'https://nofluffjobs.com/api/search/posting?criteria=requirement%3Dnestjs',
 ];
 
 export class NoFluffJobsSource implements JobSource {
