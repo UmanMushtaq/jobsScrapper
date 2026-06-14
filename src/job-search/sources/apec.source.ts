@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { ApecPlaywrightJob, scrapeApecWithPlaywright } from './apec.playwright';
+import { redisSetApecStatus } from '../redis-store';
 
 const SOURCE = 'apec.fr';
 
@@ -104,7 +105,17 @@ export class ApecJobsSource implements JobSource {
       }
     }
 
-    return Array.from(jobs.values());
+    const result = Array.from(jobs.values());
+    const playwrightEnabled = process.env.PLAYWRIGHT_ENABLED === 'true';
+    const INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h cooldown matches Playwright throttle
+    await redisSetApecStatus({
+      lastRun: new Date().toISOString(),
+      jobsFound: result.length,
+      status: result.length > 0 ? 'success' : 'blocked',
+      nextRun: new Date(Date.now() + INTERVAL_MS).toISOString(),
+      playwrightEnabled,
+    });
+    return result;
   }
 
   private mapPlaywrightJob(j: ApecPlaywrightJob): JobPosting | null {

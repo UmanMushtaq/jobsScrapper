@@ -419,6 +419,42 @@ export async function redisGetIndeedLastRun(): Promise<IndeedRunData | null> {
   }
 }
 
+// --- APEC run status ---
+
+export interface ApecRunStatus {
+  lastRun: string;          // ISO 8601
+  jobsFound: number;
+  status: 'success' | 'blocked' | 'never run';
+  nextRun: string;          // ISO 8601
+  playwrightEnabled: boolean;
+}
+
+const APEC_STATUS_KEY = 'apec:status';
+const APEC_STATUS_TTL_SECONDS = 48 * 60 * 60; // 48h
+
+export async function redisSetApecStatus(data: ApecRunStatus): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await r.set(APEC_STATUS_KEY, JSON.stringify(data), { ex: APEC_STATUS_TTL_SECONDS });
+  } catch (err) {
+    console.error('[redis] setApecStatus failed:', (err as Error).message);
+  }
+}
+
+export async function redisGetApecStatus(): Promise<ApecRunStatus | null> {
+  const r = getClient();
+  if (!r) return null;
+  try {
+    const raw = await r.get<string>(APEC_STATUS_KEY);
+    if (!raw) return null;
+    return JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as ApecRunStatus;
+  } catch (err) {
+    console.error('[redis] getApecStatus failed:', (err as Error).message);
+    return null;
+  }
+}
+
 // --- Persistent dashboard jobs ---
 // Each job is stored as dashboard:job:{jobId} (SET NX, 7d TTL).
 // An index ZSET (dashboard:jobs:index, score=foundAt ms) tracks all active jobIds.

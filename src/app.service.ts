@@ -25,7 +25,7 @@ import {
   resolveJobRef,
   sendTelegramMessages,
 } from './job-search/telegram';
-import { AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob } from './job-search/redis-store';
+import { ApecRunStatus, AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetApecStatus, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
 import { ApecPlaywrightStatus, getApecPlaywrightStatus } from './job-search/sources/apec.playwright';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
@@ -431,13 +431,14 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async renderDashboard(): Promise<string> {
-    const [state, indeedStatus, dashboardJobs, apecStatus] = await Promise.all([
+    const [state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus] = await Promise.all([
       readJobSearchState(),
       redisGetIndeedLastRun(),
       redisGetDashboardJobs(),
       getApecPlaywrightStatus(),
+      redisGetApecStatus(),
     ]);
-    return renderHtml(state, indeedStatus, dashboardJobs, apecStatus);
+    return renderHtml(state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus);
   }
 
   async getHistoryPage(): Promise<string> {
@@ -1643,7 +1644,7 @@ function escapeBr(value: string): string {
   return escapeHtml(value).replace(/\n/g, '<br>');
 }
 
-function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, dashboardJobs?: DashboardJobEntry[], apecStatus?: ApecPlaywrightStatus | null): string {
+function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, dashboardJobs?: DashboardJobEntry[], apecStatus?: ApecPlaywrightStatus | null, apecRunStatus?: ApecRunStatus | null): string {
   // Use persistent dashboard jobs if available, fall back to state.latestMatches
   const now = Date.now();
   const displayMatches: Array<{ match: MatchResult; foundAt?: number }> =
@@ -2059,37 +2060,50 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
           </div>
         </div>
 
-        <!-- APEC Playwright status -->
-        <div style="margin-top:12px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
-          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;letter-spacing:0.03em;text-transform:uppercase;">APEC Playwright</div>
-          <table style="border-collapse:collapse;font-size:13px;width:100%;">
-            <tr>
-              <td style="padding:3px 0;color:#6b7280;width:120px;">Last run</td>
-              <td style="padding:3px 0;">${apecStatus?.lastRun ? escapeHtml(new Date(apecStatus.lastRun).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })) : 'never'}</td>
-            </tr>
-            <tr>
-              <td style="padding:3px 0;color:#6b7280;">Jobs found</td>
-              <td style="padding:3px 0;">${apecStatus ? String(apecStatus.jobsFound) : '—'}</td>
-            </tr>
-            <tr>
-              <td style="padding:3px 0;color:#6b7280;">Next run</td>
-              <td style="padding:3px 0;">${apecStatus?.nextRun ? escapeHtml(new Date(apecStatus.nextRun).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })) : 'pending first run'}</td>
-            </tr>
-            <tr>
-              <td style="padding:3px 0;color:#6b7280;">Status</td>
-              <td style="padding:3px 0;">${apecStatus
-                ? `<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;${
-                    apecStatus.status === 'ok' ? 'background:#dcfce7;color:#166534;'
-                    : apecStatus.status === 'timeout' ? 'background:#fef9c3;color:#854d0e;'
-                    : apecStatus.status === 'blocked' ? 'background:#fee2e2;color:#991b1b;'
-                    : apecStatus.status === 'never run' ? 'background:#f1f5f9;color:#64748b;'
-                    : 'background:#fee2e2;color:#991b1b;'
-                  }">${escapeHtml(apecStatus.status)}</span>`
-                : '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#f1f5f9;color:#64748b;">never run</span>'
-              }</td>
-            </tr>
-          </table>
-        </div>
+          <!-- APEC status panel -->
+          <div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+            <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">
+              APEC (separate timer)${apecRunStatus?.playwrightEnabled ? ' <span style="font-size:11px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:4px;padding:1px 6px;vertical-align:middle;text-transform:none;letter-spacing:0;">Playwright stealth</span>' : ' <span style="font-size:11px;font-weight:600;background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:4px;padding:1px 6px;vertical-align:middle;text-transform:none;letter-spacing:0;">RSS / API fallback</span>'}
+            </div>
+            <table style="font-size:13px;color:#374151;border-collapse:collapse;width:100%;">
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;width:160px;">Last run</td>
+                <td style="padding:3px 0;">${apecRunStatus ? escapeHtml(new Date(apecRunStatus.lastRun).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })) : 'never'}</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Next run</td>
+                <td style="padding:3px 0;">${apecRunStatus ? escapeHtml(new Date(apecRunStatus.nextRun).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })) : 'pending first run'}</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Timer</td>
+                <td style="padding:3px 0;">6 hours</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Jobs found (last run)</td>
+                <td style="padding:3px 0;">${apecRunStatus ? String(apecRunStatus.jobsFound) : '—'}</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Playwright</td>
+                <td style="padding:3px 0;">${apecRunStatus
+                  ? apecRunStatus.playwrightEnabled
+                    ? '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#eff6ff;color:#1d4ed8;">enabled</span>'
+                    : '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#fef9c3;color:#854d0e;">disabled</span>'
+                  : '—'
+                }</td>
+              </tr>
+              <tr>
+                <td style="padding:3px 0;color:#6b7280;">Status</td>
+                <td style="padding:3px 0;">${apecRunStatus
+                  ? `<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;${
+                      apecRunStatus.status === 'success' ? 'background:#dcfce7;color:#166534;'
+                      : apecRunStatus.status === 'blocked' ? 'background:#fee2e2;color:#991b1b;'
+                      : 'background:#f1f5f9;color:#64748b;'
+                    }">${escapeHtml(apecRunStatus.status)}</span>`
+                  : '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#f1f5f9;color:#64748b;">never run</span>'
+                }</td>
+              </tr>
+            </table>
+          </div>
 
         <div class="actions-row">
           <form method="post" action="/run-now">
