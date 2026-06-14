@@ -1,4 +1,3 @@
-import { proxyFetch } from '../proxy-fetch';
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 
@@ -28,7 +27,7 @@ export class RemoteOKJobsSource implements JobSource {
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     try {
-      const response = await proxyFetch('https://remoteok.com/api', {
+      const response = await fetch('https://remoteok.com/api', {
         headers: {
           'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Accept': 'application/json',

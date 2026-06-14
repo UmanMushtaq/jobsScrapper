@@ -1,7 +1,6 @@
 import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
-import { proxyFetch } from '../proxy-fetch';
 import { JobSource } from './registry';
 
 const SOURCE = 'jobicy.com';
@@ -78,7 +77,7 @@ async function fetchJobs(tag: string, geo: string | undefined, settings: SearchS
   const params = new URLSearchParams({ count: '50', tag });
   if (geo) params.set('geo', geo);
 
-  const response = await proxyFetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
+  const response = await fetch(`https://jobicy.com/api/v2/remote-jobs?${params.toString()}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
       'Accept': 'application/json',
