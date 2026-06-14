@@ -80,6 +80,8 @@ export class IndeedJobsSource implements JobSource {
 
         let response = await proxyFetch(fetchUrl, { headers, signal: AbortSignal.timeout(30_000) });
 
+        console.log(`[indeed-debug] ${search.label} status: ${response.status}`);
+
         if (response.status === 429) {
           rateLimitedCount++;
           console.warn(`[indeed] ${search.label} 429 — skipping`);
@@ -92,6 +94,8 @@ export class IndeedJobsSource implements JobSource {
         }
 
         const xml = await response.text();
+        console.log(`[indeed-debug] ${search.label} response preview: ${xml.slice(0, 500)}`);
+
         if (!xml.includes('<item>')) {
           if (xml.trim().startsWith('<html')) {
             console.warn(`[indeed] ${search.label}: got HTML bot-challenge page`);
@@ -100,6 +104,8 @@ export class IndeedJobsSource implements JobSource {
         }
 
         const items = extractRssItems(xml, cutoff);
+        console.log(`[indeed-debug] ${search.label} jobs found in HTML: ${items.length}`);
+
         if (items.length > 0) {
           successCount++;
           console.log(`[indeed] ${search.label}: ${items.length} items`);
