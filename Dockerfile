@@ -1,4 +1,4 @@
-FROM node:22-alpine AS build
+FROM node:22-slim AS build
 
 WORKDIR /app
 
@@ -8,13 +8,14 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:22-alpine
+FROM node:22-slim
 
 WORKDIR /app
 ENV NODE_ENV=production
 
 COPY package*.json ./
 RUN npm ci --omit=dev
+RUN npx playwright install chromium --with-deps
 
 COPY --from=build /app/dist ./dist
 COPY job_search_profile.json ./job_search_profile.json
