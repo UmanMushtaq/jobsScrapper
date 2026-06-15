@@ -230,7 +230,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const jobs = await redisGetDashboardJobs();
     const entry = jobs.find((j) => j.jobId === jobId);
     if (entry) {
-      const m = entry.match as { job?: { title?: string; company?: string; countryCode?: string | null }; score?: number };
+      const m = entry.match as { job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null }; score?: number };
       // Record for Gemini calibration
       await redisRecordJobDecisionHistory('dismissed', {
         title: m?.job?.title ?? '',
@@ -239,6 +239,15 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         score: m?.score ?? 0,
         foundAt: entry.foundAt,
       });
+      // Add to dismissed_urls + remove from seen_urls so bot never re-surfaces this job
+      const url = m?.job?.canonicalUrl;
+      if (url) {
+        await markJobDecision('dismissed', url, {
+          title: m?.job?.title,
+          company: m?.job?.company,
+          score: m?.score,
+        });
+      }
       console.log(`[dashboard] removed job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}, reason: dismissed`);
     }
     await redisDeleteDashboardJob(jobId);

@@ -157,6 +157,21 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
     urlMatches.map((m) => decodeUrlEntities(m[1])).find((u) => u.startsWith('http') && !u.includes('news.ycombinator.com'))
     ?? `https://news.ycombinator.com/item?id=${hit.objectID}`;
 
+  // Reject if the extracted URL looks like a blog/article rather than a job listing
+  const BLOG_PATH_SIGNALS = ['/blog/', '/engineering/', '/news/', '/article/', '/post/', '/announcement/'];
+  const JOB_PATH_SIGNALS = ['/jobs/', '/careers/', '/apply/', '/opening/', '/position/'];
+  if (!applyUrl.includes('news.ycombinator.com')) {
+    try {
+      const urlPath = new URL(applyUrl).pathname.toLowerCase();
+      const isBlogPath = BLOG_PATH_SIGNALS.some((s) => urlPath.includes(s));
+      const isJobPath = JOB_PATH_SIGNALS.some((s) => urlPath.includes(s));
+      if (isBlogPath && !isJobPath) {
+        console.log(`[hackernews] FILTERED: ${company}, URL is blog/article not job listing (${applyUrl})`);
+        return null;
+      }
+    } catch { /* invalid URL — let it through */ }
+  }
+
   // Title: scan full text for any recognizable engineer/developer role first
   const titleRegexMatch =
     plain.match(/\b(?:backend|back-end|full.?stack|fullstack|software|node\.?js|typescript|api|platform|data)\s+engineer\b/i) ??

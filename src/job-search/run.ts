@@ -832,12 +832,14 @@ function checkLocationEligibility(job: JobPosting): boolean {
     return pass;
   }
 
-  // Rule 5: US, CA
-  if (cc === 'US' || cc === 'CA') {
+  // Rule 5: US / Canada — remote + explicit EU-welcome required
+  const isCanadaText = locLabel.includes('canada') || combined.includes('canada') || combined.includes('canadian');
+  if (cc === 'US' || cc === 'CA' || isCanadaText) {
     const hasRemote = combined.includes('remote');
     const hasEuWelcome = EU_WORLDWIDE_SIGNALS.some((s) => combined.includes(s));
     const pass = hasRemote && hasEuWelcome;
-    if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${cc}), US/CA requires remote + EU-welcome signal`);
+    const label = cc || (isCanadaText ? 'CA-text' : 'US');
+    if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${label}), US/CA requires remote + EU-welcome signal`);
     return pass;
   }
 

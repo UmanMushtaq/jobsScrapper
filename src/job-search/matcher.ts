@@ -85,6 +85,13 @@ export function scoreJob(
     return null;
   }
 
+  // Hard reject: LATAM / nearshore / staff-aug companies — incompatible with direct EU employment
+  const LATAM_SIGNALS = ['latam', 'latin america', 'latinoamérica', 'nearshore', 'near-shore', 'staff augmentation', 'based in latin america', 'headquartered in new york'];
+  if (LATAM_SIGNALS.some((s) => text.includes(s))) {
+    console.log(`[scorer] FILTERED: ${job.company}, LATAM/nearshore company not compatible`);
+    return null;
+  }
+
   // Safety net for sources (e.g. HackerNews) where the title field may be location/work-mode
   // metadata rather than the actual role name. When the title contains no role indicator,
   // also check the first line of the description.
@@ -93,6 +100,24 @@ export function scoreJob(
     if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => firstDescLine.includes(keyword))) {
       return null;
     }
+  }
+
+  // Hard reject: desktop / Electron app roles — not relevant to backend API profile
+  const ELECTRON_DESKTOP_SIGNALS = ['desktop app', 'native app', 'macos api', 'windows api', 'screencapturekit', 'cgeventtap', 'win32'];
+  if (text.includes('electron') && ELECTRON_DESKTOP_SIGNALS.some((s) => text.includes(s))) {
+    console.log(`[scorer] FILTERED: ${job.company}, desktop/Electron role not relevant to backend profile`);
+    return null;
+  }
+
+  // Hard reject: production LLM/RAG experience required (not just nice-to-have)
+  // Split text at the first nice-to-have section header to isolate required skills.
+  const niceToHaveIdx = text.search(/(?:nice[- ]to[- ]have|bon[uo]s|preferred|would be a plus|not required but|optionnel|bon à avoir)/i);
+  const requiredSection = niceToHaveIdx > 0 ? text.slice(0, niceToHaveIdx) : text;
+  const LLM_TERMS = ['llm', 'rag', 'language model', 'large language'];
+  const PROD_LLM_TERMS = ['in production', 'evals', 'evaluation pipeline', 'hallucination', 'production llm', 'production rag'];
+  if (LLM_TERMS.some((s) => requiredSection.includes(s)) && PROD_LLM_TERMS.some((s) => requiredSection.includes(s))) {
+    console.log(`[scorer] FILTERED: ${job.company}, production LLM experience required, not in candidate profile`);
+    return null;
   }
 
   // Hard reject: explicit US-only or no-sponsorship clause — applies even to remote roles
@@ -132,6 +157,13 @@ export function scoreJob(
     }
   }
 
+  // Hard reject: absolute salary floor (logged explicitly)
+  const absoluteMonthlyEur = toMonthlyEur(job);
+  if (absoluteMonthlyEur !== null && absoluteMonthlyEur < 2900) {
+    console.log(`[scorer] FILTERED: ${job.company}, salary below minimum threshold (${Math.round(absoluteMonthlyEur)} EUR/month < 2,900 EUR/month)`);
+    return null;
+  }
+
   if (!salaryMeetsMinimum(job, profile)) {
     return null;
   }
@@ -152,6 +184,13 @@ export function scoreJob(
     if (nonJsRequiredPattern.test(text)) {
       return null;
     }
+  }
+
+  // Experience year text scan — penalty/reject for high-year requirements in required section
+  const { penalty: expPenalty, hardReject: expHardReject } = detectExperiencePenalty(text);
+  if (expHardReject) {
+    console.log(`[scorer] FILTERED: ${job.company}, 8+ years required — too senior for mid-level profile`);
+    return null;
   }
 
   const mandatoryScore = BASE_REQUIRED_WEIGHTS.reduce((sum, check) => {
@@ -184,9 +223,11 @@ export function scoreJob(
     'cdd', 'interim',
     '50 to 200 employees', 'moins de 200', 'startup',
   ];
-  const TIER2_NEGATIVE = ['series c', 'series d', 'unicorn', 'cac40', 'cac 40', 'fortune 500', 'fortune500'];
-  const hasTier2 = TIER2_POSITIVE.some((s) => text.includes(s)) && !TIER2_NEGATIVE.some((s) => text.includes(s));
+  const TIER2_NEGATIVE = ['series c', 'série c', 'series d', 'série d', 'unicorn', 'cac40', 'cac 40', 'fortune 500', 'fortune500', '5000+ employees', '5,000+ employees', '10,000+ employees', '10000+ employees'];
+  const hasTier1Signal = TIER2_NEGATIVE.some((s) => text.includes(s));
+  const hasTier2 = TIER2_POSITIVE.some((s) => text.includes(s)) && !hasTier1Signal;
   const tier2Score = hasTier2 ? 5 : 0;
+  const tier1Penalty = hasTier1Signal ? 10 : 0; // -10 for hyper-competitive large companies
 
   // Boost jobs where the employer mentions visa sponsorship or relocation support.
   // These are the minority of postings that can actually proceed with a non-EU hire.
@@ -210,7 +251,7 @@ export function scoreJob(
     0,
     Math.min(
       100,
-      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + tier2Score + preference.delta,
+      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + tier2Score + preference.delta - expPenalty - tier1Penalty,
     ),
   );
 
@@ -231,6 +272,8 @@ export function scoreJob(
     sponsor: sponsorScore,
     tier2: tier2Score || undefined,
     preference: preference.delta,
+    expPenalty: expPenalty || undefined,
+    tier1Penalty: tier1Penalty || undefined,
   };
 
   const salaryLabel = buildSalaryLabel(job);
@@ -310,6 +353,44 @@ function inferExperienceFromText(text: string): number | null {
 }
 
 
+
+function detectExperiencePenalty(text: string): { penalty: number; hardReject: boolean } {
+  // Only scan required section — ignore nice-to-have context
+  const niceIdx = text.search(/(?:nice[- ]to[- ]have|bonus|preferred|would be a plus|optionnel|bon à avoir)/i);
+  const required = niceIdx > 0 ? text.slice(0, niceIdx) : text;
+
+  // Hard reject: 8+ years (English and French)
+  if (
+    /\b(?:8|9|10|1\d)\+\s*(?:years?|ans?)\b/i.test(required) ||
+    /\b(?:minimum|at least|au moins|minimum de)\s+(?:8|9|10|1\d)\s+(?:years?|ans?)\b/i.test(required) ||
+    /\b(?:8|9|10|1\d)\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
+    /\bminimum\s+(?:8|9|10|1\d)\s+years?\b/i.test(required)
+  ) {
+    return { penalty: 0, hardReject: true };
+  }
+
+  // -25 penalty: 6–7 years required
+  if (
+    /\b[67]\+\s*(?:years?|ans?)\b/i.test(required) ||
+    /\b(?:minimum|at least|au moins)\s+[67]\s+(?:years?|ans?)\b/i.test(required) ||
+    /\b[67]\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
+    /\bminimum\s+[67]\s+years?\b/i.test(required)
+  ) {
+    return { penalty: 25, hardReject: false };
+  }
+
+  // -10 penalty: 5 years mentioned as requirement
+  if (
+    /\b5\+\s*(?:years?|ans?)\b/i.test(required) ||
+    /\b(?:minimum|at least|au moins)\s+5\s+(?:years?|ans?)\b/i.test(required) ||
+    /\b5\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
+    /\bminimum\s+5\s+years?\b/i.test(required)
+  ) {
+    return { penalty: 10, hardReject: false };
+  }
+
+  return { penalty: 0, hardReject: false };
+}
 
 function containsAny(text: string, tokens: string[]): boolean {
   return tokens.some((token) => text.includes(token));
@@ -400,7 +481,7 @@ export function salaryMeetsMinimum(job: JobPosting, profile: SearchProfile): boo
   return monthlyEur >= profile.search.minimumSalaryMonthlyEur;
 }
 
-function toMonthlyEur(job: JobPosting): number | null {
+export function toMonthlyEur(job: JobPosting): number | null {
   // Prefer explicit yearly minimum; fall back to salaryMinimum + period
   const useYearly = job.salaryYearlyMinimum !== null && job.salaryYearlyMinimum !== undefined;
   const amount = useYearly ? job.salaryYearlyMinimum! : job.salaryMinimum;
@@ -445,8 +526,12 @@ function buildSalaryLabel(job: JobPosting): string {
   if (!rate) return 'salary not listed';
 
   const descLower = job.description.toLowerCase();
-  const annualSignals = ['per year', '/year', 'annual', 'annually', 'a year'];
-  const isExplicitlyMonthly = !useYearly && (job.salaryPeriod === 'monthly' || job.salaryPeriod === 'month');
+  const annualSignals = ['per year', '/year', 'annual', 'annually', 'a year', 'brut annuel', 'par an', '/an', 'per annum'];
+  const monthlyTextSignals = ['per month', 'par mois', '/month', 'monthly'];
+  const isExplicitlyMonthly = !useYearly && (
+    job.salaryPeriod === 'monthly' || job.salaryPeriod === 'month' ||
+    (amount < 20000 && monthlyTextSignals.some((s) => descLower.includes(s)))
+  );
   const isAnnual = useYearly || (!isExplicitlyMonthly && amount > 50000 && annualSignals.some((s) => descLower.includes(s)));
 
   if (isAnnual) {

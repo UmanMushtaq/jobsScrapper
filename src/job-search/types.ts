@@ -97,8 +97,9 @@ export interface ScoreBreakdown {
   startup: number;
   sponsor?: number;
   tier2?: number;
-  // Adjustment learned from your Applied/Dismissed history (can be negative).
   preference?: number;
+  expPenalty?: number;
+  tier1Penalty?: number;
 }
 
 export interface MatchResult {
