@@ -474,19 +474,44 @@ export async function redisSaveDashboardJob(jobId: string, match: unknown, found
   try {
     const key = `dashboard:job:${jobId}`;
     const entry: DashboardJobEntry = { jobId, foundAt, match };
-    // NX = only write if not already present. No TTL — jobs persist until applied/dismissed.
     const result = await r.set(key, JSON.stringify(entry), { nx: true });
     type SM = { score: number; member: string };
     await r.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: foundAt, member: jobId } as SM);
     if (result === 'OK') {
-      // New job — log it so we can confirm persistence is working
       const m = match as { job?: { company?: string; title?: string } } | null;
-      const company = m?.job?.company ?? '?';
-      const title = m?.job?.title ?? '?';
-      console.log(`[dashboard] saved new job: ${company}, ${title}`);
+      console.log(`[dashboard] saved new job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}`);
     }
   } catch (err) {
     console.error('[redis] saveDashboardJob failed:', (err as Error).message);
+  }
+}
+
+export async function redisSaveDashboardJobBatch(
+  items: Array<{ jobId: string; match: unknown; foundAt: number }>,
+): Promise<void> {
+  if (!items.length) return;
+  const r = getClient();
+  if (!r) return;
+  try {
+    type SM = { score: number; member: string };
+    const pipe = r.pipeline();
+    for (const { jobId, match, foundAt } of items) {
+      const key = `dashboard:job:${jobId}`;
+      const entry: DashboardJobEntry = { jobId, foundAt, match };
+      pipe.set(key, JSON.stringify(entry), { nx: true });
+      pipe.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: foundAt, member: jobId } as SM);
+    }
+    const results = await pipe.exec();
+    // Log newly saved jobs (SET NX returns 'OK' on first write, null on duplicate)
+    for (let i = 0; i < items.length; i++) {
+      const setResult = results[i * 2];
+      if (setResult === 'OK') {
+        const m = items[i].match as { job?: { company?: string; title?: string } } | null;
+        console.log(`[dashboard] saved new job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}`);
+      }
+    }
+  } catch (err) {
+    console.error('[redis] saveDashboardJobBatch failed:', (err as Error).message);
   }
 }
 
