@@ -35,6 +35,15 @@ import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from '.
 // the recovery message goes.
 const RECOVERY_EMAIL = 'umanmushtaq72@gmail.com';
 
+// Module-level in-memory caches — survive within a single process lifetime.
+// Invalidated on Apply/Dismiss so the user always sees up-to-date state after an action.
+let _dashboardCache: { html: string; ts: number } | null = null;
+let _healthCache: { data: Record<string, unknown>; ts: number } | null = null;
+let _platformStatusCache: { html: string; ts: number } | null = null;
+const DASHBOARD_CACHE_TTL_MS = 60_000;   // 60 s
+const HEALTH_CACHE_TTL_MS    = 60_000;   // 60 s
+const PLATFORM_CACHE_TTL_MS  = 60_000;   // 60 s
+
 @Injectable()
 export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AppService.name);
@@ -213,6 +222,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       console.log(`[dashboard] removed job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}, reason: applied`);
     }
     await redisDeleteDashboardJob(jobId);
+    _dashboardCache = null; // invalidate so next load reflects the removal
   }
 
   async dashboardJobDismiss(jobId: string): Promise<void> {
@@ -232,6 +242,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       console.log(`[dashboard] removed job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}, reason: dismissed`);
     }
     await redisDeleteDashboardJob(jobId);
+    _dashboardCache = null; // invalidate so next load reflects the removal
   }
 
   async getAppliedJobs(): Promise<AppliedJobEntry[]> {
@@ -239,8 +250,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getHealth(): Promise<Record<string, unknown>> {
+    if (_healthCache && Date.now() - _healthCache.ts < HEALTH_CACHE_TTL_MS) {
+      return _healthCache.data;
+    }
     const [state, urlCounts] = await Promise.all([readJobSearchState(), redisCountUrlSets()]);
-    return {
+    const data = {
       ok: true,
       status: state.lastRunStatus,
       lastRunAt: state.lastRunAt,
@@ -256,6 +270,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       urlCounts,
       lastRunDiagnostic: state.lastRunDiagnostic ?? null,
     };
+    _healthCache = { data, ts: Date.now() };
+    return data;
   }
 
   async testGemini(): Promise<Record<string, unknown>> {
@@ -436,6 +452,9 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async renderDashboard(): Promise<string> {
+    if (_dashboardCache && Date.now() - _dashboardCache.ts < DASHBOARD_CACHE_TTL_MS) {
+      return _dashboardCache.html;
+    }
     const [state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus] = await Promise.all([
       readJobSearchState(),
       redisGetIndeedLastRun(),
@@ -443,7 +462,9 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       getApecPlaywrightStatus(),
       redisGetApecStatus(),
     ]);
-    return renderHtml(state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus);
+    const html = renderHtml(state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus);
+    _dashboardCache = { html, ts: Date.now() };
+    return html;
   }
 
   async getHistoryPage(): Promise<string> {
@@ -452,8 +473,13 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getPlatformStatusPage(): Promise<string> {
+    if (_platformStatusCache && Date.now() - _platformStatusCache.ts < PLATFORM_CACHE_TTL_MS) {
+      return _platformStatusCache.html;
+    }
     const health = await getPlatformHealth();
-    return renderPlatformStatusHtml(health);
+    const html = renderPlatformStatusHtml(health);
+    _platformStatusCache = { html, ts: Date.now() };
+    return html;
   }
 
   async getLogsPage(): Promise<string> {
@@ -521,6 +547,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     this.activeRun = (async () => {
       try {
         const summary = await runJobSearchOnce();
+        _dashboardCache = null; // new jobs available — next load rebuilds from Redis
+        _healthCache = null;
         this.logger.log(
           `[${trigger}] fetched ${summary.allJobsCount} jobs, ${summary.freshJobsCount} fresh, ${summary.matchCount} matched.`,
         );
@@ -2474,7 +2502,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       }
 
       loadHealth();
-      setInterval(loadHealth, 30000);
+      setInterval(loadHealth, 300000); // 5 min — /health is cached 60s server-side; polling faster wastes Redis calls
 
       // ── Applied jobs tab ────────────────────────────────────────────
       var _appliedLoaded = false;
