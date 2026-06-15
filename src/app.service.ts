@@ -208,6 +208,10 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         appliedAt,
       });
     }
+    if (entry) {
+      const m = entry.match as { job?: { title?: string; company?: string } } | null;
+      console.log(`[dashboard] removed job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}, reason: applied`);
+    }
     await redisDeleteDashboardJob(jobId);
   }
 
@@ -225,6 +229,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         score: m?.score ?? 0,
         foundAt: entry.foundAt,
       });
+      console.log(`[dashboard] removed job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}, reason: dismissed`);
     }
     await redisDeleteDashboardJob(jobId);
   }

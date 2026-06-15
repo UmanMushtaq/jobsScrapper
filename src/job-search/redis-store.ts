@@ -474,10 +474,17 @@ export async function redisSaveDashboardJob(jobId: string, match: unknown, found
   try {
     const key = `dashboard:job:${jobId}`;
     const entry: DashboardJobEntry = { jobId, foundAt, match };
-    // NX = only write if not already present (don't overwrite existing cards)
-    await r.set(key, JSON.stringify(entry), { nx: true, ex: DASHBOARD_JOB_TTL_SECONDS });
+    // NX = only write if not already present. No TTL — jobs persist until applied/dismissed.
+    const result = await r.set(key, JSON.stringify(entry), { nx: true });
     type SM = { score: number; member: string };
     await r.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: foundAt, member: jobId } as SM);
+    if (result === 'OK') {
+      // New job — log it so we can confirm persistence is working
+      const m = match as { job?: { company?: string; title?: string } } | null;
+      const company = m?.job?.company ?? '?';
+      const title = m?.job?.title ?? '?';
+      console.log(`[dashboard] saved new job: ${company}, ${title}`);
+    }
   } catch (err) {
     console.error('[redis] saveDashboardJob failed:', (err as Error).message);
   }
