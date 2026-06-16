@@ -88,6 +88,7 @@ export interface JobPosting {
   isStartup: boolean;
   employeeCount?: number | null;
   companyCreationYear?: number | null;
+  commentId?: string | null;
 }
 
 export interface ScoreBreakdown {
