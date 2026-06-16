@@ -1814,7 +1814,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                     <button onclick="copyTxt(${idx},'subject')" style="margin-left:8px;padding:2px 8px;font-size:11px;border:1px solid #bfdbfe;border-radius:4px;background:#eff6ff;color:#1d4ed8;cursor:pointer;">Copy</button>
                   </div>
                   <div style="font-size:12px;font-weight:700;color:#374151;margin:10px 0 4px;">Email body:</div>
-                  <div id="eb-${idx}" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:12px;font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap;">${escapeBr(match.emailBody ?? '')}</div>
+                  <div id="eb-${idx}" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:12px;font-size:13px;color:#374151;line-height:1.6;white-space:pre-wrap;">${match.emailBody ? escapeBr(match.emailBody) : '<span style="color:#dc2626;font-style:italic;">Email generation failed. Please try again.</span>'}</div>
                   <div style="margin-top:8px;display:flex;gap:8px;">
                     <button onclick="copyTxt(${idx},'body')" style="padding:5px 14px;font-size:12px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1d4ed8;cursor:pointer;font-weight:600;">Copy Body</button>
                     <button onclick="openEmail(${idx})" style="padding:5px 14px;font-size:12px;border:0;border-radius:6px;background:#2563eb;color:white;cursor:pointer;font-weight:600;">Open in Mail App</button>

@@ -453,6 +453,17 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  salaryMax: monthly gross integer in local currency, or null.\n` +
   `  salaryCurrency: ISO 4217 string, or null.`;
 
+// Proper email closings — used to detect truncated Gemini emailBody output.
+const EMAIL_CLOSINGS = ['best regards', 'sincerely', 'kind regards', 'regards,', 'thank you,', 'thanks,', 'cordialement', 'bien cordialement', 'yours sincerely'];
+
+function isEmailBodyComplete(body: string): boolean {
+  if (body.length < 100) return false;
+  const lower = body.toLowerCase().trim();
+  // Accept if any closing appears in the last 60 characters (after name is signed)
+  const tail = lower.slice(-80);
+  return EMAIL_CLOSINGS.some((c) => tail.includes(c));
+}
+
 async function enrichSingle(
   ai: GoogleGenAI,
   model: string,
@@ -615,8 +626,74 @@ async function enrichSingle(
     atsPlacementSuggestions: (raw.atsPlacementSuggestions ?? []).slice(0, 3),
     hiringEmail,
     emailSubject: hiringEmail ? (stripDashes(raw.emailSubject?.trim()) || null) : null,
-    emailBody: hiringEmail ? (stripDashes(raw.emailBody?.trim()) || null) : null,
+    emailBody: await resolveEmailBody(ai, model, job, profile, hiringEmail, raw.emailBody?.trim() ?? null),
   };
+}
+
+async function resolveEmailBody(
+  ai: GoogleGenAI,
+  model: string,
+  job: JobPosting,
+  profile: SearchProfile,
+  hiringEmail: string | null,
+  rawBody: string | null,
+): Promise<string | null> {
+  if (!hiringEmail) return null;
+
+  const body = rawBody ? stripDashes(rawBody) : null;
+  if (body && isEmailBodyComplete(body)) return body;
+
+  const label = `"${job.title}" @ ${job.company}`;
+
+  if (body) {
+    console.warn(`[gemini] ${label} — emailBody incomplete (${body.length} chars, no proper closing), retrying`);
+  } else {
+    console.warn(`[gemini] ${label} — emailBody missing or empty, retrying`);
+  }
+
+  const workAuth = resolveWorkAuth(profile);
+  const isParisArea = /paris|île-de-france|idf/i.test(job.locationLabel ?? '');
+  const locationLine =
+    job.workMode === 'remote'
+      ? 'Working from Paris, I can join your distributed team from day one.'
+      : job.countryCode === 'FR'
+        ? isParisArea
+          ? 'Based in Paris, I can join your team on-site without relocation.'
+          : 'I am based in Paris and fully open to relocating within France for this role.'
+        : 'I am open to relocation within Europe and happy to work through the logistics.';
+
+  const retryPrompt =
+    `Write a short professional email applying for the ${job.title} role at ${job.company}.\n` +
+    `The candidate is ${profile.candidate.name}, a Paris-based Node.js/NestJS backend engineer.\n` +
+    `CV summary: ${profile.candidate.experienceYears}+ years, NestJS microservices, fintech/crypto platforms, Stripe/PayPal integrations.\n` +
+    `Work authorization: ${workAuth.statusLine}\n\n` +
+    `Requirements:\n` +
+    `- Open with "Dear Hiring Team,"\n` +
+    `- 3-4 sentences: specific interest in this role, one concrete experience highlight, CV is attached, open to discuss.\n` +
+    `- Include exactly this location sentence: "${locationLine}"\n` +
+    `- Close with exactly: "Best regards,\\n${profile.candidate.name}"\n` +
+    `- Minimum 120 words total.\n\n` +
+    `Return ONE JSON object: {"emailBody":"..."}\n` +
+    `No markdown, no extra text.`;
+
+  try {
+    const retryResponse = await ai.models.generateContent({
+      model,
+      config: { responseMimeType: 'application/json' },
+      contents: retryPrompt,
+    });
+    const retryRaw = JSON.parse(retryResponse.text ?? '{}') as { emailBody?: string };
+    const retryBody = stripDashes(retryRaw.emailBody?.trim() || '');
+    if (retryBody && isEmailBodyComplete(retryBody)) {
+      console.log(`[gemini] ${label} — email retry succeeded (${retryBody.length} chars)`);
+      return retryBody;
+    }
+    console.warn(`[gemini] ${label} — email retry also incomplete — suppressing partial email`);
+    return null;
+  } catch (err) {
+    console.warn(`[gemini] ${label} — email retry failed: ${err instanceof Error ? err.message : String(err)} — suppressing partial email`);
+    return null;
+  }
 }
 
 function buildFallbackCoverLetter(

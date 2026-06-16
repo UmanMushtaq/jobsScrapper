@@ -972,7 +972,7 @@ function slimMatchesForState(matches: MatchResult[]): MatchResult[] {
     job: { ...m.job, description: '', companySummary: '', keyMissions: [] },
     shortAnswers: [],
     coverLetter: m.coverLetter ? m.coverLetter.slice(0, 2000) : '',
-    emailBody: m.emailBody ? m.emailBody.slice(0, 800) : undefined,
+    emailBody: m.emailBody ? m.emailBody.slice(0, 1500) : undefined,
     atsPlacementSuggestions: m.atsPlacementSuggestions?.slice(0, 3),
   }));
 }
