@@ -243,6 +243,7 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
     isStartup: lower.includes('startup') || lower.includes('seed') || lower.includes('series a') || lower.includes('yc'),
     employeeCount: null,
     companyCreationYear: null,
+    commentId: hit.objectID,
   };
 }
 

@@ -1803,13 +1803,22 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                 </div>`
               : `<div style="font-size:12px;color:#6b7280;">No missing keywords — your CV covers the requirements.</div>`;
 
-            // Email section (HN / any job with hiring email)
-            const hnPostLink = isHN
-              ? `<a href="${escapeHtml(match.job.canonicalUrl)}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;font-size:12px;border:1px solid #fed7aa;border-radius:6px;background:#fff7ed;color:#c2410c;font-weight:600;text-decoration:none;">&#128279; View HN Post</a>`
+            // HN post link — always shown for HN jobs, independent of email
+            const hnCommentUrl = isHN
+              ? `https://news.ycombinator.com/item?id=${escapeHtml(match.job.commentId ?? '48357725')}`
               : '';
+            const hnPostSection = isHN
+              ? `<div style="grid-column:1/-1;background:#fff7ed;border-radius:8px;padding:12px 16px;border:1px solid #fed7aa;display:flex;align-items:center;gap:12px;">
+                  <span style="font-size:13px;font-weight:700;color:#92400e;">HN Post</span>
+                  <a href="${hnCommentUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;padding:5px 14px;font-size:12px;border:1px solid #fed7aa;border-radius:6px;background:white;color:#c2410c;font-weight:600;text-decoration:none;">&#128279; View Post</a>
+                  ${match.job.commentId ? '' : '<span style="font-size:11px;color:#b45309;">(comment ID missing — linking to thread)</span>'}
+                </div>`
+              : '';
+
+            // Email section (any job with a hiring email)
             const emailSection = hasEmail
               ? `<div style="grid-column:1/-1;background:white;border-radius:8px;padding:16px;border:2px solid #2563eb;">
-                  <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:10px;">Ready-to-send email${isHN ? ` &nbsp;<a href="${escapeHtml(match.job.canonicalUrl)}" target="_blank" style="font-size:12px;font-weight:600;color:#c2410c;text-decoration:none;">&#128279; View HN Post</a>` : ''}</div>
+                  <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:10px;">Ready-to-send email</div>
                   <div style="font-size:13px;margin-bottom:6px;"><b>To:</b> <a href="mailto:${escapeHtml(match.hiringEmail ?? '')}" style="color:#2563eb;">${escapeHtml(match.hiringEmail ?? '')}</a>
                     <button onclick="copyTxt(${idx},'email')" style="margin-left:8px;padding:2px 8px;font-size:11px;border:1px solid #bfdbfe;border-radius:4px;background:#eff6ff;color:#1d4ed8;cursor:pointer;">Copy</button>
                   </div>
@@ -1821,18 +1830,12 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                   <div style="margin-top:8px;display:flex;gap:8px;">
                     <button onclick="copyTxt(${idx},'body')" style="padding:5px 14px;font-size:12px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1d4ed8;cursor:pointer;font-weight:600;">Copy Body</button>
                     <button onclick="openEmail(${idx})" style="padding:5px 14px;font-size:12px;border:0;border-radius:6px;background:#2563eb;color:white;cursor:pointer;font-weight:600;">Open in Mail App</button>
-                    ${hnPostLink}
                   </div>
                   <span id="eb-${idx}-email" style="display:none;">${escapeHtml(match.hiringEmail ?? '')}</span>
                   <span id="eb-${idx}-subject" style="display:none;">${escapeHtml(match.emailSubject ?? `Application: ${match.job.title} — ${match.job.company}`)}</span>
                   <span id="eb-${idx}-rawbody" style="display:none;">${escapeHtml(match.emailBody ?? '')}</span>
                 </div>`
-              : isHN
-                ? `<div style="grid-column:1/-1;background:#fff7ed;border-radius:8px;padding:14px;border:1px solid #fed7aa;font-size:13px;color:#c2410c;">
-                    <b>HN post</b> — no email address found in the job description. Open the HN comment to find contact info.
-                    <a href="${escapeHtml(match.job.canonicalUrl)}" target="_blank" style="margin-left:8px;color:#c2410c;">View HN Post</a>
-                  </div>`
-                : '';
+              : '';
 
             // Cover letter section
             const coverLetterSection = hasCoverLetter
@@ -1875,6 +1878,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                     ${atsSection}
                   </div>
 
+                  ${hnPostSection}
                   ${emailSection}
                   ${coverLetterSection}
                 </div>
