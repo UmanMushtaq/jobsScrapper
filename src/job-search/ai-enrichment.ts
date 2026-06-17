@@ -383,9 +383,25 @@ function stripDashes(text: string | null | undefined): string {
 // To convert RECE to a long-term Talent (salarié qualifié) permit: flat €39,582/yr from Aug 2025 decree.
 const TALENT_THRESHOLD_MONTHLY_EUR = Math.ceil(39582 / 12); // 3299
 
+const CANDIDATE_TECH_STACK =
+  `=== CANDIDATE TECH STACK (authoritative — do NOT claim experience with anything outside this list) ===\n` +
+  `  Languages:  TypeScript, JavaScript\n` +
+  `  Frameworks: Node.js, NestJS, Express.js\n` +
+  `  Databases:  PostgreSQL, MongoDB, Redis\n` +
+  `  Messaging:  RabbitMQ, Kafka\n` +
+  `  Cloud:      AWS, Docker\n` +
+  `  CI/CD:      GitHub Actions\n` +
+  `  Frontend:   React (basic)\n` +
+  `  Patterns:   Microservices, Event-Driven Architecture, Clean Architecture, DDD, Saga pattern\n` +
+  `  Auth:       JWT, OAuth2\n` +
+  `  Testing:    Jest\n` +
+  `=== END TECH STACK ===\n`;
+
 const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null, visaContext: string, statusLine: string) =>
   `You are acting as a senior recruiter scanning a job for ${name}.\n\n` +
+  `TECHNOLOGY CONSTRAINT: Only mention technologies, frameworks, tools, and integrations that appear in the candidate's CV or tech stack below. Never invent or assume experience with technologies not listed. If the job requires a technology not in the candidate's stack, do not claim the candidate has experience with it. You may mention willingness to learn it if relevant.\n\n` +
   `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
+  CANDIDATE_TECH_STACK + `\n` +
   `Visa: ${visaContext}\n` +
   `  Remote roles: always compatible (candidate works from Paris for any EU company).\n` +
   `  On-site/hybrid in France: compatible — candidate is open to any French city (Paris, Lyon, Marseille, Bordeaux, etc.).\n` +
@@ -434,7 +450,7 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `    Goal: a warm, human, specific letter that answers every question in a recruiter's head: who is this person, why this company, why this role, why are they the right fit, and (if not Paris) why are they open to this location. It must read like a real person wrote it, not a template.\n` +
   `    Length: 4 short paragraphs, 180-230 words total.\n` +
   `    Para 1 (2-3 sentences): MUST begin with the exact words "I am". Introduce the candidate in one line (Paris-based Node.js / NestJS backend engineer with ${expYears}+ years), name the exact role title shown in the prompt that they are applying for, and state one genuine, specific reason this company appeals to him, grounded in a real fact about what THIS company actually builds or does (take it from the company info / description, never generic flattery).\n` +
-  `    Para 2 (3-4 sentences): Why he is the right fit. Map his concrete experience to what THIS role needs, using the job description's own requirements. PRIMARY proof: OptimusFox (${expYears} years production, NestJS/Node.js microservices, fintech + crypto platforms, real cross-functional team of ~10). EU recruiters will not know OptimusFox, so name the concrete output: what was built, specific integrations (Stripe, PayPal, Web3 APIs), Dockerized services, CI/CD. Connect 2-3 of his skills directly to the role's main needs and say plainly why that makes him a strong match.\n` +
+  `    Para 2 (3-4 sentences): Why he is the right fit. Map his concrete experience to what THIS role needs, using the job description's own requirements. PRIMARY proof: OptimusFox (${expYears} years production, NestJS/Node.js microservices, fintech + crypto platforms, real cross-functional team of ~10). EU recruiters will not know OptimusFox, so name the concrete output: what was built, citing only integrations and technologies that appear in the CANDIDATE TECH STACK above (for example: Dockerized microservices, CI/CD with GitHub Actions, event-driven messaging with RabbitMQ or Kafka). Connect 2-3 of his skills directly to the role's main needs and say plainly why that makes him a strong match. NEVER name a technology (Vue.js, Stripe, PayPal, Angular, Spring, etc.) unless it is in the CANDIDATE TECH STACK above.\n` +
   `    Para 3 (2-3 sentences): Why this company and this role specifically (growth, product, domain, engineering culture, whatever the posting reveals). SUPPORTING proof only: NexusPay may be cited here as evidence of current depth, e.g. "I am applying these same patterns in NexusPay, an event-driven fintech platform I am building", never as primary experience. Do NOT open any paragraph with NexusPay.\n` +
   `    Para 4 (2-3 sentences): Location and availability, worded naturally.\n` +
   `      If workMode="${workMode}" and countryCode="${countryCode ?? 'null'}":\n` +
@@ -449,6 +465,7 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `      1. Absolutely NO dashes of any kind anywhere: no hyphen, no em dash —, no en dash. Write compound words with a space or one word (for example "full stack", "well structured", "real time"). Use commas, "and", or short sentences instead of dashes.\n` +
   `      2. Sound human: vary sentence length, use plain confident language, write like you are speaking to one person. Avoid AI tells and these banned words: passionate, leverage, synergy, excited, thrilled, contribute, dynamic, fast-paced, cutting-edge, delve, tapestry, robust, seamless, spearheaded.\n` +
   `      3. Be specific over generic: every claim should reference a real fact about the company, the role, or his actual experience.\n` +
+  `      4. TECHNOLOGY HONESTY: Only name technologies that appear in the CANDIDATE TECH STACK block at the top of this prompt. If the job description mentions Vue.js, Angular, Spring, Laravel, Stripe, PayPal, or any other technology NOT in the candidate's stack, do NOT claim the candidate has experience with it. You may say he is open to picking it up quickly if it fits naturally.\n` +
   `  salaryMin: monthly gross integer in local currency, or null.\n` +
   `  salaryMax: monthly gross integer in local currency, or null.\n` +
   `  salaryCurrency: ISO 4217 string, or null.`;
