@@ -10,6 +10,13 @@ const TARGET = 'https://www.apec.fr/candidat/recherche-emploi.html/emploi?motsCl
   });
   const page = await context.newPage();
 
+  page.on('request', (request) => {
+    const url = request.url();
+    if (url.includes('rechercheOffre') && request.method() === 'POST') {
+      console.log('REQUEST BODY:', request.postData());
+    }
+  });
+
   page.on('response', async (response) => {
     const url = response.url();
     const lower = url.toLowerCase();
