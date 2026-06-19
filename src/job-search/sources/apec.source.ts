@@ -48,11 +48,18 @@ interface ApecApiResponse {
   totalItems?: number;
 }
 
-// Queries sent to the APEC search API
+// Queries sent to the APEC search API — broad coverage to maximise recall
 const APEC_QUERIES = [
-  'nodejs nestjs',
-  'nodejs typescript backend',
-  'nestjs typescript',
+  'nodejs',
+  'node.js',
+  'node js',
+  'NodeJS',
+  'nestjs',
+  'nest.js',
+  'NestJS',
+  'backend typescript',
+  'ingénieur backend nodejs',
+  'développeur nodejs',
 ];
 
 export class ApecJobsSource implements JobSource {
@@ -60,6 +67,9 @@ export class ApecJobsSource implements JobSource {
   priority = 4;
 
   async fetch(_queries: string[], _settings: SearchSettings): Promise<JobPosting[]> {
+    // Dedup raw offers by numeroOffre before mapping so the same job from
+    // multiple queries is never counted twice.
+    const rawOffers = new Map<string, ApecApiJob>();
     const jobs = new Map<string, JobPosting>();
 
     const jar = new CookieJar();
@@ -101,13 +111,24 @@ export class ApecJobsSource implements JobSource {
       try {
         const body = {
           motsCles,
-          nombreOffresParPage: 50,
-          numPage: 1,
-          typesContrat: ['CDI', 'CDD', 'MIS', 'FRE'],
-          lieux: [75],
+          lieux: [],
+          fonctions: [],
+          statutPoste: [],
+          typesContrat: [],
+          typesConvention: ['143684', '143685', '143686', '143687', '143706'],
+          niveauxExperience: [],
+          idsEtablissement: [],
+          secteursActivite: [],
+          typesTeletravail: [],
+          idNomZonesDeplacement: [],
+          positionNumbersExcluded: [],
+          typeClient: 'CADRE',
+          sorts: [{ type: 'SCORE', direction: 'DESCENDING' }],
+          pagination: { range: 50, startIndex: 0 },
+          activeFiltre: true,
+          pointGeolocDeReference: { distance: 0 },
         };
 
-        console.log(`[apec-debug] firing POST with body: ${JSON.stringify(body)}`);
         const res = await client.post<ApecApiResponse>(API_URL, body, {
           headers: { ...HEADERS, 'Content-Type': 'application/json' },
         });
@@ -121,8 +142,8 @@ export class ApecJobsSource implements JobSource {
         console.log(`[apec] fetched ${resultats.length} jobs from API (query: "${motsCles}")`);
 
         for (const offer of resultats) {
-          const job = mapOffer(offer);
-          if (job) jobs.set(job.canonicalUrl, job);
+          const key = String(offer.numeroOffre ?? offer.id ?? '');
+          if (key) rawOffers.set(key, offer);
         }
       } catch (err) {
         const status = (err as { response?: { status?: number } })?.response?.status;
@@ -133,6 +154,13 @@ export class ApecJobsSource implements JobSource {
         console.log(`[apec] API call failed with status ${status ?? 'unknown'}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+
+    // Map deduplicated offers to JobPostings
+    for (const offer of rawOffers.values()) {
+      const job = mapOffer(offer);
+      if (job) jobs.set(job.canonicalUrl, job);
+    }
+    console.log(`[apec] ${rawOffers.size} unique offers → ${jobs.size} mapped jobs`);
 
     const result = Array.from(jobs.values());
     const INTERVAL_MS = 6 * 60 * 60 * 1000;
