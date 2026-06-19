@@ -9,7 +9,7 @@ import { redisSetApecStatus } from '../redis-store';
 const SOURCE = 'apec.fr';
 
 const SESSION_URL = 'https://www.apec.fr/candidat/recherche-emploi.html/emploi';
-const API_URL = 'https://www.apec.fr/cms/webservices/rechercheOffre/results';
+const API_URL = 'https://www.apec.fr/cms/webservices/rechercheOffre';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -25,32 +25,22 @@ const HEADERS = {
 };
 
 interface ApecApiJob {
+  id?: string | number;
   numeroOffre?: string | number;
   intitule?: string;
+  nomCommercial?: string;
+  lieuTexte?: string;
+  salaireTexte?: string;
+  texteOffre?: string;
+  // legacy nested fields kept for fallback compatibility
   description?: string;
   datePublication?: string;
   dateModification?: string;
-  lieuTravail?: {
-    libelle?: string;
-    codePostal?: string;
-    codeDepartement?: string;
-  };
-  entreprise?: {
-    nom?: string;
-    description?: string;
-    effectif?: string;
-  };
-  salaire?: {
-    libelle?: string;
-    commentaire?: string;
-  };
-  modaliteTravail?: {
-    libelle?: string;
-  };
-  experience?: {
-    libelle?: string;
-    code?: string;
-  };
+  lieuTravail?: { libelle?: string };
+  entreprise?: { nom?: string; description?: string; effectif?: string };
+  salaire?: { libelle?: string };
+  modaliteTravail?: { libelle?: string };
+  experience?: { libelle?: string; code?: string };
 }
 
 interface ApecApiResponse {
@@ -60,9 +50,9 @@ interface ApecApiResponse {
 
 // Queries sent to the APEC search API
 const APEC_QUERIES = [
-  { motsCles: 'node.js nestjs', lieux: '75' },
-  { motsCles: 'nodejs typescript backend', lieux: '75' },
-  { motsCles: 'nestjs typescript', lieux: '75' },
+  'nodejs nestjs',
+  'nodejs typescript backend',
+  'nestjs typescript',
 ];
 
 export class ApecJobsSource implements JobSource {
@@ -96,17 +86,19 @@ export class ApecJobsSource implements JobSource {
     await new Promise((r) => setTimeout(r, 2000 + Math.random() * 1000));
 
     // Step 3: query the API for each search term
-    for (const q of APEC_QUERIES) {
+    for (const motsCles of APEC_QUERIES) {
       try {
-        const params = {
-          motsCles: q.motsCles,
+        const body = {
+          motsCles,
           nombreOffresParPage: 50,
           numPage: 1,
-          typesContrat: 'CDI,CDD,MIS,FRE',
-          lieux: q.lieux,
+          typesContrat: ['CDI', 'CDD', 'MIS', 'FRE'],
+          lieux: [75],
         };
 
-        const res = await client.get<ApecApiResponse>(API_URL, { headers: HEADERS, params });
+        const res = await client.post<ApecApiResponse>(API_URL, body, {
+          headers: { ...HEADERS, 'Content-Type': 'application/json' },
+        });
 
         if (res.status === 403) {
           console.log('[apec] BLOCKED - IP flagged');
@@ -114,7 +106,7 @@ export class ApecJobsSource implements JobSource {
         }
 
         const resultats = res.data?.resultats ?? [];
-        console.log(`[apec] fetched ${resultats.length} jobs from API (query: "${q.motsCles}")`);
+        console.log(`[apec] fetched ${resultats.length} jobs from API (query: "${motsCles}")`);
 
         for (const offer of resultats) {
           const job = mapOffer(offer);
@@ -145,24 +137,27 @@ export class ApecJobsSource implements JobSource {
 }
 
 function mapOffer(offer: ApecApiJob): JobPosting | null {
-  const id = offer.numeroOffre;
+  const id = offer.numeroOffre ?? offer.id;
   if (!id) return null;
 
   const title = offer.intitule ?? '';
   if (!title) return null;
 
   const canonicalUrl = `https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/${id}`;
-  const company = offer.entreprise?.nom ?? 'Non communiqué';
-  const description = offer.description ?? '';
-  const text = `${title} ${description}`.toLowerCase();
 
+  // Flat fields from the real POST response; nested fields as legacy fallback
+  const company = offer.nomCommercial ?? offer.entreprise?.nom ?? 'Non communiqué';
+  const description = offer.texteOffre ?? offer.description ?? '';
+  const locationLabel = offer.lieuTexte ?? offer.lieuTravail?.libelle ?? 'France';
+  const salaryLabel = offer.salaireTexte ?? offer.salaire?.libelle;
+
+  const text = `${title} ${description}`.toLowerCase();
   const publishedAt = offer.datePublication ?? offer.dateModification ?? new Date().toISOString();
   const pubMs = new Date(publishedAt).getTime();
   if (isNaN(pubMs)) return null;
   const publishedAtTimestamp = Math.floor(pubMs / 1000);
 
   const modalite = offer.modaliteTravail?.libelle ?? '';
-  const locationLabel = offer.lieuTravail?.libelle ?? 'France';
 
   return {
     source: SOURCE,
@@ -180,11 +175,11 @@ function mapOffer(offer: ApecApiJob): JobPosting | null {
     description,
     keyMissions: [],
     experienceLevelMinimum: parseExperience(offer.experience?.libelle),
-    salaryCurrency: parseSalaryCurrency(offer.salaire?.libelle),
-    salaryPeriod: parseSalaryPeriod(offer.salaire?.libelle),
-    salaryMinimum: parseSalaryMin(offer.salaire?.libelle),
-    salaryMaximum: parseSalaryMax(offer.salaire?.libelle),
-    salaryYearlyMinimum: parseSalaryYearly(offer.salaire?.libelle),
+    salaryCurrency: parseSalaryCurrency(salaryLabel),
+    salaryPeriod: parseSalaryPeriod(salaryLabel),
+    salaryMinimum: parseSalaryMin(salaryLabel),
+    salaryMaximum: parseSalaryMax(salaryLabel),
+    salaryYearlyMinimum: parseSalaryYearly(salaryLabel),
     publishedAt,
     publishedAtTimestamp,
     startupSignals: [],
