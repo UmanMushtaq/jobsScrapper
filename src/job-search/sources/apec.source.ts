@@ -82,10 +82,21 @@ export class ApecJobsSource implements JobSource {
       console.log(`[apec] session request failed: ${msg}, proceeding without cookie`);
     }
 
-    // Step 2: random 2-3 second delay
-    await new Promise((r) => setTimeout(r, 2000 + Math.random() * 1000));
+    // Step 2: prerequisite identification calls the browser fires before the search POST
+    try {
+      await client.get('https://www.apec.fr/cms/webservices/identification/cadre', { headers: HEADERS });
+      await new Promise((r) => setTimeout(r, 1000));
+      await client.get('https://www.apec.fr/cms/webservices/identification/apecuser', { headers: HEADERS });
+      await new Promise((r) => setTimeout(r, 1000));
+      console.log('[apec] identification calls complete');
+    } catch (err) {
+      console.log(`[apec] identification calls failed: ${err instanceof Error ? err.message : String(err)}, proceeding anyway`);
+    }
 
-    // Step 3: query the API for each search term
+    // Step 3: random 1-2 second additional delay then search POST
+    await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1000));
+
+    // Step 4: query the API for each search term
     for (const motsCles of APEC_QUERIES) {
       try {
         const body = {
@@ -96,6 +107,7 @@ export class ApecJobsSource implements JobSource {
           lieux: [75],
         };
 
+        console.log(`[apec-debug] firing POST with body: ${JSON.stringify(body)}`);
         const res = await client.post<ApecApiResponse>(API_URL, body, {
           headers: { ...HEADERS, 'Content-Type': 'application/json' },
         });

@@ -15,7 +15,6 @@ ENV NODE_ENV=production
 
 COPY package*.json ./
 RUN npm ci --omit=dev
-RUN npx playwright install chromium --with-deps
 
 COPY --from=build /app/dist ./dist
 COPY job_search_profile.json ./job_search_profile.json

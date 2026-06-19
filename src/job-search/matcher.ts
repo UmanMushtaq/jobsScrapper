@@ -257,7 +257,7 @@ export function scoreJob(
 
   // Primary stack bonus: reward explicit Node.js / NestJS mentions in title or description.
   // Checked case-insensitively on the already-lowercased `text` and `normalizedTitle`.
-  const stackText = normalizedTitle + ' ' + text;
+  const stackText = `${job.title} ${job.description}`.toLowerCase();
   const hasNodeJs = /node\.js|nodejs|node\s+js\b/.test(stackText);
   const hasNestJs = /nest\.js|nestjs|nest\s+js\b/.test(stackText);
   const stackBonus = (hasNodeJs ? 15 : 0) + (hasNestJs ? 20 : 0);
