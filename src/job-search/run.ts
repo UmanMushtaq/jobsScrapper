@@ -563,6 +563,18 @@ export interface JobDecisionMeta {
   source?: string;
 }
 
+export async function runSingleSource(sourceName: 'apec' | 'indeed'): Promise<void> {
+  const profile = await loadSearchProfile();
+  const source = sourceName === 'apec' ? new ApecJobsSource() : new IndeedJobsSource();
+  console.log(`[manual] running single source: ${source.name}`);
+  try {
+    const jobs = await source.fetch(profile.search.queries, profile.search);
+    console.log(`[manual] ${source.name}: ${jobs.length} jobs fetched`);
+  } catch (err) {
+    console.error(`[manual] ${source.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function markJobDecision(
   decision: 'applied' | 'dismissed',
   rawUrl: string,

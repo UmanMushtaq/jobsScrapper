@@ -471,7 +471,16 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `      5. GRAMMARLY STANDARDS: Use the Oxford comma in lists of three or more. No comma splices (do not join two independent clauses with only a comma). No run-on sentences. Active voice preferred. No unnecessary adverbs (e.g. avoid "very", "really", "truly"). Hyphenate compound modifiers that appear directly before a noun (e.g. "event-driven architecture" is fine as a modifier, but never use a standalone hyphen for punctuation). Do not start a sentence with "And" or "But".\n` +
   `      6. NO HYPERLINKS OR MARKDOWN: Do not include any hyperlink syntax ([text](url)), angle-bracket URLs, or markdown formatting inside the cover letter body. Plain text only. No bullet points.\n` +
   `      7. GREETING AND CLOSING FORMAT: The greeting ("Hi X,") and the closing block must appear exactly as specified above. Do not add any extra lines, signatures, or fields beyond what is specified.\n` +
-  `      8. APEC EXCEPTION: The job source for this request is "${jobSource}". If it is "apec", the entire cover letter body (excluding greeting and closing block) must be 500 characters or fewer. Be extremely concise.\n` +
+  `      8. APEC COVER LETTER (hard limit — no exceptions): The job source for this request is "${jobSource}". If it is "apec.fr", apply ALL of the following rules:\n` +
+  `         a. The ENTIRE cover letter — greeting, body, sign-off, and closing block — must be 500 characters or fewer including spaces and line breaks.\n` +
+  `         b. The body must answer three things in as few words as possible: who you are (role + years), what you bring (1-2 technologies matching the job), why this role.\n` +
+  `         c. Start with: Hi [Company/Team],\n` +
+  `         d. End with: Best regards, Uman Mushtaq\n` +
+  `         e. No hyperlinks. No em-dashes. Plain text only. Active voice.\n` +
+  `         f. If 500 characters is not enough to include the sign-off, cut the body — never cut the sign-off.\n` +
+  `         g. After generating, count the characters. If over 500, rewrite shorter. NEVER return a letter over 500 characters for APEC.\n` +
+  `         h. Do NOT include the full closing block (email, phone, github, linkedin) — only "Best regards, Uman Mushtaq".\n` +
+  `      9. For all non-APEC sources, ignore rule 8 entirely.\n` +
   `  salaryMin: monthly gross integer in local currency, or null.\n` +
   `  salaryMax: monthly gross integer in local currency, or null.\n` +
   `  salaryCurrency: ISO 4217 string, or null.`;
