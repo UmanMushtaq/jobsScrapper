@@ -14,7 +14,7 @@ const BASE_REQUIRED_WEIGHTS = [
   {
     // NestJS as a standalone signal — jobs mentioning only NestJS without "Node.js" still pass
     matched: (text: string) => containsAny(text, ['nestjs', 'nest.js']),
-    weight: 24,
+    weight: 26,
     reason: 'NestJS is explicitly required',
   },
   {
@@ -247,7 +247,7 @@ export function scoreJob(
   // Layer 1 learning: nudge the score by what you've Applied to / Dismissed before.
   const preference = prefModel ? scorePreference(prefModel, job) : { delta: 0, reasons: [] };
 
-  const score = Math.max(
+  const rawScore = Math.max(
     0,
     Math.min(
       100,
@@ -255,10 +255,23 @@ export function scoreJob(
     ),
   );
 
+  // Primary stack bonus: reward explicit Node.js / NestJS mentions in title or description.
+  // Checked case-insensitively on the already-lowercased `text` and `normalizedTitle`.
+  const stackText = normalizedTitle + ' ' + text;
+  const hasNodeJs = /node\.?js|nodejs/.test(stackText);
+  const hasNestJs = /nest\.?js|nestjs/.test(stackText);
+  const stackBonus = (hasNodeJs ? 15 : 0) + (hasNestJs ? 20 : 0);
+
+  const score = Math.min(100, rawScore + stackBonus);
+
   // Adaptive threshold based on description length:
   // Short descriptions can't physically contain many keywords — don't penalise them for it.
   const wordCount = job.description.trim().split(/\s+/).length;
   const threshold = wordCount < 120 ? 55 : wordCount < 350 ? 57 : 60;
+
+  if (rawScore >= 35 && rawScore < threshold) {
+    console.log(`[scorer-debug] "${job.title}" @ ${job.company} — raw score ${rawScore} → after bonus ${score}`);
+  }
 
   if (score < threshold) {
     return null;
