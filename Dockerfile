@@ -7,6 +7,7 @@ RUN npm ci
 
 COPY . .
 RUN npm run build
+RUN ls -la dist/ && echo "BUILD SUCCESS"
 
 FROM node:22-slim
 
