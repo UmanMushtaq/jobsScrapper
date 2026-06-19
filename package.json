@@ -34,6 +34,8 @@
     "@nestjs/typeorm": "^11.0.0",
     "@playwright/test": "^1.52.0",
     "@upstash/redis": "^1.38.0",
+    "axios": "^1.18.0",
+    "axios-cookiejar-support": "^7.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "pg": "^8.16.3",
@@ -41,6 +43,7 @@
     "playwright-extra-plugin-stealth": "^0.0.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "tough-cookie": "^6.0.1",
     "typeorm": "^0.3.27"
   },
   "devDependencies": {

@@ -1,25 +1,30 @@
-import { proxyFetch } from '../proxy-fetch';
+import axios from 'axios';
+import { wrapper } from 'axios-cookiejar-support';
+import { CookieJar } from 'tough-cookie';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
-import { ApecPlaywrightJob, scrapeApecWithPlaywright } from './apec.playwright';
 import { redisSetApecStatus } from '../redis-store';
 
 const SOURCE = 'apec.fr';
 
-// APEC — Association Pour l'Emploi des Cadres
-// France's primary professional job board for experienced engineers and managers.
-//
-// Auth strategy: their Angular API (/cms/api/v1/offres/recherche) requires a
-// JavaScript-generated XSRF token we can't obtain without a real browser.
-// Fallback: their RSS feed (?flux=rss) is public and requires no auth.
+const SESSION_URL = 'https://www.apec.fr/candidat/recherche-emploi.html/emploi';
+const API_URL = 'https://www.apec.fr/cms/webservices/rechercheOffre/results';
 
-const API_URL = 'https://www.apec.fr/cms/api/v1/offres/recherche';
-const RSS_BASE = 'https://www.apec.fr/candidat/recherche-emploi.html/emploi';
-const PREFLIGHT_URL = 'https://www.apec.fr/candidat/recherche-emploi.html';
-const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Referer': 'https://www.apec.fr/candidat/recherche-emploi.html/emploi',
+  'Origin': 'https://www.apec.fr',
+  'Connection': 'keep-alive',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-origin',
+};
 
-interface ApecOffer {
+interface ApecApiJob {
   numeroOffre?: string | number;
   intitule?: string;
   description?: string;
@@ -46,337 +51,118 @@ interface ApecOffer {
     libelle?: string;
     code?: string;
   };
-  statut?: number;
 }
 
-interface ApecResponse {
-  resultats?: ApecOffer[];
+interface ApecApiResponse {
+  resultats?: ApecApiJob[];
   totalItems?: number;
 }
+
+// Queries sent to the APEC search API
+const APEC_QUERIES = [
+  { motsCles: 'node.js nestjs', lieux: '75' },
+  { motsCles: 'nodejs typescript backend', lieux: '75' },
+  { motsCles: 'nestjs typescript', lieux: '75' },
+];
 
 export class ApecJobsSource implements JobSource {
   name = SOURCE;
   priority = 4;
 
-  async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+  async fetch(_queries: string[], _settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
 
-    // Try Playwright stealth scraper first (bypasses DataDome JS challenge)
+    const jar = new CookieJar();
+    const client = wrapper(axios.create({ jar, withCredentials: true }));
+
+    // Step 1: visit the search page to get a session cookie
     try {
-      const playwrightJobs = await scrapeApecWithPlaywright();
-      if (playwrightJobs.length > 0) {
-        console.log(`[apec] playwright: ${playwrightJobs.length} jobs found`);
-        for (const j of playwrightJobs) {
-          const mapped = this.mapPlaywrightJob(j);
-          if (mapped) jobs.set(mapped.canonicalUrl, mapped);
-        }
-        return Array.from(jobs.values());
-      }
+      await client.get(SESSION_URL, {
+        headers: {
+          ...HEADERS,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+        },
+      });
+      console.log('[apec] session established');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(`[apec] playwright failed: ${msg}, falling back to direct`);
+      console.log(`[apec] session request failed: ${msg}, proceeding without cookie`);
     }
 
-    // Always fetch session first so DataDome cookie is included in every request.
-    const session = await fetchSession();
+    // Step 2: random 2-3 second delay
+    await new Promise((r) => setTimeout(r, 2000 + Math.random() * 1000));
 
-    // Try RSS feed with session cookies — DataDome needs the cookie even for RSS.
-    const rssJobs = await fetchViaRss(settings.maxAgeHours, session);
-    for (const job of rssJobs) jobs.set(job.canonicalUrl, job);
-
-    if (rssJobs.length > 0) {
-      console.log(`[apec] RSS: ${rssJobs.length} jobs fetched`);
-      return Array.from(jobs.values());
-    }
-
-    // RSS returned nothing — fall back to the API with session cookies.
-    for (const query of queries) {
+    // Step 3: query the API for each search term
+    for (const q of APEC_QUERIES) {
       try {
-        const results = await fetchOffers(query, settings.maxAgeHours, session);
-        for (const offer of results) {
+        const params = {
+          motsCles: q.motsCles,
+          nombreOffresParPage: 50,
+          numPage: 1,
+          typesContrat: 'CDI,CDD,MIS,FRE',
+          lieux: q.lieux,
+        };
+
+        const res = await client.get<ApecApiResponse>(API_URL, { headers: HEADERS, params });
+
+        if (res.status === 403) {
+          console.log('[apec] BLOCKED - IP flagged');
+          break;
+        }
+
+        const resultats = res.data?.resultats ?? [];
+        console.log(`[apec] fetched ${resultats.length} jobs from API (query: "${q.motsCles}")`);
+
+        for (const offer of resultats) {
           const job = mapOffer(offer);
           if (job) jobs.set(job.canonicalUrl, job);
         }
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        if (!msg.includes('fetch failed') && !msg.includes('ECONNREFUSED') && !msg.includes('404')) {
-          console.error(`[apec] error for "${query}": ${msg}`);
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 403) {
+          console.log('[apec] BLOCKED - IP flagged');
+          break;
         }
+        console.log(`[apec] API call failed with status ${status ?? 'unknown'}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
     const result = Array.from(jobs.values());
-    const playwrightEnabled = process.env.PLAYWRIGHT_ENABLED === 'true';
-    const INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h cooldown matches Playwright throttle
+    const INTERVAL_MS = 6 * 60 * 60 * 1000;
     await redisSetApecStatus({
       lastRun: new Date().toISOString(),
       jobsFound: result.length,
       status: result.length > 0 ? 'success' : 'blocked',
       nextRun: new Date(Date.now() + INTERVAL_MS).toISOString(),
-      playwrightEnabled,
+      playwrightEnabled: false,
     });
+
     return result;
   }
-
-  private mapPlaywrightJob(j: ApecPlaywrightJob): JobPosting | null {
-    if (!j.title || !j.url) return null;
-    const text = `${j.title} ${j.description}`.toLowerCase();
-    const pubMs = j.date ? new Date(j.date).getTime() : Date.now();
-    const publishedAt = new Date(isNaN(pubMs) ? Date.now() : pubMs).toISOString();
-    const publishedAtTimestamp = Math.floor((isNaN(pubMs) ? Date.now() : pubMs) / 1000);
-    return {
-      source: SOURCE,
-      sourcePriority: 4,
-      canonicalUrl: j.url,
-      title: j.title,
-      company: j.company || 'Non communiqué',
-      companySummary: '',
-      companySlug: (j.company || 'apec').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      locationLabel: j.location || 'France',
-      countryCode: 'FR',
-      city: j.location ? extractCity(j.location) : null,
-      workMode: inferWorkMode('', text),
-      language: detectLanguage(`${j.title} ${j.description}`),
-      description: j.description,
-      keyMissions: [],
-      experienceLevelMinimum: null,
-      salaryCurrency: null,
-      salaryPeriod: null,
-      salaryMinimum: null,
-      salaryMaximum: null,
-      salaryYearlyMinimum: null,
-      publishedAt,
-      publishedAtTimestamp,
-      startupSignals: [],
-      applyUrl: j.url,
-      offersRelocation: false,
-      isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage']),
-      employeeCount: null,
-      companyCreationYear: null,
-    };
-  }
 }
 
-// ── RSS approach (no auth) ────────────────────────────────────────────────────
-
-const RSS_QUERIES = ['nodejs typescript', 'nestjs', 'node.js backend'];
-
-async function fetchViaRss(maxAgeHours: number, session: ApecSession): Promise<JobPosting[]> {
-  const jobs = new Map<string, JobPosting>();
-  const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
-
-  for (const q of RSS_QUERIES) {
-    try {
-      const params = new URLSearchParams({
-        motsCles: q,
-        typeContrat: '102888', // CDI
-        flux: 'rss',
-      });
-      const url = `${RSS_BASE}?${params}`;
-      const headers: Record<string, string> = {
-        'User-Agent': BROWSER_UA,
-        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-        'Referer': 'https://www.apec.fr/',
-      };
-      if (session.cookie) headers['Cookie'] = session.cookie;
-      const res = await proxyFetch(url, { headers });
-
-      if (res.status === 403 || res.status === 404 || res.status === 429 || res.status === 530) {
-        console.log(`[apec] RSS ${res.status} for "${q}" — skipping`);
-        continue;
-      }
-      if (!res.ok) continue;
-
-      const xml = await res.text();
-      if (!xml.includes('<item>')) continue;
-
-      const items = parseRssItems(xml, cutoff);
-      for (const job of items) jobs.set(job.canonicalUrl, job);
-    } catch {
-      // ignore — will fall back to API
-    }
-  }
-
-  return Array.from(jobs.values());
-}
-
-interface RssItem { title: string; link: string; description: string; pubDate: number; }
-
-function parseRssItems(xml: string, cutoff: number): JobPosting[] {
-  const jobs: JobPosting[] = [];
-  const itemRe = /<item>([\s\S]*?)<\/item>/g;
-  let m: RegExpExecArray | null;
-
-  while ((m = itemRe.exec(xml)) !== null) {
-    const block = m[1];
-    const title = extractXmlTag(block, 'title');
-    const link = extractXmlTag(block, 'link') || extractXmlTag(block, 'guid');
-    const description = extractXmlTag(block, 'description');
-    const pubDateStr = extractXmlTag(block, 'pubDate');
-    if (!title || !link) continue;
-
-    const pubMs = pubDateStr ? new Date(pubDateStr).getTime() : Date.now();
-    if (isNaN(pubMs) || pubMs < cutoff) continue;
-
-    const id = link.split('/').pop() ?? link;
-    const canonicalUrl = `https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/${id}`;
-    const desc = stripHtml(description);
-    const text = `${title} ${desc}`.toLowerCase();
-
-    jobs.push({
-      source: SOURCE,
-      sourcePriority: 4,
-      canonicalUrl,
-      title,
-      company: extractXmlTag(block, 'author') || 'Non communiqué',
-      companySummary: '',
-      companySlug: 'apec',
-      locationLabel: 'France',
-      countryCode: 'FR',
-      city: null,
-      workMode: inferWorkMode('', text),
-      language: detectLanguage(`${title} ${desc}`),
-      description: desc,
-      keyMissions: [],
-      experienceLevelMinimum: null,
-      salaryCurrency: null,
-      salaryPeriod: null,
-      salaryMinimum: null,
-      salaryMaximum: null,
-      salaryYearlyMinimum: null,
-      publishedAt: new Date(pubMs).toISOString(),
-      publishedAtTimestamp: Math.floor(pubMs / 1000),
-      startupSignals: [],
-      applyUrl: link,
-      offersRelocation: false,
-      isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage']),
-      employeeCount: null,
-      companyCreationYear: null,
-    });
-  }
-
-  return jobs;
-}
-
-function extractXmlTag(xml: string, tag: string): string {
-  const re = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, 'i');
-  return xml.match(re)?.[1]?.trim() ?? '';
-}
-
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-// ── API approach (fallback) ───────────────────────────────────────────────────
-
-interface ApecSession { cookie: string; xsrfToken: string; }
-
-async function fetchSession(): Promise<ApecSession> {
-  try {
-    const res = await proxyFetch(PREFLIGHT_URL, {
-      headers: {
-        'User-Agent': BROWSER_UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
-      },
-    });
-    const raw = res.headers.get('x-set-cookie') ?? '';
-    if (!raw) {
-      console.warn('[apec] preflight: no cookies received');
-      return { cookie: '', xsrfToken: '' };
-    }
-    // Split by comma but only keep valid name=value pairs (filter out date fragments from Expires= values)
-    const pairs = raw
-      .split(',')
-      .map((c) => c.split(';')[0].trim())
-      .filter((p) => {
-        if (!p.includes('=')) return false;
-        const name = p.split('=')[0].trim();
-        return /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(name);
-      });
-    const cookieStr = pairs.join('; ');
-    const cookieNames = pairs.map((p) => p.split('=')[0]).join(', ');
-    const xsrfPair = pairs.find((p) => /^xsrf-token=/i.test(p));
-    const xsrfToken = xsrfPair ? xsrfPair.split('=').slice(1).join('=') : '';
-    console.log(`[apec] preflight: [${cookieNames}] — xsrf=${xsrfToken ? 'present' : 'missing'}`);
-    return { cookie: cookieStr, xsrfToken };
-  } catch (err) {
-    console.warn(`[apec] preflight failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { cookie: '', xsrfToken: '' };
-  }
-}
-
-async function fetchOffers(query: string, maxAgeHours: number, session: ApecSession): Promise<ApecOffer[]> {
-  const dateMin = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString().split('T')[0];
-
-  const body = {
-    motsCles: query,
-    nbResultat: 50,
-    debut: 0,
-    typesContrats: ['102888'],
-    datePublication: dateMin,
-  };
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'User-Agent': BROWSER_UA,
-    'Referer': 'https://www.apec.fr/offres/offres-emploi.html',
-    'Origin': 'https://www.apec.fr',
-    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-  };
-  if (session.cookie) headers['Cookie'] = session.cookie;
-  if (session.xsrfToken) headers['X-XSRF-TOKEN'] = session.xsrfToken;
-
-  const res = await proxyFetch(API_URL, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  if (res.status === 204) return [];
-  if (res.status === 403 || res.status === 429 || res.status === 502 || res.status === 530) {
-    if (res.status === 403) console.warn(`[apec] 403 — cookie=${session.cookie ? 'present' : 'missing'} xsrf=${session.xsrfToken ? 'present' : 'missing'}`);
-    return [];
-  }
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`APEC API ${res.status}${text ? ': ' + text.slice(0, 150) : ''}`);
-  }
-
-  const data = (await res.json()) as ApecResponse;
-  return data.resultats ?? [];
-}
-
-function mapOffer(offer: ApecOffer): JobPosting | null {
+function mapOffer(offer: ApecApiJob): JobPosting | null {
   const id = offer.numeroOffre;
   if (!id) return null;
 
-  const canonicalUrl = `https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/${id}`;
   const title = offer.intitule ?? '';
   if (!title) return null;
 
+  const canonicalUrl = `https://www.apec.fr/candidat/recherche-emploi.html/emploi/detail-offre/${id}`;
   const company = offer.entreprise?.nom ?? 'Non communiqué';
   const description = offer.description ?? '';
   const text = `${title} ${description}`.toLowerCase();
 
   const publishedAt = offer.datePublication ?? offer.dateModification ?? new Date().toISOString();
-  const publishedAtTimestamp = Math.floor(new Date(publishedAt).getTime() / 1000);
-  if (isNaN(publishedAtTimestamp)) return null;
+  const pubMs = new Date(publishedAt).getTime();
+  if (isNaN(pubMs)) return null;
+  const publishedAtTimestamp = Math.floor(pubMs / 1000);
 
   const modalite = offer.modaliteTravail?.libelle ?? '';
-  const workMode = inferWorkMode(modalite, text);
   const locationLabel = offer.lieuTravail?.libelle ?? 'France';
-  const city = extractCity(locationLabel);
 
   return {
     source: SOURCE,
@@ -388,8 +174,8 @@ function mapOffer(offer: ApecOffer): JobPosting | null {
     companySlug: company.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     locationLabel,
     countryCode: 'FR',
-    city,
-    workMode,
+    city: extractCity(locationLabel),
+    workMode: inferWorkMode(modalite, text),
     language: detectLanguage(`${title} ${description}`),
     description,
     keyMissions: [],
