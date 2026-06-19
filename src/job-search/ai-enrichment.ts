@@ -397,7 +397,7 @@ const CANDIDATE_TECH_STACK =
   `  Testing:    Jest\n` +
   `=== END TECH STACK ===\n`;
 
-const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null, visaContext: string, statusLine: string) =>
+const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null, visaContext: string, statusLine: string, jobSource = '') =>
   `You are acting as a senior recruiter scanning a job for ${name}.\n\n` +
   `TECHNOLOGY CONSTRAINT: Only mention technologies, frameworks, tools, and integrations that appear in the candidate's CV or tech stack below. Never invent or assume experience with technologies not listed. If the job requires a technology not in the candidate's stack, do not claim the candidate has experience with it. You may mention willingness to learn it if relevant.\n\n` +
   `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
@@ -448,7 +448,8 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `    Use first name if hiring manager name appears in description. Else "Dear Hiring Team". Else null.\n` +
   `  coverLetter: write ONLY if relevanceScore >= 55. Otherwise return empty string.\n` +
   `    Goal: a warm, human, specific letter that answers every question in a recruiter's head: who is this person, why this company, why this role, why are they the right fit, and (if not Paris) why are they open to this location. It must read like a real person wrote it, not a template.\n` +
-  `    Length: 4 short paragraphs, 180-230 words total.\n` +
+  `    Length: 4 short paragraphs, 180-230 words total (APEC source exception: see rule 8).\n` +
+  `    GREETING: Begin with "Hi [first name of hiring manager if found in description, otherwise company name + " Team"]," on its own line. Example: "Hi Acme Team," or "Hi Sophie,". Never use "Dear".\n` +
   `    Para 1 (2-3 sentences): MUST begin with the exact words "I am". Introduce the candidate in one line (Paris-based Node.js / NestJS backend engineer with ${expYears}+ years), name the exact role title shown in the prompt that they are applying for, and state one genuine, specific reason this company appeals to him, grounded in a real fact about what THIS company actually builds or does (take it from the company info / description, never generic flattery).\n` +
   `    Para 2 (3-4 sentences): Why he is the right fit. Map his concrete experience to what THIS role needs, using the job description's own requirements. PRIMARY proof: OptimusFox (${expYears} years production, NestJS/Node.js microservices, fintech + crypto platforms, real cross-functional team of ~10). EU recruiters will not know OptimusFox, so name the concrete output: what was built, citing only integrations and technologies that appear in the CANDIDATE TECH STACK above (for example: Dockerized microservices, CI/CD with GitHub Actions, event-driven messaging with RabbitMQ or Kafka). Connect 2-3 of his skills directly to the role's main needs and say plainly why that makes him a strong match. NEVER name a technology (Vue.js, Stripe, PayPal, Angular, Spring, etc.) unless it is in the CANDIDATE TECH STACK above.\n` +
   `    Para 3 (2-3 sentences): Why this company and this role specifically (growth, product, domain, engineering culture, whatever the posting reveals). SUPPORTING proof only: NexusPay may be cited here as evidence of current depth, e.g. "I am applying these same patterns in NexusPay, an event-driven fintech platform I am building", never as primary experience. Do NOT open any paragraph with NexusPay.\n` +
@@ -460,18 +461,23 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `      - on-site/hybrid outside France (another country): acknowledge the role is outside France, say he is genuinely open to relocating within Europe for it, and give one authentic reason WHY he would move there for this specific company/role (the opportunity, the product, the team). Do not sound desperate, sound deliberate.\n` +
   `      Then one short closing sentence inviting a conversation.\n` +
   `    After Para 4, add this exact line on its own, word for word: "${statusLine}"\n` +
-  `    End with exactly: "Best regards,\\n${name}"\n` +
+  `    CLOSING BLOCK: End with this exact block, preserving line breaks:\n` +
+  `      "Best regards,\\nUman Mushtaq\\numanmushtaq72@gmail.com\\n+33 651 995 139\\ngithub.com/UmanMushtaq\\nlinkedin.com/in/umanmushtaq"\n` +
   `    HARD RULES:\n` +
-  `      1. Absolutely NO dashes of any kind anywhere: no hyphen, no em dash —, no en dash. Write compound words with a space or one word (for example "full stack", "well structured", "real time"). Use commas, "and", or short sentences instead of dashes.\n` +
+  `      1. NO DASHES WHATSOEVER: no em dash (—), no en dash (–), no hyphen used as punctuation. Write compound words as two words or one word ("full stack", "well structured", "real time"). Use commas, "and", or short sentences instead. Zero exceptions.\n` +
   `      2. Sound human: vary sentence length, use plain confident language, write like you are speaking to one person. Avoid AI tells and these banned words: passionate, leverage, synergy, excited, thrilled, contribute, dynamic, fast-paced, cutting-edge, delve, tapestry, robust, seamless, spearheaded.\n` +
   `      3. Be specific over generic: every claim should reference a real fact about the company, the role, or his actual experience.\n` +
   `      4. TECHNOLOGY HONESTY: Only name technologies that appear in the CANDIDATE TECH STACK block at the top of this prompt. If the job description mentions Vue.js, Angular, Spring, Laravel, Stripe, PayPal, or any other technology NOT in the candidate's stack, do NOT claim the candidate has experience with it. You may say he is open to picking it up quickly if it fits naturally.\n` +
+  `      5. GRAMMARLY STANDARDS: Use the Oxford comma in lists of three or more. No comma splices (do not join two independent clauses with only a comma). No run-on sentences. Active voice preferred. No unnecessary adverbs (e.g. avoid "very", "really", "truly"). Hyphenate compound modifiers that appear directly before a noun (e.g. "event-driven architecture" is fine as a modifier, but never use a standalone hyphen for punctuation). Do not start a sentence with "And" or "But".\n` +
+  `      6. NO HYPERLINKS OR MARKDOWN: Do not include any hyperlink syntax ([text](url)), angle-bracket URLs, or markdown formatting inside the cover letter body. Plain text only. No bullet points.\n` +
+  `      7. GREETING AND CLOSING FORMAT: The greeting ("Hi X,") and the closing block must appear exactly as specified above. Do not add any extra lines, signatures, or fields beyond what is specified.\n` +
+  `      8. APEC EXCEPTION: The job source for this request is "${jobSource}". If it is "apec", the entire cover letter body (excluding greeting and closing block) must be 500 characters or fewer. Be extremely concise.\n` +
   `  salaryMin: monthly gross integer in local currency, or null.\n` +
   `  salaryMax: monthly gross integer in local currency, or null.\n` +
   `  salaryCurrency: ISO 4217 string, or null.`;
 
 // Proper email closings — used to detect truncated Gemini emailBody output.
-const EMAIL_CLOSINGS = ['best regards', 'sincerely', 'kind regards', 'regards,', 'thank you,', 'thanks,', 'cordialement', 'bien cordialement', 'yours sincerely'];
+const EMAIL_CLOSINGS = ['best regards', 'sincerely', 'kind regards', 'regards,', 'thank you,', 'thanks,', 'cordialement', 'bien cordialement', 'yours sincerely', 'linkedin.com/in/umanmushtaq', 'github.com/umanmushtaq'];
 
 function isEmailBodyComplete(body: string): boolean {
   if (body.length < 100) return false;
@@ -552,6 +558,7 @@ async function enrichSingle(
         job.countryCode,
         workAuth.visaContext,
         workAuth.statusLine,
+        job.source,
       ),
       responseMimeType: 'application/json',
     },
