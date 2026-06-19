@@ -1627,14 +1627,9 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     const failTag = s.consecutiveFailures > 1
       ? `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;background:#fef2f2;color:#b91c1c;">×${s.consecutiveFailures}</span>`
       : '';
-    const runBtn = (s.source === 'apec.fr' || s.source === 'indeed.com')
-      ? `<form method="post" action="/run/${s.source === 'apec.fr' ? 'apec' : 'indeed'}" style="display:inline;margin-left:8px;">
-           <button type="submit" style="padding:2px 10px;font-size:11px;font-weight:600;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;">Run now</button>
-         </form>`
-      : '';
     return `
       <tr style="background:${m.bg};">
-        <td style="padding:11px 14px;font-weight:600;font-size:14px;">${escapeHtml(s.source)}${proxyTag}${failTag}${runBtn}</td>
+        <td style="padding:11px 14px;font-weight:600;font-size:14px;">${escapeHtml(s.source)}${proxyTag}${failTag}</td>
         <td style="padding:11px 14px;"><span style="padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700;color:${m.color};background:white;border:1px solid ${m.border};">${m.label}</span></td>
         <td style="padding:11px 14px;text-align:center;font-weight:600;font-size:14px;color:${s.jobsFound > 0 ? '#15803d' : '#9ca3af'};">${s.jobsFound}</td>
         <td style="padding:11px 14px;font-size:13px;color:#6b7280;">${(s.durationMs / 1000).toFixed(1)}s</td>
@@ -1679,6 +1674,18 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
       <div class="nav"><a href="/">← Back to Dashboard</a></div>
       <h1>Platform Status</h1>
       <p class="subtitle">Per-source health, recorded automatically every scan · updated ${fmtDate(health.updatedAt)}</p>
+
+      <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
+        <form method="post" action="/run-now">
+          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#2563eb;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run all sources</button>
+        </form>
+        <form method="post" action="/run/apec">
+          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run APEC</button>
+        </form>
+        <form method="post" action="/run/indeed">
+          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run Indeed</button>
+        </form>
+      </div>
 
       ${proxyCard}
 
@@ -2186,11 +2193,15 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             </table>
           </div>
 
-        <div class="actions-row">
+        <div class="actions-row" style="display:flex;gap:10px;flex-wrap:wrap;">
           <form method="post" action="/run-now">
-            <button class="btn btn-primary" type="submit">
-              ▶ Run now
-            </button>
+            <button class="btn btn-primary" type="submit">▶ Run all sources</button>
+          </form>
+          <form method="post" action="/run/apec">
+            <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run APEC</button>
+          </form>
+          <form method="post" action="/run/indeed">
+            <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run Indeed</button>
           </form>
         </div>
       </div>
