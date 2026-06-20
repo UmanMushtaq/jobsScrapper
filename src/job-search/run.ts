@@ -28,9 +28,6 @@ import { WeWorkRemotelyJobsSource } from './sources/weworkremotely.source';
 import { WttjJobsSource } from './sources/wttj.source';
 import { StepstoneGermanySource } from './sources/stepstone-de.source';
 import { StellenanzeigenSource } from './sources/stellenanzeigen.source';
-import { StepstoneBelgiumSource } from './sources/stepstone-be.source';
-import { JobatBelgiumSource } from './sources/jobat-be.source';
-import { NvbNlSource } from './sources/nvb.source';
 import { JobbirdNlSource } from './sources/jobbird.source';
 import { PracujPlSource } from './sources/pracuj.source';
 import { TheProtocolSource } from './sources/theprotocol.source';
@@ -65,8 +62,7 @@ const ACTIVE_SOURCES = [
   'news.ycombinator.com',
   'jobs.ashbyhq.com', 'eu.talent.io',
   'nofluffjobs.com', 'justjoin.it',
-  'stepstone.be', 'jobat.be',
-  'nationalevacaturebank.nl', 'jobbird.nl',
+  'jobbird.nl',
   'pracuj.pl', 'theprotocol.it',
   'jobbsafari.se',
   // removed (blocked/dead): nodesk.co (404), europeremotely.com (502),
@@ -161,9 +157,6 @@ export async function runJobSearchOnce(
       new HackerNewsJobsSource(),
       new NoFluffJobsSource(),
       new JustJoinSource(),
-      new StepstoneBelgiumSource(),
-      new JobatBelgiumSource(),
-      new NvbNlSource(),
       new JobbirdNlSource(),
       new PracujPlSource(),
       new TheProtocolSource(),
