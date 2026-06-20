@@ -416,8 +416,9 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  - Company is multinational or has offices in multiple countries\n` +
   `  - Role involves international partners or clients\n\n` +
   `  If ANY of these signals are present, do NOT apply a language penalty. Score the job based on stack match only.\n\n` +
-  `  If NONE of these signals are present, check the company name and description for signs of international culture (multinational brand, English product, global client base). If the company appears international, do NOT apply a language penalty.\n\n` +
-  `  Only apply a language penalty if the JD explicitly requires French/Dutch/German fluency with phrases such as "maîtrise du français indispensable", "Deutsch fließend erforderlich", "vloeiend Nederlands vereist", AND there is no English-team signal anywhere in the JD or company description. In that case set relevanceScore below 40 and note the language barrier in relevanceIssues.\n\n` +
+  `  If NONE of these signals are present, use web search to check the company. Search: [company name] working language OR langue de travail OR company culture\n\n` +
+  `  If web search shows the company works in English or is international, do NOT apply language penalty.\n\n` +
+  `  Only apply language penalty if both the JD AND web search confirm the role requires French/Dutch/German fluency with no English alternative. In that case set relevanceScore below 40 and note the language barrier in relevanceIssues.\n\n` +
   `  The posting language alone is NOT evidence that French/Dutch/German is required for the job.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
