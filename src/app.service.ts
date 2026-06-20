@@ -1639,6 +1639,8 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'pracuj.pl': 'PL',
     'theprotocol.it': 'PL',
     'jobbsafari.se': 'SE',
+    'eurobrussels.com': 'BE',
+    'ictjob.be': 'BE',
     'nationalevacaturebank.nl': 'NL',
     'jobbird.nl': 'NL',
     'indeed.com': 'INTL',
@@ -1837,7 +1839,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
   const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'adzuna.com']);
   const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com', 'stepstone.de', 'stellenanzeigen.de']);
-  const BE_SOURCES = new Set<string>([]);
+  const BE_SOURCES = new Set(['eurobrussels.com', 'ictjob.be']);
   const NL_SOURCES = new Set(['nationalevacaturebank.nl', 'jobbird.nl']);
   const PL_SOURCES = new Set(['nofluffjobs.com', 'justjoin.it', 'pracuj.pl', 'theprotocol.it']);
   const SE_SOURCES = new Set(['jobbsafari.se']);
