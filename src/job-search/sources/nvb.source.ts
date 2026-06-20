@@ -4,7 +4,7 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 
-const SOURCE = 'nvb.nl';
+const SOURCE = 'nationalevacaturebank.nl';
 const BASE_URL = 'https://www.nationalevacaturebank.nl/vacature/zoeken';
 
 const SEARCH_QUERIES = [

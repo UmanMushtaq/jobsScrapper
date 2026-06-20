@@ -66,7 +66,7 @@ const ACTIVE_SOURCES = [
   'jobs.ashbyhq.com', 'eu.talent.io',
   'nofluffjobs.com', 'justjoin.it',
   'stepstone.be', 'jobat.be',
-  'nvb.nl', 'jobbird.nl',
+  'nationalevacaturebank.nl', 'jobbird.nl',
   'pracuj.pl', 'theprotocol.it',
   'jobbsafari.se',
   // removed (blocked/dead): nodesk.co (404), europeremotely.com (502),
