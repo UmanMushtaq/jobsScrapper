@@ -1633,6 +1633,9 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'arbeitsagentur.de': 'DE',
     'nofluffjobs.com': 'PL',
     'justjoin.it': 'PL',
+    'pracuj.pl': 'PL',
+    'theprotocol.it': 'PL',
+    'jobbsafari.se': 'SE',
     'stepstone.be': 'BE',
     'jobat.be': 'BE',
     'nvb.nl': 'NL',
@@ -1655,6 +1658,7 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     { key: 'BE',     flag: '🇧🇪', label: 'Belgium',                  bg: '#f5f3ff', border: '#ddd6fe' },
     { key: 'NL',     flag: '🇳🇱', label: 'Netherlands',              bg: '#f0fdf4', border: '#bbf7d0' },
     { key: 'PL',     flag: '🇵🇱', label: 'Poland',                   bg: '#fef2f2', border: '#fecaca' },
+    { key: 'SE',     flag: '🇸🇪', label: 'Sweden',                   bg: '#f0f9ff', border: '#bfdbfe' },
     { key: 'INTL',   flag: '🌐', label: 'International / Multi-country', bg: '#fafaf9', border: '#e7e5e4' },
     { key: 'REMOTE', flag: '🌍', label: 'Remote & Job Boards',       bg: '#f8fafc', border: '#e2e8f0', runEndpoint: '/run/indeed' },
   ];
@@ -1737,6 +1741,7 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     { key: 'BE', flag: '🇧🇪', label: 'BE' },
     { key: 'NL', flag: '🇳🇱', label: 'NL' },
     { key: 'PL', flag: '🇵🇱', label: 'PL' },
+    { key: 'SE', flag: '🇸🇪', label: 'SE' },
     { key: 'INTL', flag: '🌐', label: 'INTL' },
     { key: 'REMOTE', flag: '🌍', label: 'Remote' },
   ].map(({ key, flag, label }) =>
@@ -1833,16 +1838,20 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
   const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com']);
   const BE_SOURCES = new Set(['stepstone.be', 'jobat.be']);
   const NL_SOURCES = new Set(['nvb.nl', 'jobbird.nl']);
+  const PL_SOURCES = new Set(['nofluffjobs.com', 'justjoin.it', 'pracuj.pl', 'theprotocol.it']);
+  const SE_SOURCES = new Set(['jobbsafari.se']);
 
   function sourceToCountryTab(source: string): string {
     if (FR_SOURCES.has(source)) return 'fr';
     if (DE_SOURCES.has(source)) return 'de';
     if (BE_SOURCES.has(source)) return 'be';
     if (NL_SOURCES.has(source)) return 'nl';
+    if (PL_SOURCES.has(source)) return 'pl';
+    if (SE_SOURCES.has(source)) return 'se';
     return 'remote';
   }
 
-  const countryCounts: Record<string, number> = { all: displayMatches.length, fr: 0, de: 0, be: 0, nl: 0, remote: 0 };
+  const countryCounts: Record<string, number> = { all: displayMatches.length, fr: 0, de: 0, be: 0, nl: 0, pl: 0, se: 0, remote: 0 };
   for (const { match } of displayMatches) {
     const tab = sourceToCountryTab(match.job.source ?? '');
     countryCounts[tab] = (countryCounts[tab] ?? 0) + 1;
@@ -2370,10 +2379,12 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
           <div id="country-tab-bar" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;z-index:10;background:white;padding:10px 0 10px;border-bottom:1px solid #e5e7eb;">
             ${[
               { key: 'all',    label: '🌍 All',          hash: '' },
-              { key: 'fr',     label: '🇫🇷 France',      hash: 'france' },
-              { key: 'de',     label: '🇩🇪 Germany',     hash: 'germany' },
-              { key: 'be',     label: '🇧🇪 Belgium',     hash: 'belgium' },
-              { key: 'nl',     label: '🇳🇱 Netherlands', hash: 'netherlands' },
+              { key: 'fr',     label: '🇫🇷 FR',          hash: 'france' },
+              { key: 'de',     label: '🇩🇪 DE',          hash: 'germany' },
+              { key: 'be',     label: '🇧🇪 BE',          hash: 'belgium' },
+              { key: 'nl',     label: '🇳🇱 NL',          hash: 'netherlands' },
+              { key: 'pl',     label: '🇵🇱 PL',          hash: 'poland' },
+              { key: 'se',     label: '🇸🇪 SE',          hash: 'sweden' },
               { key: 'remote', label: '🌐 Remote',       hash: 'remote' },
             ].map(({ key, label, hash }) => {
               const count = countryCounts[key] ?? 0;

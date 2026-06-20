@@ -30,6 +30,9 @@ import { StepstoneBelgiumSource } from './sources/stepstone-be.source';
 import { JobatBelgiumSource } from './sources/jobat-be.source';
 import { NvbNlSource } from './sources/nvb.source';
 import { JobbirdNlSource } from './sources/jobbird.source';
+import { PracujPlSource } from './sources/pracuj.source';
+import { TheProtocolSource } from './sources/theprotocol.source';
+import { JobbSafariSource } from './sources/jobbsafari.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -60,6 +63,8 @@ const ACTIVE_SOURCES = [
   'nofluffjobs.com', 'justjoin.it',
   'stepstone.be', 'jobat.be',
   'nvb.nl', 'jobbird.nl',
+  'pracuj.pl', 'theprotocol.it',
+  'jobbsafari.se',
   // removed (blocked/dead): nodesk.co (404), europeremotely.com (502),
   // startup.jobs (403), wellfound.com (cloud IP block), himalayas.app (0 matches)
 ];
@@ -154,6 +159,9 @@ export async function runJobSearchOnce(
       new JobatBelgiumSource(),
       new NvbNlSource(),
       new JobbirdNlSource(),
+      new PracujPlSource(),
+      new TheProtocolSource(),
+      new JobbSafariSource(),
     ];
     const sources = excludeSources?.length
       ? allSources.filter((s) => !excludeSources.includes(s.name))
