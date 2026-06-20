@@ -29,6 +29,7 @@ import { WttjJobsSource } from './sources/wttj.source';
 import { StepstoneBelgiumSource } from './sources/stepstone-be.source';
 import { JobatBelgiumSource } from './sources/jobat-be.source';
 import { NvbNlSource } from './sources/nvb.source';
+import { JobbirdNlSource } from './sources/jobbird.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -58,7 +59,7 @@ const ACTIVE_SOURCES = [
   'jobs.ashbyhq.com', 'eu.talent.io',
   'nofluffjobs.com', 'justjoin.it',
   'stepstone.be', 'jobat.be',
-  'nvb.nl',
+  'nvb.nl', 'jobbird.nl',
   // removed (blocked/dead): nodesk.co (404), europeremotely.com (502),
   // startup.jobs (403), wellfound.com (cloud IP block), himalayas.app (0 matches)
 ];
@@ -151,6 +152,7 @@ export async function runJobSearchOnce(
       new StepstoneBelgiumSource(),
       new JobatBelgiumSource(),
       new NvbNlSource(),
+      new JobbirdNlSource(),
     ];
     const sourceResults: SourceRunResult[] = await Promise.all(
       sources.map(async (s): Promise<SourceRunResult> => {
