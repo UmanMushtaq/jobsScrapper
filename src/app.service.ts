@@ -1825,6 +1825,25 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       ? dashboardJobs.map((j) => ({ match: j.match as MatchResult, foundAt: j.foundAt }))
       : state.latestMatches.map((m) => ({ match: m }));
 
+  const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'adzuna.com']);
+  const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com']);
+  const BE_SOURCES = new Set(['stepstone.be', 'jobat.be']);
+  const NL_SOURCES = new Set(['nvb.nl', 'jobbird.com']);
+
+  function sourceToCountryTab(source: string): string {
+    if (FR_SOURCES.has(source)) return 'fr';
+    if (DE_SOURCES.has(source)) return 'de';
+    if (BE_SOURCES.has(source)) return 'be';
+    if (NL_SOURCES.has(source)) return 'nl';
+    return 'remote';
+  }
+
+  const countryCounts: Record<string, number> = { all: displayMatches.length, fr: 0, de: 0, be: 0, nl: 0, remote: 0 };
+  for (const { match } of displayMatches) {
+    const tab = sourceToCountryTab(match.job.source ?? '');
+    countryCounts[tab] = (countryCounts[tab] ?? 0) + 1;
+  }
+
   const rows =
     displayMatches.length > 0
       ? displayMatches
@@ -1978,7 +1997,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                 </div>`
               : '';
 
-            const detailsRow = `<tr id="${detId}" style="display:none;">
+            const detailsRow = `<tr id="${detId}" data-country="${countryTab}" style="display:none;">
               <td colspan="8" style="padding:0 10px 20px;">
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;padding:16px;background:#f8fafc;border-radius:10px;border:1px solid #e5e7eb;">
 
@@ -2018,9 +2037,10 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
             const agingBorder = isAging ? 'border-left:3px solid #f59e0b;' : '';
             const agingTag = isAging ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3c7;color:#92400e;">48h+</span>` : '';
+            const countryTab = sourceToCountryTab(match.job.source ?? '');
 
             return `
-              <tr style="${agingBorder}">
+              <tr data-country="${countryTab}" style="${agingBorder}">
                 <td>
                   <div style="font-weight:600;font-size:14px;line-height:1.4;">${escapeHtml(match.job.title)}${agingTag}</div>
                   <div style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}&nbsp;${hnBadge}${emailBadge}</div>
@@ -2343,6 +2363,26 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
         </div>
 
         <div id="tab-matches-panel">
+          <div id="country-tab-bar" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;z-index:10;background:white;padding:10px 0 10px;border-bottom:1px solid #e5e7eb;">
+            ${[
+              { key: 'all',    label: '🌍 All',          hash: '' },
+              { key: 'fr',     label: '🇫🇷 France',      hash: 'france' },
+              { key: 'de',     label: '🇩🇪 Germany',     hash: 'germany' },
+              { key: 'be',     label: '🇧🇪 Belgium',     hash: 'belgium' },
+              { key: 'nl',     label: '🇳🇱 Netherlands', hash: 'netherlands' },
+              { key: 'remote', label: '🌐 Remote',       hash: 'remote' },
+            ].map(({ key, label, hash }) => {
+              const count = countryCounts[key] ?? 0;
+              return `<button
+                id="ctab-${key}"
+                data-ctab="${key}"
+                data-hash="${hash}"
+                onclick="switchCountryTab('${key}')"
+                style="padding:6px 14px;border-radius:99px;font-size:13px;font-weight:600;border:2px solid #e5e7eb;cursor:pointer;background:#f9fafb;color:#6b7280;transition:all .15s;">
+                ${label} <span style="font-weight:400;font-size:12px;">(${count})</span>
+              </button>`;
+            }).join('')}
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -2667,6 +2707,53 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
         document.getElementById('tab-applied-btn').style.cssText  = 'padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:' + (isMatches ? '#f3f4f6;color:#374151' : '#15803d;color:white') + ';';
         if (!isMatches && !_appliedLoaded) loadAppliedJobs();
       }
+
+      // ── Country tabs ─────────────────────────────────────────────────
+      var _activeCountryTab = 'all';
+
+      function switchCountryTab(key) {
+        _activeCountryTab = key;
+
+        // Update URL hash
+        var btn = document.getElementById('ctab-' + key);
+        var hash = btn ? btn.getAttribute('data-hash') : '';
+        if (hash) {
+          history.replaceState(null, '', '#' + hash);
+        } else {
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+
+        // Style all tab buttons
+        document.querySelectorAll('[data-ctab]').forEach(function(b) {
+          var active = b.getAttribute('data-ctab') === key;
+          b.style.background = active ? '#2563eb' : '#f9fafb';
+          b.style.color = active ? 'white' : '#6b7280';
+          b.style.borderColor = active ? '#2563eb' : '#e5e7eb';
+        });
+
+        // Show/hide rows
+        document.querySelectorAll('tr[data-country]').forEach(function(row) {
+          var country = row.getAttribute('data-country');
+          // details rows (det-N) follow their parent; keep them hidden unless already open
+          var isDet = row.id && row.id.startsWith('det-');
+          if (isDet) {
+            // only show details rows that were already open AND match the filter
+            if (row.style.display !== 'none') {
+              row.style.display = (key === 'all' || country === key) ? '' : 'none';
+            }
+          } else {
+            row.style.display = (key === 'all' || country === key) ? '' : 'none';
+          }
+        });
+      }
+
+      // Apply hash on load
+      (function() {
+        var hashMap = { france: 'fr', germany: 'de', belgium: 'be', netherlands: 'nl', remote: 'remote' };
+        var h = (window.location.hash || '').replace('#', '');
+        var key = hashMap[h] || 'all';
+        switchCountryTab(key);
+      })();
 
       function workModeBadge(mode) {
         if (mode === 'remote')  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#d1fae5;color:#065f46;">remote</span>';
