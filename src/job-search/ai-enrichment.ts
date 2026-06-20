@@ -604,8 +604,10 @@ async function enrichSingle(
   const companyQualityScore = Math.min(100, Math.max(0, Number(raw.companyQualityScore ?? 70)));
   console.log(`[gemini] "${job.title}" @ ${job.company} — relevance=${relevanceScore} fraud=${fraudScore} quality=${companyQualityScore} visa=${raw.visaFriendly ?? 'unknown'} model=${model}`);
   const descWordCount = job.description.trim().split(/\s+/).filter(Boolean).length;
-  const coverLetterStatus = relevanceScore >= 55 ? 'generated' : 'skipped';
-  console.log(`[gemini-debug] "${job.title}" @ ${job.company} — description: ${descWordCount} words, relevanceScore: ${relevanceScore}, coverLetter: ${coverLetterStatus}`);
+  const coverLetterThreshold = descWordCount < 120 ? 45 : descWordCount < 350 ? 50 : 55;
+  const shouldGenerateCoverLetter = relevanceScore >= coverLetterThreshold;
+  const coverLetterStatus = shouldGenerateCoverLetter ? 'generated' : 'skipped';
+  console.log(`[gemini-debug] "${job.title}" @ ${job.company} — description: ${descWordCount} words, relevanceScore: ${relevanceScore}, threshold: ${coverLetterThreshold}, coverLetter: ${coverLetterStatus}`);
 
   let suggestedSalary: string | null = null;
   if (raw.salaryMin && raw.salaryMax && raw.salaryCurrency) {
@@ -654,7 +656,7 @@ async function enrichSingle(
     isSuspicious: fraudScore >= 72,
     companyQualityScore,
     companyRedFlags: (raw.companyRedFlags ?? []).slice(0, 3),
-    coverLetter: relevanceScore >= 55
+    coverLetter: shouldGenerateCoverLetter
       ? stripDashes(raw.coverLetter?.trim() || buildFallbackCoverLetter(job, profile, matchReasons))
       : '',
     suggestedSalary,
