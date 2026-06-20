@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
@@ -32,11 +33,6 @@ interface NfPosting {
   posted?: string;     // ISO 8601
 }
 
-interface NfResponse {
-  postings?: NfPosting[];
-  totalCount?: number;
-}
-
 const RELEVANT_TAGS = ['node', 'node.js', 'nodejs', 'nestjs', 'typescript', 'javascript', 'backend', 'express', 'postgresql'];
 
 const ENGLISH_SIGNALS = [
@@ -44,10 +40,10 @@ const ENGLISH_SIGNALS = [
   'english speaking', 'b2', 'c1', 'c2', 'fluent english', 'working in english',
 ];
 
-const SEARCH_URLS = [
-  'https://nofluffjobs.com/api/search/posting?criteria=requirement%3Dnode.js&salaryCurrency=PLN&salaryPeriod=month',
-  'https://nofluffjobs.com/api/search/posting?criteria=requirement%3Dtypescript&salaryCurrency=PLN&salaryPeriod=month',
-  'https://nofluffjobs.com/api/search/posting?criteria=requirement%3Dnestjs',
+const SEARCH_PAGES = [
+  'https://nofluffjobs.com/jobs/backend?criteria=requirement%3Dnode.js',
+  'https://nofluffjobs.com/jobs/backend?criteria=requirement%3Dtypescript',
+  'https://nofluffjobs.com/jobs/backend?criteria=requirement%3Dnestjs',
 ];
 
 export class NoFluffJobsSource implements JobSource {
@@ -58,27 +54,25 @@ export class NoFluffJobsSource implements JobSource {
     const jobs = new Map<string, JobPosting>();
     const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
 
-    for (const url of SEARCH_URLS) {
+    for (const pageUrl of SEARCH_PAGES) {
       try {
-        const response = await fetch(url, {
+        const res = await axios.get<string>(pageUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-            'Accept': 'application/json',
+            'Accept': 'text/html,application/xhtml+xml',
             'Accept-Language': 'en-US,en;q=0.9',
           },
+          timeout: 15_000,
+          responseType: 'text',
         });
 
-        if (response.status === 403 || response.status === 429) {
-          console.log(`[nofluffjobs] blocked ${response.status} — skipping`);
-          continue;
-        }
-        if (!response.ok) {
-          console.warn(`[nofluffjobs] HTTP ${response.status} for ${url}`);
+        if (res.status === 403 || res.status === 429) {
+          console.log(`[nofluffjobs] blocked ${res.status} — skipping`);
           continue;
         }
 
-        const data = (await response.json()) as NfResponse;
-        const postings = data.postings ?? [];
+        const html: string = res.data;
+        const postings = extractPostingsFromHtml(html);
 
         const relevant = postings.filter((p) => {
           if (p.posted && new Date(p.posted).getTime() < cutoff) return false;
@@ -91,20 +85,57 @@ export class NoFluffJobsSource implements JobSource {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.includes('fetch failed') && !msg.includes('ECONNREFUSED')) {
+        if (!msg.includes('ECONNREFUSED') && !msg.includes('ETIMEDOUT')) {
           console.error(`[nofluffjobs] error: ${msg}`);
         }
       }
     }
 
-    if (jobs.size === 0) {
-      console.log('[nofluffjobs] 0 relevant jobs found');
-    } else {
-      console.log(`[nofluffjobs] ${jobs.size} unique relevant jobs`);
-    }
-
+    console.log(`[nofluffjobs] ${jobs.size} jobs fetched`);
     return Array.from(jobs.values());
   }
+}
+
+function extractPostingsFromHtml(html: string): NfPosting[] {
+  // Try window.__INITIAL_STATE__ first
+  const stateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*(?:<\/script>|window\.)/);
+  if (stateMatch) {
+    try {
+      const state = JSON.parse(stateMatch[1]);
+      const postings =
+        state?.postings?.list ??
+        state?.jobOffers?.list ??
+        state?.search?.postings ??
+        [];
+      if (Array.isArray(postings) && postings.length > 0) return postings as NfPosting[];
+    } catch { /* fall through */ }
+  }
+
+  // Try <script type="application/json"> blocks
+  const scriptMatches = html.matchAll(/<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  for (const match of scriptMatches) {
+    try {
+      const data = JSON.parse(match[1]);
+      // Could be the full initial data blob or a postings array directly
+      const postings =
+        data?.postings?.list ??
+        data?.jobOffers?.list ??
+        data?.search?.postings ??
+        (Array.isArray(data) ? data : null);
+      if (Array.isArray(postings) && postings.length > 0) return postings as NfPosting[];
+    } catch { /* continue */ }
+  }
+
+  // Try any JSON blob that looks like it has postings
+  const jsonMatches = html.matchAll(/\bpostings\b[^{]*(\{[\s\S]{100,10000}?\})/g);
+  for (const match of jsonMatches) {
+    try {
+      const data = JSON.parse(match[1]);
+      if (Array.isArray(data?.list)) return data.list as NfPosting[];
+    } catch { /* continue */ }
+  }
+
+  return [];
 }
 
 function isRelevant(p: NfPosting): boolean {
