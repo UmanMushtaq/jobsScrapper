@@ -1857,6 +1857,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             const cvHash = hashJobUrl(match.job.canonicalUrl);
             const jobId = cvHash;
             const isAging = foundAt != null && (now - foundAt) > 48 * 60 * 60 * 1000;
+            const countryTab = sourceToCountryTab(match.job.source ?? '');
 
             // Table row: compact summary
             const salaryDisplay = match.salaryLabel !== 'salary not listed'
@@ -2037,7 +2038,6 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
             const agingBorder = isAging ? 'border-left:3px solid #f59e0b;' : '';
             const agingTag = isAging ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3c7;color:#92400e;">48h+</span>` : '';
-            const countryTab = sourceToCountryTab(match.job.source ?? '');
 
             return `
               <tr data-country="${countryTab}" style="${agingBorder}">
