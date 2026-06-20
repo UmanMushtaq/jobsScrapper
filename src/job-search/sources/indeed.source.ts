@@ -37,6 +37,7 @@ function buildScraperUrl(targetUrl: string): string {
     render: 'false',
     country_code: 'fr',
     keep_headers: 'true',
+    residential: 'true',
   });
   return `https://api.scraperapi.com?${params}`;
 }
