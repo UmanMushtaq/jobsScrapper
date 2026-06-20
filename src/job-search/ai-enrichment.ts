@@ -567,11 +567,28 @@ async function enrichSingle(
       dismissedHistory.forEach((e) => lines.push(`  - ${e.title} @ ${e.company}${e.countryCode ? ` (${e.countryCode})` : ''} [score: ${e.score}]`));
     }
     lines.push(
-      'Use this history to calibrate your relevanceScore.',
-      'If the new job is very similar to a dismissed job (same company type, same stack, same role type), score relevance lower.',
-      'If it is similar to an applied job, score relevance higher.',
-      'Similarity definition: a job is similar if it shares the PRIMARY technology (Node.js, Angular, Python etc) AND the role type (pure backend, fullstack, frontend).',
-      'Weight dismissed jobs more heavily than applied jobs when in doubt — it is better to miss a job than to show irrelevant ones.',
+      'DISMISS PATTERN LEARNING:',
+      'Analyze the dismissed jobs carefully. Extract these patterns from dismissed jobs:',
+      '',
+      '1. Stack patterns: if multiple dismissed jobs have Angular, Vue, React as PRIMARY stack, any new job with these as primary should score below 40',
+      '2. Role patterns: if dismissed jobs are fullstack with frontend, new fullstack-with-frontend jobs score below 45',
+      '3. Company type patterns: if specific company types were dismissed (agencies, certain sectors), reduce score for similar companies',
+      '',
+      '4. A new job scores LOWER if it shares:',
+      '   - Same primary technology as a dismissed job: -20',
+      '   - Same role type (fullstack vs backend) as dismissed: -15',
+      '   - Same company type as dismissed: -10',
+      '',
+      '5. A new job scores HIGHER if it shares:',
+      '   - Same primary technology as an applied job: +15',
+      '   - Same role type as applied job: +10',
+      '',
+      '6. If a job is more than 80% similar to a dismissed job in terms of primary stack AND role type, score it below 45 regardless of other signals.',
+      '',
+      'Applied job patterns to reward:',
+      '- Pure backend Node.js/NestJS roles',
+      '- Senior backend with microservices',
+      '- ESN/consulting with Node.js missions',
       '=== END HISTORY ===',
     );
     historyContext = lines.join('\n');
