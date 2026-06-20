@@ -1828,7 +1828,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
   const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'adzuna.com']);
   const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com']);
   const BE_SOURCES = new Set(['stepstone.be', 'jobat.be']);
-  const NL_SOURCES = new Set(['nvb.nl', 'jobbird.com']);
+  const NL_SOURCES = new Set(['nationalevacaturebank.nl', 'jobbird.com']);
 
   function sourceToCountryTab(source: string): string {
     if (FR_SOURCES.has(source)) return 'fr';
@@ -2746,6 +2746,23 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
           }
         });
       }
+
+      // Recompute count badges from actual DOM rows (handles any server-side count drift)
+      (function() {
+        var counts = { all: 0, fr: 0, de: 0, be: 0, nl: 0, remote: 0 };
+        document.querySelectorAll('tr[data-country]').forEach(function(row) {
+          if (row.id && row.id.startsWith('det-')) return; // skip details rows
+          var c = row.getAttribute('data-country');
+          if (c && counts[c] !== undefined) counts[c]++;
+          counts.all++;
+        });
+        Object.keys(counts).forEach(function(key) {
+          var btn = document.getElementById('ctab-' + key);
+          if (!btn) return;
+          var span = btn.querySelector('span');
+          if (span) span.textContent = '(' + counts[key] + ')';
+        });
+      })();
 
       // Apply hash on load
       (function() {
