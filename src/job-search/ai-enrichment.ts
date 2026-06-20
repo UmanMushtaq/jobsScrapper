@@ -603,6 +603,9 @@ async function enrichSingle(
   const fraudScore = Math.min(100, Math.max(0, Number(raw.fraudScore ?? 0)));
   const companyQualityScore = Math.min(100, Math.max(0, Number(raw.companyQualityScore ?? 70)));
   console.log(`[gemini] "${job.title}" @ ${job.company} — relevance=${relevanceScore} fraud=${fraudScore} quality=${companyQualityScore} visa=${raw.visaFriendly ?? 'unknown'} model=${model}`);
+  const descWordCount = job.description.trim().split(/\s+/).filter(Boolean).length;
+  const coverLetterStatus = relevanceScore >= 55 ? 'generated' : 'skipped';
+  console.log(`[gemini-debug] "${job.title}" @ ${job.company} — description: ${descWordCount} words, relevanceScore: ${relevanceScore}, coverLetter: ${coverLetterStatus}`);
 
   let suggestedSalary: string | null = null;
   if (raw.salaryMin && raw.salaryMax && raw.salaryCurrency) {
