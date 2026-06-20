@@ -48,6 +48,7 @@ import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, re
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef, hashJobUrl } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, ScorerDiagnostic, SearchProfile } from './types';
+import { saveJobDecision } from '../database/database.service';
 
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
 const DEFAULT_APPLIED_FILE = 'job_search_applied.json';
@@ -646,6 +647,38 @@ export async function markJobDecision(
       date: new Date().toISOString(),
     });
   }
+
+  // Detect primary stack and role type from job description for richer Gemini calibration
+  const jobDesc = match?.job.description ?? '';
+  const primaryStack = /(nestjs|nest\.js)/i.test(jobDesc) ? 'NestJS'
+    : /node\.?js/i.test(jobDesc) ? 'Node.js'
+    : /angular/i.test(jobDesc) ? 'Angular'
+    : /vue/i.test(jobDesc) ? 'Vue'
+    : /react/i.test(jobDesc) ? 'React'
+    : /python/i.test(jobDesc) ? 'Python'
+    : /java[^s]/i.test(jobDesc) ? 'Java'
+    : /\.net|c#/i.test(jobDesc) ? '.NET'
+    : null;
+  const roleType = /fullstack|full.stack|full stack/i.test(historyTitle + jobDesc) ? 'fullstack'
+    : /frontend|front.end|front end/i.test(historyTitle + jobDesc) ? 'frontend'
+    : 'backend';
+
+  await saveJobDecision({
+    jobUrl: match?.job.canonicalUrl ?? normalizedUrl,
+    jobTitle: historyTitle,
+    company: historyCompany,
+    source: historySource,
+    matcherScore: historyScore,
+    aiScore: match?.relevanceScore ?? 0,
+    decision,
+    country: match?.job.countryCode ?? undefined,
+    salaryMin: match?.job.salaryMinimum ?? undefined,
+    salaryMax: match?.job.salaryMaximum ?? undefined,
+    primaryStack: primaryStack ?? undefined,
+    roleType,
+    jobDescription: jobDesc.slice(0, 2000) || undefined,
+    coverLetter: match?.coverLetter?.slice(0, 2000) || undefined,
+  });
 
   await removeUrlsFromStore(seenFile, 'seen_urls', [normalizedUrl]);
 

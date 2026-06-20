@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { redisGetJobDecisionHistory, redisIncrGeminiDailyCalls } from './redis-store';
+import { getJobDecisionHistory } from '../database/database.service';
 import { resolveWorkAuth } from './profile';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
@@ -549,22 +550,52 @@ async function enrichSingle(
     job.companySummary ? `About: ${job.companySummary.slice(0, 300)}` : '',
   ].filter(Boolean).join('\n');
 
-  // Fetch applied/dismissed history in parallel for Gemini calibration context
-  const [appliedHistory, dismissedHistory] = await Promise.all([
-    redisGetJobDecisionHistory('applied', 20),
-    redisGetJobDecisionHistory('dismissed', 20),
-  ]);
+  // Fetch applied/dismissed history — PostgreSQL primary, Redis fallback
+  const pgHistory = await getJobDecisionHistory(20);
+  const usePg = pgHistory.applied.length > 0 || pgHistory.dismissed.length > 0;
+
+  let appliedEntries: Array<{ title: string; company: string; country?: string; score: number; stack?: string; roleType?: string; desc?: string }>;
+  let dismissedEntries: typeof appliedEntries;
+
+  if (usePg) {
+    const toEntry = (r: { job_title: string; company: string; country: string | null; ai_score: number; primary_stack: string | null; role_type: string | null; job_description: string | null }) => ({
+      title: r.job_title, company: r.company, country: r.country ?? undefined,
+      score: r.ai_score, stack: r.primary_stack ?? undefined,
+      roleType: r.role_type ?? undefined, desc: r.job_description?.slice(0, 200) ?? undefined,
+    });
+    appliedEntries = pgHistory.applied.map(toEntry);
+    dismissedEntries = pgHistory.dismissed.map(toEntry);
+  } else {
+    const [redisApplied, redisDismissed] = await Promise.all([
+      redisGetJobDecisionHistory('applied', 20),
+      redisGetJobDecisionHistory('dismissed', 20),
+    ]);
+    appliedEntries = redisApplied.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score }));
+    dismissedEntries = redisDismissed.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score }));
+  }
 
   let historyContext = '';
-  if (appliedHistory.length > 0 || dismissedHistory.length > 0) {
+  if (appliedEntries.length > 0 || dismissedEntries.length > 0) {
     const lines: string[] = ['=== CANDIDATE JOB DECISION HISTORY ==='];
-    if (appliedHistory.length > 0) {
+    if (appliedEntries.length > 0) {
       lines.push('Jobs this candidate APPLIED TO recently (good matches — calibrate higher if similar):');
-      appliedHistory.forEach((e) => lines.push(`  - ${e.title} @ ${e.company}${e.countryCode ? ` (${e.countryCode})` : ''} [score: ${e.score}]`));
+      appliedEntries.forEach((e) => {
+        let line = `  - ${e.title} @ ${e.company}${e.country ? ` (${e.country})` : ''} score:${e.score}`;
+        if (e.stack) line += ` stack:${e.stack}`;
+        if (e.roleType) line += ` type:${e.roleType}`;
+        if (e.desc) line += `\n    description preview: ${e.desc}`;
+        lines.push(line);
+      });
     }
-    if (dismissedHistory.length > 0) {
+    if (dismissedEntries.length > 0) {
       lines.push('Jobs this candidate DISMISSED recently (bad matches — calibrate lower if similar):');
-      dismissedHistory.forEach((e) => lines.push(`  - ${e.title} @ ${e.company}${e.countryCode ? ` (${e.countryCode})` : ''} [score: ${e.score}]`));
+      dismissedEntries.forEach((e) => {
+        let line = `  - ${e.title} @ ${e.company}${e.country ? ` (${e.country})` : ''} score:${e.score}`;
+        if (e.stack) line += ` stack:${e.stack}`;
+        if (e.roleType) line += ` type:${e.roleType}`;
+        if (e.desc) line += `\n    reason pattern: ${e.desc}`;
+        lines.push(line);
+      });
     }
     lines.push(
       'DISMISS PATTERN LEARNING:',

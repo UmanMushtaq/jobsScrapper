@@ -2,8 +2,12 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import * as express from 'express';
+import { initDatabase } from './database/database.service';
 
 async function bootstrap() {
+  try { await initDatabase(); } catch (err) {
+    console.warn('[postgres] init failed:', (err as Error).message);
+  }
   const app = await NestFactory.create(AppModule);
   app.use(express.urlencoded({ extended: true }));
   app.useGlobalPipes(new ValidationPipe({
