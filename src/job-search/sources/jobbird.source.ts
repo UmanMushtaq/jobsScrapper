@@ -6,6 +6,7 @@ import { JobSource } from './registry';
 
 const SOURCE = 'jobbird.nl';
 const BASE_URL = 'https://www.jobbird.com/nl/vacature';
+const AJAX_URL = 'https://www.jobbird.com/nl/ajax/job';
 
 const SEARCH_QUERIES = [
   'nodejs',
@@ -26,34 +27,6 @@ const HEADERS = {
   'Accept-Language': 'nl-NL,nl;q=0.9,en;q=0.8',
 };
 
-function buildScraperUrl(targetUrl: string): string {
-  const key = process.env.SCRAPERAPI_KEY;
-  if (!key) return targetUrl;
-  const params = new URLSearchParams({
-    api_key: key,
-    url: targetUrl,
-    render: 'true',
-    residential: 'true',
-  });
-  return `https://api.scraperapi.com?${params}`;
-}
-
-interface RawJob {
-  id?: string | number;
-  url?: string;
-  link?: string;
-  title?: string;
-  name?: string;
-  company?: string | { name?: string };
-  employer?: string | { name?: string };
-  location?: string | { name?: string; city?: string };
-  city?: string;
-  description?: string;
-  summary?: string;
-  datePosted?: string;
-  publishedAt?: string;
-  date?: string;
-}
 
 export class JobbirdNlSource implements JobSource {
   name = SOURCE;
@@ -83,155 +56,82 @@ export class JobbirdNlSource implements JobSource {
   }
 }
 
-async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
-  const targetUrl = `${BASE_URL}?search=${encodeURIComponent(query)}`;
-  const url = buildScraperUrl(targetUrl);
-  const res = await axios.get<string>(url, {
-    headers: HEADERS,
-    timeout: 15_000,
-    responseType: 'text',
-  });
+interface AjaxJob {
+  id?: string | number;
+  title?: string;
+  url?: string;
+  description?: string;
+  dateRefreshed?: string;
+  publishedAt?: string;
+  company?: string | { name?: string };
+  location?: string;
+  city?: string;
+}
 
-  if (res.status === 403 || res.status === 429) {
-    console.log(`[jobbird] blocked ${res.status} for "${query}"`);
+async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
+  // Step 1: fetch listing page to extract job IDs
+  const listUrl = `${BASE_URL}?s=${encodeURIComponent(query)}`;
+  let html = '';
+  try {
+    const res = await axios.get<string>(listUrl, {
+      headers: HEADERS,
+      timeout: 15_000,
+      responseType: 'text',
+      validateStatus: (s) => s < 500,
+    });
+    if (res.status === 403 || res.status === 429) {
+      console.log(`[jobbird] blocked ${res.status} for "${query}"`);
+      return [];
+    }
+    html = res.data as string;
+  } catch {
     return [];
   }
 
-  const html: string = res.data;
-  const jobs = extractJobs(html);
-
-  return jobs
-    .filter((j) => {
-      const dateStr = j.datePosted ?? j.publishedAt ?? j.date;
-      if (!dateStr) return true;
-      return new Date(dateStr).getTime() >= cutoff;
-    })
-    .map(mapJob)
-    .filter((j): j is JobPosting => j !== null);
-}
-
-function extractJobs(html: string): RawJob[] {
-  // 1. Try window.__INITIAL_STATE__
-  const stateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*(?:<\/script>|window\.)/);
-  if (stateMatch) {
-    try {
-      const state = JSON.parse(stateMatch[1]);
-      const list =
-        state?.vacatures?.items ??
-        state?.jobs?.items ??
-        state?.jobList?.jobs ??
-        state?.results?.items ??
-        state?.listings ??
-        [];
-      if (Array.isArray(list) && list.length > 0) return list as RawJob[];
-    } catch { /* fall through */ }
-  }
-
-  // 2. Try JSON-LD (JobPosting schema.org)
-  const jsonLdJobs: RawJob[] = [];
-  const ldMatches = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-  for (const match of ldMatches) {
-    try {
-      const data = JSON.parse(match[1]);
-      const items = Array.isArray(data) ? data : [data];
-      for (const item of items) {
-        if (item['@type'] === 'JobPosting') {
-          jsonLdJobs.push({
-            title: item.title,
-            url: item.url,
-            company: item.hiringOrganization?.name ?? item.hiringOrganization,
-            location: item.jobLocation?.address?.addressLocality ?? item.jobLocation?.name,
-            description: item.description,
-            datePosted: item.datePosted,
-          });
-        }
-      }
-    } catch { /* continue */ }
-  }
-  if (jsonLdJobs.length > 0) return jsonLdJobs;
-
-  // 3. Try application/json script blocks
-  const scriptMatches = html.matchAll(/<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi);
-  for (const match of scriptMatches) {
-    try {
-      const data = JSON.parse(match[1]);
-      const list =
-        data?.vacatures ??
-        data?.jobs ??
-        data?.jobList?.jobs ??
-        data?.items ??
-        (Array.isArray(data) ? data : null);
-      if (Array.isArray(list) && list.length > 0) return list as RawJob[];
-    } catch { /* continue */ }
-  }
-
-  // 4. Parse job cards from HTML
-  return parseJobCardsFromHtml(html);
-}
-
-function parseJobCardsFromHtml(html: string): RawJob[] {
-  const jobs: RawJob[] = [];
-
-  const cardPattern = /<(?:article|li|div)[^>]*class="[^"]*(?:vacancy|vacature|job-card|job-listing)[^"]*"[^>]*>([\s\S]*?)<\/(?:article|li|div)>/gi;
+  // Extract job IDs from href patterns like /nl/vacature/{id}-slug
+  const idSet = new Set<string>();
+  const idPattern = /\/nl\/vacature\/(\d+)-/g;
   let m: RegExpExecArray | null;
+  while ((m = idPattern.exec(html)) !== null) idSet.add(m[1]);
 
-  while ((m = cardPattern.exec(html)) !== null) {
-    const block = m[1];
+  if (idSet.size === 0) return [];
 
-    const titleMatch = block.match(/<h[1-4][^>]*>([^<]{5,120})<\/h[1-4]>/i)
-      ?? block.match(/class="[^"]*(?:job-title|vacancy-title|title)[^"]*"[^>]*>([^<]+)/i);
-    const companyMatch = block.match(/class="[^"]*(?:company|employer|organisation)[^"]*"[^>]*>([^<]+)/i);
-    const locationMatch = block.match(/class="[^"]*(?:location|city|place|stad)[^"]*"[^>]*>([^<]+)/i);
-    const linkMatch = block.match(/href="([^"]*\/(?:nl\/)?vacature[^"]+)"/i) ?? block.match(/href="(\/[^"]+)"/i);
-
-    const title = titleMatch ? titleMatch[1].trim() : null;
-    const rawUrl = linkMatch ? linkMatch[1] : null;
-    const url = rawUrl
-      ? (rawUrl.startsWith('http') ? rawUrl : `https://www.jobbird.com${rawUrl}`)
-      : null;
-
-    if (title && url) {
-      jobs.push({
-        title,
-        url,
-        company: companyMatch ? companyMatch[1].trim() : undefined,
-        location: locationMatch ? locationMatch[1].trim() : undefined,
+  // Step 2: fetch each job via AJAX endpoint
+  const results: JobPosting[] = [];
+  for (const id of idSet) {
+    try {
+      const ajaxRes = await axios.get<AjaxJob>(`${AJAX_URL}/${id}`, {
+        headers: { ...HEADERS, Accept: 'application/json' },
+        timeout: 10_000,
+        validateStatus: (s) => s < 500,
       });
-    }
+      if (ajaxRes.status !== 200) continue;
+      const raw = ajaxRes.data;
+      const dateStr = raw.dateRefreshed ?? raw.publishedAt;
+      if (dateStr && new Date(dateStr).getTime() < cutoff) continue;
+      const job = mapAjaxJob(raw, id);
+      if (job) results.push(job);
+    } catch { /* skip individual failures */ }
   }
-
-  return jobs;
+  return results;
 }
 
-function mapJob(raw: RawJob): JobPosting | null {
-  const title = raw.title ?? raw.name;
+function mapAjaxJob(raw: AjaxJob, id: string): JobPosting | null {
+  const title = raw.title;
   if (!title) return null;
 
-  const url = raw.url ?? raw.link;
-  if (!url) return null;
-
-  const canonicalUrl = url.startsWith('http') ? url : `https://www.jobbird.com${url}`;
+  const canonicalUrl = raw.url
+    ? (raw.url.startsWith('http') ? raw.url : `https://www.jobbird.com${raw.url}`)
+    : `https://www.jobbird.com/nl/vacature/${id}`;
 
   const companyRaw = raw.company;
-  const company = typeof companyRaw === 'string'
-    ? companyRaw
-    : companyRaw?.name ?? (typeof raw.employer === 'string' ? raw.employer : raw.employer?.name) ?? 'Unknown';
-
-  const locationRaw = raw.location ?? raw.city;
-  const locationStr = typeof locationRaw === 'string'
-    ? locationRaw
-    : (locationRaw as { name?: string; city?: string })?.name ?? (locationRaw as { city?: string })?.city ?? '';
+  const company = typeof companyRaw === 'string' ? companyRaw : companyRaw?.name ?? 'Unknown';
+  const locationStr = raw.location ?? raw.city ?? '';
   const locationLabel = locationStr ? `${locationStr}, Netherlands` : 'Netherlands';
-  const city = locationStr || null;
-
-  const description = raw.description ?? raw.summary
-    ? stripHtml(raw.description ?? raw.summary ?? '')
-    : '';
+  const description = raw.description ? stripHtml(raw.description) : '';
   const text = `${title} ${description}`.toLowerCase();
-
-  const dateStr = raw.datePosted ?? raw.publishedAt ?? raw.date;
+  const dateStr = raw.dateRefreshed ?? raw.publishedAt;
   const publishedAt = dateStr ? new Date(dateStr) : new Date();
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
 
   return {
     source: SOURCE,
@@ -243,7 +143,7 @@ function mapJob(raw: RawJob): JobPosting | null {
     companySlug: company.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     locationLabel,
     countryCode: inferCountryCode(locationLabel) || 'NL',
-    city,
+    city: locationStr || null,
     workMode: inferWorkMode(text),
     language: detectLanguage(`${title} ${description.slice(0, 400)}`),
     description,
@@ -255,7 +155,7 @@ function mapJob(raw: RawJob): JobPosting | null {
     salaryMaximum: null,
     salaryYearlyMinimum: null,
     publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
+    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: containsAny(text, ['relocation', 'visa sponsor', 'visa support', 'work permit', 'sponsorship']),
