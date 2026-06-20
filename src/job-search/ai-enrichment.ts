@@ -414,11 +414,36 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  The posting language alone is NOT evidence that French/Dutch/German is required for the job.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
-  `  relevanceScore: integer 0-100. How well does this job match the candidate's CV above?\n` +
-  `    Penalise heavily: primary backend NOT Node.js (C#/.NET, Java, Go, PHP) without Node.js.\n` +
-  `    Penalise: frontend/fullstack where non-JS dominates; requires skills clearly absent from CV (AI/ML, DevOps, mobile).\n` +
-  `    Penalise: job requires French/Dutch/German fluency with no English-team signal (candidate is A1 French).\n` +
-  `    Reward: Node.js/NestJS/TypeScript primary stack; fintech/payments domain; event-driven/microservices.\n` +
+  `  relevanceScore: integer 0-100. How well does this job match the candidate's CV?\n` +
+  `\n` +
+  `    HARD PENALTIES (score must be below 40):\n` +
+  `    - Primary backend language is NOT Node.js: C#/.NET, Java, Go, PHP, Python, Ruby as the main stack with no Node.js\n` +
+  `    - Angular or Vue.js is the PRIMARY frontend framework and the role is fullstack requiring heavy Angular/Vue work\n` +
+  `    - Role is primarily frontend (React, Angular, Vue) with backend as secondary\n` +
+  `\n` +
+  `    MEDIUM PENALTIES (reduce score by 20-30 points):\n` +
+  `    - Fullstack role where frontend is more than 50% of the work\n` +
+  `    - Node.js mentioned only once as a nice-to-have, not primary\n` +
+  `    - Requires 6+ years strictly with no flexibility signal\n` +
+  `    - Requires French, Dutch, or German fluency with no English-team signal (candidate is A1 French only)\n` +
+  `    - AI/ML, DevOps, or mobile as primary skill requirement\n` +
+  `\n` +
+  `    REWARDS (increase score):\n` +
+  `    - Node.js or NestJS as PRIMARY backend stack: +20\n` +
+  `    - TypeScript explicitly required: +10\n` +
+  `    - Fintech, payments, or banking domain: +10\n` +
+  `    - Event-driven architecture or microservices: +10\n` +
+  `    - Remote or hybrid with no language requirement: +5\n` +
+  `    - Senior backend role, pure backend not fullstack: +10\n` +
+  `\n` +
+  `    CALIBRATION:\n` +
+  `    Use the candidate's apply/dismiss history provided below.\n` +
+  `    If the job is similar to a DISMISSED job:\n` +
+  `      - Same primary stack as dismissed -> reduce by 15 points\n` +
+  `      - Same role type (fullstack with Angular) as dismissed -> reduce by 20 points\n` +
+  `    If the job is similar to an APPLIED job:\n` +
+  `      - Same stack and role type -> increase by 15 points\n` +
+  `    Definition of similar: same primary technology AND same role type (backend vs fullstack vs frontend)\n` +
   `  relevanceIssues: array of up to 3 short strings explaining deductions.\n` +
   `  visaFriendly: true/false/null — assess using visa rules above.\n` +
   `  visaNote: one short sentence, or null.\n` +
@@ -537,6 +562,8 @@ async function enrichSingle(
       'Use this history to calibrate your relevanceScore.',
       'If the new job is very similar to a dismissed job (same company type, same stack, same role type), score relevance lower.',
       'If it is similar to an applied job, score relevance higher.',
+      'Similarity definition: a job is similar if it shares the PRIMARY technology (Node.js, Angular, Python etc) AND the role type (pure backend, fullstack, frontend).',
+      'Weight dismissed jobs more heavily than applied jobs when in doubt — it is better to miss a job than to show irrelevant ones.',
       '=== END HISTORY ===',
     );
     historyContext = lines.join('\n');
