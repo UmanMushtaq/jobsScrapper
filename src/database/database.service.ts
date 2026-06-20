@@ -8,6 +8,9 @@ function getPool(): Pool | null {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 30000,
+      max: 10,
     });
   }
   return pool;
@@ -19,6 +22,9 @@ export async function initDatabase(): Promise<void> {
     return;
   }
   const p = getPool()!;
+  // Verify connectivity before creating tables
+  await p.query('SELECT 1');
+  console.log('[postgres] connected to Supabase successfully');
   await p.query(`
     CREATE TABLE IF NOT EXISTS job_decisions (
       id SERIAL PRIMARY KEY,
