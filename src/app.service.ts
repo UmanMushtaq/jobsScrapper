@@ -579,9 +579,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return this.activeRun;
     }
 
+    const excludeSources = trigger === 'manual' ? ['apec.fr', 'indeed.com'] : undefined;
+
     this.activeRun = (async () => {
       try {
-        const summary = await runJobSearchOnce();
+        const summary = await runJobSearchOnce(undefined, excludeSources);
         _dashboardCache = null; // new jobs available — next load rebuilds from Redis
         _healthCache = null;
         this.logger.log(
@@ -1779,7 +1781,7 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
 
       <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
         <form method="post" action="/run-now">
-          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#2563eb;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run all sources</button>
+          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#2563eb;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run all (excl. APEC &amp; Indeed)</button>
         </form>
         <form method="post" action="/run/apec">
           <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run APEC</button>
@@ -2310,7 +2312,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
         <div class="actions-row" style="display:flex;gap:10px;flex-wrap:wrap;">
           <form method="post" action="/run-now">
-            <button class="btn btn-primary" type="submit">▶ Run all sources</button>
+            <button class="btn btn-primary" type="submit">▶ Run all (excl. APEC &amp; Indeed)</button>
           </form>
           <form method="post" action="/run/apec">
             <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run APEC</button>

@@ -68,6 +68,7 @@ const BLOCKED_SOURCES = ['linkedin.com'];
 
 export async function runJobSearchOnce(
   overrideProfile?: SearchProfile,
+  excludeSources?: string[],
 ): Promise<RunSummary> {
   const profile = overrideProfile ?? (await loadSearchProfile());
   if (isRedisAvailable()) {
@@ -129,7 +130,7 @@ export async function runJobSearchOnce(
       console.log(`[preference] learning from ${prefModel.appliedCount} applied + ${prefModel.dismissedCount} dismissed → ${prefModel.weights.size} weighted words`);
     }
 
-    const sources = [
+    const allSources = [
       new WttjJobsSource(),
       new AdzunaJobsSource(),
       new FranceTravailJobsSource(),
@@ -154,6 +155,9 @@ export async function runJobSearchOnce(
       new NvbNlSource(),
       new JobbirdNlSource(),
     ];
+    const sources = excludeSources?.length
+      ? allSources.filter((s) => !excludeSources.includes(s.name))
+      : allSources;
     const sourceResults: SourceRunResult[] = await Promise.all(
       sources.map(async (s): Promise<SourceRunResult> => {
         const startedAt = Date.now();
