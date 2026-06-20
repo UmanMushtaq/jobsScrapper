@@ -407,10 +407,17 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  On-site/hybrid in France: compatible — candidate is open to any French city (Paris, Lyon, Marseille, Bordeaux, etc.).\n` +
   `  On-site/hybrid outside France: only compatible if employer explicitly mentions visa sponsorship or relocation support.\n\n` +
   `Language note: this job posting may be written in French, Dutch, German, or another European language.\n` +
-  `  The candidate is a fluent English speaker (A1 French). Assess language fit as follows:\n` +
-  `  - If the posting explicitly requires English OR signals an international/multicultural/global team → candidate qualifies. Write cover letter and email in English.\n` +
-  `  - If the posting says nothing about language → assume international environment is possible. Do NOT penalise. Write in English. Let technical fit drive the score.\n` +
-  `  - If the posting EXPLICITLY requires French/Dutch/German fluency (e.g. "maîtrise du français indispensable", "Deutsch fließend erforderlich") with no English-team signal → set relevanceScore below 40 and note the language barrier in relevanceIssues.\n` +
+  `  The candidate is a fluent English speaker (A1 French). The candidate has a browser translator and can read any JD language.\n\n` +
+  `  LANGUAGE RULE: Never reject a job purely because the JD is written in French, Dutch, or German.\n\n` +
+  `  Before applying any language penalty, check for these English signals in the JD:\n` +
+  `  - English explicitly mentioned as required or working language\n` +
+  `  - C1, B2, fluent English in expected skills\n` +
+  `  - International teams or clients mentioned\n` +
+  `  - Company is multinational or has offices in multiple countries\n` +
+  `  - Role involves international partners or clients\n\n` +
+  `  If ANY of these signals are present, do NOT apply a language penalty. Score the job based on stack match only.\n\n` +
+  `  If NONE of these signals are present, check the company name and description for signs of international culture (multinational brand, English product, global client base). If the company appears international, do NOT apply a language penalty.\n\n` +
+  `  Only apply a language penalty if the JD explicitly requires French/Dutch/German fluency with phrases such as "maîtrise du français indispensable", "Deutsch fließend erforderlich", "vloeiend Nederlands vereist", AND there is no English-team signal anywhere in the JD or company description. In that case set relevanceScore below 40 and note the language barrier in relevanceIssues.\n\n` +
   `  The posting language alone is NOT evidence that French/Dutch/German is required for the job.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
