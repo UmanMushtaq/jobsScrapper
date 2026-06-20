@@ -1631,6 +1631,7 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'arbeitsagentur.de': 'DE',
     'nofluffjobs.com': 'PL',
     'justjoin.it': 'PL',
+    'stepstone.be': 'BE',
     'indeed.com': 'INTL',
     'greenhouse.io': 'INTL',
     'jobs.lever.co': 'INTL',
