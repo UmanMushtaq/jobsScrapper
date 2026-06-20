@@ -380,7 +380,7 @@ function stripDashes(text: string | null | undefined): string {
     .trim();
 }
 
-// To convert RECE to a long-term Talent (salarié qualifié) permit: flat €39,582/yr from Aug 2025 decree.
+// To convert APS visa to a long-term Talent (salarié qualifié) permit: flat €39,582/yr from Aug 2025 decree.
 const TALENT_THRESHOLD_MONTHLY_EUR = Math.ceil(39582 / 12); // 3299
 
 const CANDIDATE_TECH_STACK =
@@ -666,7 +666,7 @@ async function enrichSingle(
       if (monthlyEur < TALENT_THRESHOLD_MONTHLY_EUR) {
         visaRisk =
           `Salary (est. ~${fmt(monthlyEur)} EUR/mo) is below the ${fmt(TALENT_THRESHOLD_MONTHLY_EUR)} EUR/mo (${fmt(39582)} EUR/yr) ` +
-          `minimum to convert your RECE to a Talent permit. You can start this job but negotiate ` +
+          `minimum to convert your APS visa to a Talent permit. You can start this job but negotiate ` +
           `to at least ${fmt(TALENT_THRESHOLD_MONTHLY_EUR + 50)} EUR/mo before or at signing to secure your stay.`;
       }
     }

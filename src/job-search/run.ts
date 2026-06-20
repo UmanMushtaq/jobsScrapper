@@ -724,7 +724,7 @@ async function buildTelegramPayload(
     if (match.visaFriendly !== undefined && match.visaFriendly !== null) {
       const visaIcon = match.visaFriendly ? '✓' : '⚠️';
       const note = match.visaNote ? ` (${match.visaNote})` : '';
-      lines.push(`RECE visa: ${match.visaFriendly ? 'compatible' : 'sponsorship needed'}${note} ${visaIcon}`);
+      lines.push(`APS visa: ${match.visaFriendly ? 'compatible' : 'sponsorship needed'}${note} ${visaIcon}`);
     }
 
     if (match.visaRisk) {
