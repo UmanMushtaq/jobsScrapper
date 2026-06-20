@@ -27,6 +27,7 @@ import { TalentioJobsSource } from './sources/talentio.source';
 import { WeWorkRemotelyJobsSource } from './sources/weworkremotely.source';
 import { WttjJobsSource } from './sources/wttj.source';
 import { StepstoneBelgiumSource } from './sources/stepstone-be.source';
+import { JobatBelgiumSource } from './sources/jobat-be.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -55,7 +56,7 @@ const ACTIVE_SOURCES = [
   'news.ycombinator.com',
   'jobs.ashbyhq.com', 'eu.talent.io',
   'nofluffjobs.com', 'justjoin.it',
-  'stepstone.be',
+  'stepstone.be', 'jobat.be',
   // removed (blocked/dead): nodesk.co (404), europeremotely.com (502),
   // startup.jobs (403), wellfound.com (cloud IP block), himalayas.app (0 matches)
 ];
@@ -146,6 +147,7 @@ export async function runJobSearchOnce(
       new NoFluffJobsSource(),
       new JustJoinSource(),
       new StepstoneBelgiumSource(),
+      new JobatBelgiumSource(),
     ];
     const sourceResults: SourceRunResult[] = await Promise.all(
       sources.map(async (s): Promise<SourceRunResult> => {
