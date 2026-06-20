@@ -26,6 +26,18 @@ const HEADERS = {
   'Accept-Language': 'nl-NL,nl;q=0.9,en;q=0.8',
 };
 
+function buildScraperUrl(targetUrl: string): string {
+  const key = process.env.SCRAPERAPI_KEY;
+  if (!key) return targetUrl;
+  const params = new URLSearchParams({
+    api_key: key,
+    url: targetUrl,
+    render: 'true',
+    residential: 'true',
+  });
+  return `https://api.scraperapi.com?${params}`;
+}
+
 interface RawJob {
   id?: string | number;
   url?: string;
@@ -72,7 +84,8 @@ export class JobbirdNlSource implements JobSource {
 }
 
 async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
-  const url = `${BASE_URL}?search=${encodeURIComponent(query)}`;
+  const targetUrl = `${BASE_URL}?search=${encodeURIComponent(query)}`;
+  const url = buildScraperUrl(targetUrl);
   const res = await axios.get<string>(url, {
     headers: HEADERS,
     timeout: 15_000,

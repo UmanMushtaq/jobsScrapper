@@ -29,6 +29,18 @@ const HEADERS = {
   'Accept-Encoding': 'gzip, deflate, br',
 };
 
+function buildScraperUrl(targetUrl: string): string {
+  const key = process.env.SCRAPERAPI_KEY;
+  if (!key) return targetUrl;
+  const params = new URLSearchParams({
+    api_key: key,
+    url: targetUrl,
+    render: 'true',
+    residential: 'true',
+  });
+  return `https://api.scraperapi.com?${params}`;
+}
+
 interface RawJob {
   id?: string;
   url?: string;
@@ -74,7 +86,8 @@ export class StepstoneBelgiumSource implements JobSource {
 }
 
 async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
-  const url = `${BASE_URL}${encodeURIComponent(query)}`;
+  const targetUrl = `${BASE_URL}${encodeURIComponent(query)}`;
+  const url = buildScraperUrl(targetUrl);
   const res = await axios.get<string>(url, {
     headers: HEADERS,
     timeout: 15_000,
