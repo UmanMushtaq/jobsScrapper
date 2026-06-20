@@ -1631,6 +1631,8 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'berlinstartupjobs.com': 'DE',
     'bundesagentur.de': 'DE',
     'arbeitsagentur.de': 'DE',
+    'stepstone.de': 'DE',
+    'stellenanzeigen.de': 'DE',
     'nofluffjobs.com': 'PL',
     'justjoin.it': 'PL',
     'pracuj.pl': 'PL',
@@ -1835,7 +1837,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       : state.latestMatches.map((m) => ({ match: m }));
 
   const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'adzuna.com']);
-  const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com']);
+  const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com', 'stepstone.de', 'stellenanzeigen.de']);
   const BE_SOURCES = new Set(['stepstone.be', 'jobat.be']);
   const NL_SOURCES = new Set(['nvb.nl', 'jobbird.nl']);
   const PL_SOURCES = new Set(['nofluffjobs.com', 'justjoin.it', 'pracuj.pl', 'theprotocol.it']);

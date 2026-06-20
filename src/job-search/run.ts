@@ -26,6 +26,8 @@ import { RemotiveJobsSource } from './sources/remotive.source';
 import { TalentioJobsSource } from './sources/talentio.source';
 import { WeWorkRemotelyJobsSource } from './sources/weworkremotely.source';
 import { WttjJobsSource } from './sources/wttj.source';
+import { StepstoneGermanySource } from './sources/stepstone-de.source';
+import { StellenanzeigenSource } from './sources/stellenanzeigen.source';
 import { StepstoneBelgiumSource } from './sources/stepstone-be.source';
 import { JobatBelgiumSource } from './sources/jobat-be.source';
 import { NvbNlSource } from './sources/nvb.source';
@@ -58,6 +60,7 @@ const ACTIVE_SOURCES = [
   'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'jobicy.com',
   'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
   'berlinstartupjobs.com', 'bundesagentur.de',
+  'stepstone.de', 'stellenanzeigen.de',
   'news.ycombinator.com',
   'jobs.ashbyhq.com', 'eu.talent.io',
   'nofluffjobs.com', 'justjoin.it',
@@ -150,6 +153,8 @@ export async function runJobSearchOnce(
       new ArbeitnowJobsSource(),
       new BerlinStartupJobsSource(),
       new BundesagenturJobsSource(),
+      new StepstoneGermanySource(),
+      new StellenanzeigenSource(),
       new TalentioJobsSource(),
       new IndeedJobsSource(),
       new HackerNewsJobsSource(),
