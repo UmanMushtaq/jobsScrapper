@@ -206,5 +206,11 @@ export class AppController {
   ): Promise<string> {
     return this.appService.submitAnswerQuestions(company ?? '', title ?? '', description ?? '', questions ?? '', hash ?? '');
   }
+
+  // TEMPORARY: one-off migration endpoint — remove after running
+  @Post('admin/migrate-history')
+  async migrateHistory(): Promise<object> {
+    return this.appService.migrateHistoryToPostgres();
+  }
 }
 
