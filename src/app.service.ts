@@ -1662,8 +1662,14 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     countByGroup[grp] = (countByGroup[grp] ?? 0) + s.jobsFound;
   }
 
+  // Sources known to be blocked by Cloudflare — needs a proxy fix, not a code fix.
+  const CLOUDFLARE_BLOCKED = new Set(['indeed.com', 'eu.talent.io']);
+
   const makeRow = (s: (typeof health.sources)[number]) => {
-    const m = STATUS_META[s.status] ?? STATUS_META.error;
+    const isCloudflareBlocked = CLOUDFLARE_BLOCKED.has(s.source);
+    const m = isCloudflareBlocked
+      ? { label: 'Blocked (Cloudflare)', color: '#b45309', bg: '#fffbeb', border: '#fde68a' }
+      : STATUS_META[s.status] ?? STATUS_META.error;
     const proxyTag = s.usesProxy
       ? `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;">via proxy</span>`
       : '';
