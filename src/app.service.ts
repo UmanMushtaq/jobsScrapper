@@ -1633,6 +1633,8 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'justjoin.it': 'PL',
     'stepstone.be': 'BE',
     'jobat.be': 'BE',
+    'nvb.nl': 'NL',
+    'jobbird.nl': 'NL',
     'indeed.com': 'INTL',
     'greenhouse.io': 'INTL',
     'jobs.lever.co': 'INTL',
@@ -1828,7 +1830,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
   const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'adzuna.com']);
   const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com']);
   const BE_SOURCES = new Set(['stepstone.be', 'jobat.be']);
-  const NL_SOURCES = new Set(['nationalevacaturebank.nl', 'jobbird.com']);
+  const NL_SOURCES = new Set(['nvb.nl', 'jobbird.nl']);
 
   function sourceToCountryTab(source: string): string {
     if (FR_SOURCES.has(source)) return 'fr';
