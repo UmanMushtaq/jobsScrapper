@@ -382,12 +382,22 @@ function detectExperiencePenalty(text: string): { penalty: number; hardReject: b
     return { penalty: 0, hardReject: true };
   }
 
-  // -25 penalty: 6–7 years required
+  // -10 penalty: 6 years required (stack match compensates; interviews happen at 4yr with strong fit)
   if (
-    /\b[67]\+\s*(?:years?|ans?)\b/i.test(required) ||
-    /\b(?:minimum|at least|au moins)\s+[67]\s+(?:years?|ans?)\b/i.test(required) ||
-    /\b[67]\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
-    /\bminimum\s+[67]\s+years?\b/i.test(required)
+    /\b6\+\s*(?:years?|ans?)\b/i.test(required) ||
+    /\b(?:minimum|at least|au moins)\s+6\s+(?:years?|ans?)\b/i.test(required) ||
+    /\b6\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
+    /\bminimum\s+6\s+years?\b/i.test(required)
+  ) {
+    return { penalty: 10, hardReject: false };
+  }
+
+  // -25 penalty: 7 years required
+  if (
+    /\b7\+\s*(?:years?|ans?)\b/i.test(required) ||
+    /\b(?:minimum|at least|au moins)\s+7\s+(?:years?|ans?)\b/i.test(required) ||
+    /\b7\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
+    /\bminimum\s+7\s+years?\b/i.test(required)
   ) {
     return { penalty: 25, hardReject: false };
   }
