@@ -1628,6 +1628,7 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'arbeitnow.com': 'DE',
     'berlinstartupjobs.com': 'DE',
     'bundesagentur.de': 'DE',
+    'arbeitsagentur.de': 'DE',
     'nofluffjobs.com': 'PL',
     'justjoin.it': 'PL',
     'indeed.com': 'INTL',
