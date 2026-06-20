@@ -227,7 +227,7 @@ export function scoreJob(
   const hasTier1Signal = TIER2_NEGATIVE.some((s) => text.includes(s));
   const hasTier2 = TIER2_POSITIVE.some((s) => text.includes(s)) && !hasTier1Signal;
   const tier2Score = hasTier2 ? 5 : 0;
-  const tier1Penalty = hasTier1Signal ? 10 : 0; // -10 for hyper-competitive large companies
+  const tier1Penalty = 0;
 
   // Boost jobs where the employer mentions visa sponsorship or relocation support.
   // These are the minority of postings that can actually proceed with a non-EU hire.
@@ -392,14 +392,14 @@ function detectExperiencePenalty(text: string): { penalty: number; hardReject: b
     return { penalty: 25, hardReject: false };
   }
 
-  // -10 penalty: 5 years mentioned as requirement
+  // 5 years required — no penalty (4 years experience is close enough)
   if (
     /\b5\+\s*(?:years?|ans?)\b/i.test(required) ||
     /\b(?:minimum|at least|au moins)\s+5\s+(?:years?|ans?)\b/i.test(required) ||
     /\b5\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
     /\bminimum\s+5\s+years?\b/i.test(required)
   ) {
-    return { penalty: 10, hardReject: false };
+    return { penalty: 0, hardReject: false };
   }
 
   return { penalty: 0, hardReject: false };
