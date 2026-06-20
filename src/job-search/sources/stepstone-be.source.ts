@@ -37,6 +37,7 @@ function buildScraperUrl(targetUrl: string): string {
     url: targetUrl,
     render: 'true',
     residential: 'true',
+    premium: 'true',
   });
   return `https://api.scraperapi.com?${params}`;
 }
@@ -86,7 +87,7 @@ export class StepstoneBelgiumSource implements JobSource {
 }
 
 async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
-  const targetUrl = `${BASE_URL}${encodeURIComponent(query)}`;
+  const targetUrl = `${BASE_URL}${encodeURIComponent(query)}?radius=30&sort=2`;
   const url = buildScraperUrl(targetUrl);
   const res = await axios.get<string>(url, {
     headers: HEADERS,
