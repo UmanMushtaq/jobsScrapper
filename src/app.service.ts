@@ -28,8 +28,6 @@ import {
 } from './job-search/telegram';
 import { ApecRunStatus, AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetApecStatus, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
-import { initDatabase, saveJobDecision } from './database/database.service';
-import { redisGetJobDecisionHistory } from './job-search/redis-store';
 import { ApecPlaywrightStatus, getApecPlaywrightStatus } from './job-search/sources/apec.playwright';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 
@@ -753,43 +751,6 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return renderAnswerQuestionsResultHtml(company, title, answers, hash);
   }
 
-  // TEMPORARY: one-off migration — remove after running
-  async migrateHistoryToPostgres(): Promise<object> {
-    try {
-      await initDatabase();
-      const [applied, dismissed] = await Promise.all([
-        redisGetJobDecisionHistory('applied', 100),
-        redisGetJobDecisionHistory('dismissed', 100),
-      ]);
-      let ok = 0;
-      const errors: string[] = [];
-      for (const e of applied) {
-        try {
-          await saveJobDecision({
-            jobUrl: `redis-migrated:applied:${e.company}:${e.title}`,
-            jobTitle: e.title, company: e.company,
-            source: 'redis-migration', matcherScore: e.score, aiScore: e.score,
-            decision: 'applied', country: e.countryCode ?? undefined,
-          });
-          ok++;
-        } catch (err) { errors.push(`applied:${e.title}: ${(err as Error).message}`); }
-      }
-      for (const e of dismissed) {
-        try {
-          await saveJobDecision({
-            jobUrl: `redis-migrated:dismissed:${e.company}:${e.title}`,
-            jobTitle: e.title, company: e.company,
-            source: 'redis-migration', matcherScore: e.score, aiScore: e.score,
-            decision: 'dismissed', country: e.countryCode ?? undefined,
-          });
-          ok++;
-        } catch (err) { errors.push(`dismissed:${e.title}: ${(err as Error).message}`); }
-      }
-      return { migrated: ok, applied: applied.length, dismissed: dismissed.length, errors };
-    } catch (err) {
-      return { error: (err as Error).message };
-    }
-  }
 }
 
 function shouldEnableScheduler(): boolean {
