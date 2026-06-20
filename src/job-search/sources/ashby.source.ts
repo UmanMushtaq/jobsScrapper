@@ -87,6 +87,12 @@ async function fetchCompanyJobs(company: string, settings: SearchSettings): Prom
   if (!response.ok) throw new Error(`Ashby API error ${response.status} for ${company}`);
 
   const data = (await response.json()) as AshbyResponse;
+
+  if (!data || !data.jobPostings) {
+    console.log(`[ashby] no jobs array in response for "${company}"`);
+    return [];
+  }
+
   const lookbackHours = Math.max(settings.maxAgeHours, 168);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
