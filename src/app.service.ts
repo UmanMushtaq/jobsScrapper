@@ -1619,7 +1619,49 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
         Set <code>JOB_PROXY_URL</code> and <code>JOB_PROXY_SECRET</code> in Render's environment, and keep the proxy + cloudflared running on your laptop.</div>` : ''}
     </div>`;
 
-  const rows = health.sources.map((s) => {
+  // Country tagging — determines which grouped section each source belongs to
+  const SOURCE_COUNTRY: Record<string, string> = {
+    'apec.fr': 'FR',
+    'welcometothejungle.com': 'FR',
+    'francetravail.fr': 'FR',
+    'adzuna.com': 'FR',
+    'arbeitnow.com': 'DE',
+    'berlinstartupjobs.com': 'DE',
+    'bundesagentur.de': 'DE',
+    'nofluffjobs.com': 'PL',
+    'justjoin.it': 'PL',
+    'indeed.com': 'INTL',
+    'greenhouse.io': 'INTL',
+    'jobs.lever.co': 'INTL',
+    'jobs.ashbyhq.com': 'INTL',
+    'eu.talent.io': 'INTL',
+    'jobicy.com': 'REMOTE',
+    'weworkremotely.com': 'REMOTE',
+    'remotive.com': 'REMOTE',
+    'remoteok.com': 'REMOTE',
+    'news.ycombinator.com': 'REMOTE',
+  };
+
+  const GROUPS: Array<{ key: string; flag: string; label: string; bg: string; border: string; runEndpoint?: string }> = [
+    { key: 'FR',     flag: '🇫🇷', label: 'France',                  bg: '#fffbeb', border: '#fde68a', runEndpoint: '/run/apec' },
+    { key: 'DE',     flag: '🇩🇪', label: 'Germany',                 bg: '#f0f9ff', border: '#bae6fd' },
+    { key: 'BE',     flag: '🇧🇪', label: 'Belgium',                  bg: '#f5f3ff', border: '#ddd6fe' },
+    { key: 'NL',     flag: '🇳🇱', label: 'Netherlands',              bg: '#f0fdf4', border: '#bbf7d0' },
+    { key: 'PL',     flag: '🇵🇱', label: 'Poland',                   bg: '#fef2f2', border: '#fecaca' },
+    { key: 'INTL',   flag: '🌐', label: 'International / Multi-country', bg: '#fafaf9', border: '#e7e5e4' },
+    { key: 'REMOTE', flag: '🌍', label: 'Remote & Job Boards',       bg: '#f8fafc', border: '#e2e8f0', runEndpoint: '/run/indeed' },
+  ];
+
+  const sourceByName = new Map(health.sources.map((s) => [s.source, s]));
+
+  // Per-group job counts for summary bar
+  const countByGroup: Record<string, number> = {};
+  for (const s of health.sources) {
+    const grp = SOURCE_COUNTRY[s.source] ?? 'INTL';
+    countByGroup[grp] = (countByGroup[grp] ?? 0) + s.jobsFound;
+  }
+
+  const makeRow = (s: (typeof health.sources)[number]) => {
     const m = STATUS_META[s.status] ?? STATUS_META.error;
     const proxyTag = s.usesProxy
       ? `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;">via proxy</span>`
@@ -1636,10 +1678,59 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
         <td style="padding:11px 14px;font-size:12px;color:#6b7280;">${fmtDate(s.lastSuccessAt)}</td>
         <td style="padding:11px 14px;font-size:12px;color:#b91c1c;max-width:280px;">${s.error ? escapeHtml(s.error) : ''}</td>
       </tr>`;
+  };
+
+  const TABLE_HEAD = `<thead><tr>
+    <th>Source</th><th>Status</th><th style="text-align:center;">Jobs</th><th>Duration</th><th>Last success</th><th>Problem</th>
+  </tr></thead>`;
+
+  const groupedSections = GROUPS.map(({ key, flag, label, bg, border, runEndpoint }) => {
+    // Sources that belong to this group and appear in health data
+    const groupSources = health.sources.filter((s) => (SOURCE_COUNTRY[s.source] ?? 'INTL') === key);
+
+    const bodyRows = groupSources.map((s) => makeRow(s)).join('');
+    const comingSoon = (key === 'BE' || key === 'NL')
+      ? `<tr><td colspan="6" style="padding:16px 14px;font-size:13px;color:#9ca3af;font-style:italic;">No scrapers yet — coming soon</td></tr>`
+      : '';
+    const totalJobs = groupSources.reduce((n, s) => n + s.jobsFound, 0);
+
+    const runBtn = runEndpoint
+      ? `<form method="post" action="${runEndpoint}" style="display:inline;">
+           <button type="submit" style="padding:4px 12px;font-size:12px;font-weight:600;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;">▶ Run</button>
+         </form>`
+      : '';
+
+    return `
+      <div class="card" style="border-top:3px solid ${border};background:${bg};">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+          <h2 style="margin:0;font-size:17px;">${flag} ${escapeHtml(label)}</h2>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="font-size:13px;color:#6b7280;">${totalJobs} job${totalJobs !== 1 ? 's' : ''} found</span>
+            ${runBtn}
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>${TABLE_HEAD}<tbody>${bodyRows}${comingSoon}</tbody></table>
+        </div>
+      </div>`;
   }).join('');
 
   const failing = health.sources.filter((s) => s.status === 'error' || s.status === 'blocked' || s.status === 'proxy_offline').length;
   const okCount = health.sources.filter((s) => s.status === 'ok').length;
+
+  const summaryBar = [
+    { key: 'FR', flag: '🇫🇷', label: 'FR' },
+    { key: 'DE', flag: '🇩🇪', label: 'DE' },
+    { key: 'BE', flag: '🇧🇪', label: 'BE' },
+    { key: 'NL', flag: '🇳🇱', label: 'NL' },
+    { key: 'PL', flag: '🇵🇱', label: 'PL' },
+    { key: 'INTL', flag: '🌐', label: 'INTL' },
+    { key: 'REMOTE', flag: '🌍', label: 'Remote' },
+  ].map(({ key, flag, label }) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:white;border:1px solid #e5e7eb;border-radius:99px;font-size:13px;font-weight:600;color:#374151;">
+      ${flag} ${label}: <strong style="color:#2563eb;">${countByGroup[key] ?? 0}</strong>
+    </span>`
+  ).join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1689,28 +1780,21 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
 
       ${proxyCard}
 
-      <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-          <h2>Sources (${health.sources.length})</h2>
-          <div class="pills">
-            <span style="color:#15803d;background:#f0fdf4;">${okCount} working</span>
-            ${failing > 0 ? `<span style="color:#b91c1c;background:#fef2f2;">${failing} need attention</span>` : ''}
+      <div class="card" style="padding:16px 24px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;">
+          <div style="font-size:13px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;">Jobs found by country</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:13px;color:#6b7280;">${health.sources.length} sources · ${okCount} working${failing > 0 ? ` · <span style="color:#b91c1c;">${failing} need attention</span>` : ''}</span>
           </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th>Source</th><th>Status</th><th>Jobs</th><th>Duration</th><th>Last success</th><th>Problem</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-        <p style="font-size:12px;color:#9ca3af;margin:14px 0 0;line-height:1.6;">
-          <b>Crashed</b> = the source threw an error. <b>Blocked</b> = the site rejects this server's IP (needs the home proxy).
-          <b>Proxy offline</b> = a proxy-routed source couldn't reach your laptop. <b>No results</b> = ran fine but found no jobs (usually normal).
-          The <b>×N</b> badge counts consecutive failed runs.
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${summaryBar}</div>
+        <p style="font-size:12px;color:#9ca3af;margin:12px 0 0;line-height:1.6;">
+          <b>Crashed</b> = source threw an error. <b>Blocked</b> = site rejects cloud IP (needs home proxy).
+          <b>Proxy offline</b> = proxy-routed source couldn't reach your laptop. The <b>×N</b> badge counts consecutive failures.
         </p>
       </div>
+
+      ${groupedSections}
     </div>
   </body>
 </html>`;
