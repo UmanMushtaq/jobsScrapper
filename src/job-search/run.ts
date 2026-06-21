@@ -86,6 +86,12 @@ export async function runJobSearchOnce(
     console.warn('[storage] File-based — state will be lost on restart (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN to fix)');
   }
 
+  if (process.env.SCRAPERAPI_KEY) {
+    console.log('[scraperapi] active on: pracuj.pl, jobbsafari.se, stellenanzeigen.de');
+  } else {
+    console.log('[scraperapi] key not set — all sources running direct');
+  }
+
   // Normalize a URL safely — never throws, falls back to raw string
   const safeNorm = (url: string): string => { try { return normalizeUrl(url); } catch { return url; } };
   const seenFile = process.env.JOB_SEARCH_SEEN_FILE ?? DEFAULT_SEEN_FILE;

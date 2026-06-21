@@ -29,18 +29,6 @@ const HEADERS = {
   'Accept-Encoding': 'gzip, deflate, br',
 };
 
-function buildScraperUrl(targetUrl: string): string {
-  const key = process.env.SCRAPERAPI_KEY;
-  if (!key) return targetUrl;
-  const params = new URLSearchParams({
-    api_key: key,
-    url: targetUrl,
-    render: 'true',
-    residential: 'true',
-    premium: 'true',
-  });
-  return `https://api.scraperapi.com?${params}`;
-}
 
 interface RawJob {
   id?: string;
@@ -88,12 +76,17 @@ export class StepstoneBelgiumSource implements JobSource {
 
 async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
   const targetUrl = `${BASE_URL}${encodeURIComponent(query)}?radius=30&sort=2`;
-  const url = buildScraperUrl(targetUrl);
-  const res = await axios.get<string>(url, {
-    headers: HEADERS,
-    timeout: 15_000,
-    responseType: 'text',
-  });
+  let res;
+  try {
+    res = await axios.get<string>(targetUrl, {
+      headers: HEADERS,
+      timeout: 15_000,
+      responseType: 'text',
+      validateStatus: (s) => s < 500,
+    });
+  } catch {
+    return [];
+  }
 
   if (res.status === 403 || res.status === 429) {
     console.log(`[stepstone-be] blocked ${res.status} for "${query}"`);
