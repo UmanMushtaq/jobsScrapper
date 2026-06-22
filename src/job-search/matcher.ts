@@ -80,11 +80,16 @@ export function scoreJob(
     .join(' ')
     .toLowerCase();
 
+  const isApec = job.source === 'apec.fr';
+
   if (!isLanguageFit(job, profile, text)) {
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: langFilter (detected: ${job.language ?? 'unknown'})`);
     return null;
   }
 
-  if (profile.search.excludedTitleKeywords.some((keyword) => normalizedTitle.includes(keyword))) {
+  const matchedTitleExcl = profile.search.excludedTitleKeywords.find((keyword) => normalizedTitle.includes(keyword));
+  if (matchedTitleExcl) {
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: titleExcl (matched: "${matchedTitleExcl}")`);
     return null;
   }
 
@@ -116,7 +121,9 @@ export function scoreJob(
     'developer advocate', 'developer relations', 'devrel', 'technical account manager',
     'technical advisor', 'field engineer', 'evangelist', 'sales development', 'account executive',
   ];
-  if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => normalizedTitle.includes(keyword))) {
+  const matchedRoleExcl = EXCLUDED_ROLE_KEYWORDS.find((keyword) => normalizedTitle.includes(keyword));
+  if (matchedRoleExcl) {
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: roleExcl (matched: "${matchedRoleExcl}")`);
     return null;
   }
 
@@ -125,7 +132,9 @@ export function scoreJob(
   // also check the first line of the description.
   if (!/\b(?:engineer|developer|architect|programmer|scientist|analyst|designer|lead)\b/i.test(job.title)) {
     const firstDescLine = (job.description.split('\n')[0] ?? '').toLowerCase();
-    if (EXCLUDED_ROLE_KEYWORDS.some((keyword) => firstDescLine.includes(keyword))) {
+    const matchedDescRoleExcl = EXCLUDED_ROLE_KEYWORDS.find((keyword) => firstDescLine.includes(keyword));
+    if (matchedDescRoleExcl) {
+      if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: roleExcl/desc (matched: "${matchedDescRoleExcl}")`);
       return null;
     }
   }
@@ -178,10 +187,15 @@ export function scoreJob(
   const absoluteMonthlyEur = toMonthlyEur(job);
   if (absoluteMonthlyEur !== null && absoluteMonthlyEur < 2900) {
     console.log(`[scorer] FILTERED: ${job.company}, salary below minimum threshold (${Math.round(absoluteMonthlyEur)} EUR/month < 2,900 EUR/month)`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: salary<min (${Math.round(absoluteMonthlyEur)} EUR/month < 2,900)`);
     return null;
   }
 
   if (!salaryMeetsMinimum(job, profile)) {
+    if (isApec) {
+      const monthly = toMonthlyEur(job);
+      console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: salary<min (${monthly !== null ? Math.round(monthly) : 'unknown'} EUR/month < profile minimum)`);
+    }
     return null;
   }
 
@@ -216,6 +230,7 @@ export function scoreJob(
   const { penalty: expPenalty, hardReject: expHardReject } = detectExperiencePenalty(text);
   if (expHardReject) {
     console.log(`[scorer] FILTERED: ${job.company}, 8+ years required — too senior for mid-level profile`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: exp>max (8+ years required)`);
     return null;
   }
 
@@ -299,11 +314,11 @@ export function scoreJob(
     ? (wordCount < 120 ? 45 : wordCount < 350 ? 48 : 52)
     : (wordCount < 120 ? 55 : wordCount < 350 ? 57 : 60);
 
-  if (rawScore >= 35 && rawScore < threshold) {
-    console.log(`[scorer-debug] "${job.title}" @ ${job.company} — raw score ${rawScore} → after bonus ${score}`);
-  }
-
   if (score < threshold) {
+    const lang = isNonEnglishJd ? (text.match(/\b(nous|vous|wir|sind|wij|zijn)\b/i)?.[0] ? (text.includes('wir') || text.includes('sind') ? 'DE' : text.includes('wij') || text.includes('zijn') ? 'NL' : 'FR') : 'non-EN') : 'EN';
+    if (isApec || (rawScore >= 35 && rawScore < threshold)) {
+      console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: score<threshold (score=${score} raw=${rawScore} threshold=${threshold} words=${wordCount} lang=${lang} mandatory=${mandatoryScore})`);
+    }
     return null;
   }
 
