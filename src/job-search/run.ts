@@ -196,6 +196,8 @@ export async function runJobSearchOnce(
       }),
     );
     const jobMap = new Map<string, JobPosting>();
+    // Also dedup by title+company+source to catch same job posted under multiple tracking URLs
+    const jobDedupeKeys = new Set<string>();
     for (const result of sourceResults) {
       if (result.jobs.length > 0) {
         console.log(`[source] ${result.source}: ${result.jobs.length} jobs`);
@@ -203,7 +205,17 @@ export async function runJobSearchOnce(
         console.log(`[source] ${result.source}: 0 jobs — ${result.error ? `crash: ${result.error.message}` : 'blocked or no results'}`);
       }
       for (const job of result.jobs) {
-        jobMap.set(job.canonicalUrl, job);
+        // Primary dedup: normalized canonical URL
+        const normUrl = safeNorm(job.canonicalUrl);
+        if (jobMap.has(normUrl)) continue;
+        // Secondary dedup: title+company+source catches same job under different tracking URLs
+        const dedupeKey = `${job.title.toLowerCase().trim()}|${job.company.toLowerCase().trim()}|${job.source}`;
+        if (jobDedupeKeys.has(dedupeKey)) {
+          console.log(`[dedup] skipped duplicate: "${job.title}" @ ${job.company} (${job.source})`);
+          continue;
+        }
+        jobDedupeKeys.add(dedupeKey);
+        jobMap.set(normUrl, job);
       }
     }
 
@@ -239,19 +251,20 @@ export async function runJobSearchOnce(
       .filter((match) => checkLocationEligibility(match.job))
       .sort(sortMatches);
 
-    // Deduplicate: job aggregators (Adzuna) post the same role across many cities.
-    // Keep only the highest-scoring instance per company + base role (text before first "|").
-    const seenCompanyRole = new Map<string, number>();
+    // Deduplicate: job aggregators (Adzuna) post the same role across many cities/sources.
+    // Key includes source so cross-source matches are preserved; strip "|city" suffixes from title.
+    const seenCompanyRole = new Set<string>();
     const dedupedMatches: MatchResult[] = [];
     for (const match of rawMatches) {
       const baseTitle = match.job.title.split('|')[0].trim().toLowerCase().replace(/\s+/g, ' ');
-      const key = `${match.job.company.toLowerCase()}::${baseTitle}`;
-      const existing = seenCompanyRole.get(key);
-      if (existing === undefined) {
-        seenCompanyRole.set(key, dedupedMatches.length);
-        dedupedMatches.push(match);
+      // Cross-source key: same title+company regardless of source
+      const crossSourceKey = `${match.job.company.toLowerCase()}::${baseTitle}`;
+      if (seenCompanyRole.has(crossSourceKey)) {
+        console.log(`[dedup] skipped duplicate: "${match.job.title}" @ ${match.job.company} (${match.job.source})`);
+        continue;
       }
-      // else: lower-scored duplicate (already sorted) — silently skip
+      seenCompanyRole.add(crossSourceKey);
+      dedupedMatches.push(match);
     }
     const dupCount = rawMatches.length - dedupedMatches.length;
     if (dupCount > 0) {
@@ -563,11 +576,21 @@ export async function runJobSearchOnce(
     );
 
     // Persist matched jobs to dashboard store (SET NX — never overwrite existing cards).
-    // All saves are batched into a single Upstash pipeline HTTP request to minimise Redis call count.
+    // Final dedup guard: title+company+source in case multiple runs surfaced same job under different URLs.
     const slimMatches = slimMatchesForState(summary.matches);
     const foundAt = Date.now();
+    const dashboardDedupeKeys = new Set<string>();
+    const dedupedSlim = slimMatches.filter((m) => {
+      const k = `${m.job.title.toLowerCase().trim()}|${m.job.company.toLowerCase().trim()}|${m.job.source}`;
+      if (dashboardDedupeKeys.has(k)) {
+        console.log(`[dedup] skipped dashboard duplicate: "${m.job.title}" @ ${m.job.company} (${m.job.source})`);
+        return false;
+      }
+      dashboardDedupeKeys.add(k);
+      return true;
+    });
     await redisSaveDashboardJobBatch(
-      slimMatches.map((m) => ({ jobId: hashJobUrl(m.job.canonicalUrl), match: m, foundAt })),
+      dedupedSlim.map((m) => ({ jobId: hashJobUrl(m.job.canonicalUrl), match: m, foundAt })),
     );
 
     await redisLog('info', 'run', `Run complete — ${liveNewMatches.length} job(s) sent, ${slicedMatches.length} matched`);
