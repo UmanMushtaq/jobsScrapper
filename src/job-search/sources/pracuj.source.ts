@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'pracuj.pl';
 const BASE_URL = 'https://www.pracuj.pl/praca/';
@@ -22,17 +23,6 @@ const HEADERS = {
   'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8',
 };
 
-function buildScraperUrl(targetUrl: string): string {
-  const key = process.env.SCRAPERAPI_KEY;
-  if (!key) return targetUrl;
-  const params = new URLSearchParams({
-    api_key: key,
-    url: targetUrl,
-    render: 'true',
-    residential: 'true',
-  });
-  return `https://api.scraperapi.com?${params}`;
-}
 
 interface RawJob {
   id?: string | number;
@@ -81,7 +71,8 @@ export class PracujPlSource implements JobSource {
 
 async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
   const targetUrl = `${BASE_URL}${encodeURIComponent(query)};kw`;
-  const url = buildScraperUrl(targetUrl);
+  const apiKey = await getNextKey();
+  const url = apiKey ? buildScraperUrl(targetUrl, apiKey) : targetUrl;
   const res = await axios.get<string>(url, {
     headers: HEADERS,
     timeout: 30_000,

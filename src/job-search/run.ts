@@ -86,8 +86,10 @@ export async function runJobSearchOnce(
     console.warn('[storage] File-based — state will be lost on restart (set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN to fix)');
   }
 
-  if (process.env.SCRAPERAPI_KEY) {
-    console.log('[scraperapi] active on: pracuj.pl, jobbsafari.se, stellenanzeigen.de');
+  const scraperKey = process.env.SCRAPER_API_KEY_1 ?? process.env.SCRAPERAPI_KEY;
+  if (scraperKey) {
+    const dual = process.env.SCRAPER_API_DUAL_KEY_ENABLED === 'true' && process.env.SCRAPER_API_KEY_2;
+    console.log(`[scraperapi] active on: pracuj.pl, jobbsafari.se, stellenanzeigen.de${dual ? ' (dual-key rotation)' : ''}`);
   } else {
     console.log('[scraperapi] key not set — all sources running direct');
   }

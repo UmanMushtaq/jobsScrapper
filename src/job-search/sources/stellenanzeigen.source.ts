@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'stellenanzeigen.de';
 const BASE_URL = 'https://www.stellenanzeigen.de/job-suche/';
@@ -27,17 +28,6 @@ const HEADERS = {
   'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
 };
 
-function buildScraperUrl(targetUrl: string): string {
-  const key = process.env.SCRAPERAPI_KEY;
-  if (!key) return targetUrl;
-  const params = new URLSearchParams({
-    api_key: key,
-    url: targetUrl,
-    render: 'true',
-    residential: 'true',
-  });
-  return `https://api.scraperapi.com?${params}`;
-}
 
 interface RawJob {
   id?: string | number;
@@ -114,7 +104,11 @@ async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
 
 async function tryFetch(targetUrl: string, useScraperApi: boolean): Promise<string | null> {
   try {
-    const url = useScraperApi ? buildScraperUrl(targetUrl) : targetUrl;
+    let url = targetUrl;
+    if (useScraperApi) {
+      const apiKey = await getNextKey();
+      url = apiKey ? buildScraperUrl(targetUrl, apiKey) : targetUrl;
+    }
     const res = await axios.get<string>(url, {
       headers: HEADERS,
       timeout: useScraperApi ? 30_000 : 15_000,
