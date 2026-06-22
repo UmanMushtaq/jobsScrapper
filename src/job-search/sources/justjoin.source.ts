@@ -1,6 +1,8 @@
+import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'justjoin.it';
 
@@ -11,7 +13,7 @@ interface JjSalary {
 }
 
 interface JjEmploymentType {
-  type?: string; // 'b2b' | 'permanent' | 'mandate_contract'
+  type?: string;
   salary?: JjSalary | null;
 }
 
@@ -30,23 +32,28 @@ interface JjOffer {
   countryCode?: string;
   country_code?: string;
   workplaceType?: string;
-  workplace_type?: string; // 'remote' | 'hybrid' | 'office'
+  workplace_type?: string;
   categoryId?: string;
-  marker_icon?: string;    // category: 'javascript' | 'node.js' | 'typescript' | etc.
+  marker_icon?: string;
   experienceLevel?: string;
-  experience_level?: string; // 'junior' | 'mid' | 'senior'
+  experience_level?: string;
   publishedAt?: string;
   published_at?: string;
   employmentTypes?: JjEmploymentType[];
   employment_types?: JjEmploymentType[];
   requiredSkills?: JjSkill[];
   skills?: JjSkill[];
-  remote_interview?: boolean;
-  open_to_hire_ukrainians?: boolean;
 }
 
 const RELEVANT_CATEGORIES = new Set(['javascript', 'node.js', 'typescript', 'backend', 'devops']);
-const RELEVANT_SKILL_TAGS = ['node', 'node.js', 'nodejs', 'nestjs', 'typescript', 'javascript', 'backend', 'express', 'postgresql', 'postgres'];
+const RELEVANT_SKILL_TAGS = ['node', 'node.js', 'nodejs', 'nestjs', 'typescript', 'javascript', 'backend', 'express'];
+
+const API_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Version': '2',
+};
 
 export class JustJoinSource implements JobSource {
   name = SOURCE;
@@ -60,45 +67,12 @@ export class JustJoinSource implements JobSource {
 
     for (const keyword of SEARCH_KEYWORDS) {
       try {
-        const url = `https://api.justjoin.it/v2/user-panel/offers?keywords=${encodeURIComponent(keyword)}&page=1&pageSize=50`;
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-          },
-        });
-
-        if (response.status === 403 || response.status === 429 || response.status === 530) {
-          console.log(`[justjoin] blocked ${response.status} — skipping`);
-          continue;
-        }
-        if (!response.ok) {
-          console.warn(`[justjoin] HTTP ${response.status} for keyword "${keyword}"`);
-          continue;
-        }
-
-        const body = (await response.json()) as { data?: JjOffer[]; meta?: { total?: number } } | JjOffer[];
-        const data: JjOffer[] = Array.isArray(body) ? body : (body as { data?: JjOffer[] }).data ?? [];
-
-        if (!Array.isArray(data)) {
-          console.warn('[justjoin] unexpected response shape');
-          continue;
-        }
-
-        const relevant = data.filter((offer) => {
-          const publishedAt = offer.publishedAt ?? offer.published_at;
-          if (publishedAt && new Date(publishedAt).getTime() < cutoff) return false;
-          return isRelevant(offer);
-        });
-
-        for (const offer of relevant) {
-          const mapped = mapOffer(offer);
-          if (mapped) jobs.set(mapped.canonicalUrl, mapped);
-        }
+        const fetched = await fetchKeyword(keyword, cutoff);
+        for (const job of fetched) jobs.set(job.canonicalUrl, job);
+        await sleep(2000);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.includes('fetch failed') && !msg.includes('ECONNREFUSED')) {
+        if (!msg.includes('ECONNREFUSED') && !msg.includes('ETIMEDOUT')) {
           console.error(`[justjoin] error for "${keyword}": ${msg}`);
         }
       }
@@ -109,10 +83,173 @@ export class JustJoinSource implements JobSource {
   }
 }
 
+async function fetchKeyword(keyword: string, cutoff: number): Promise<JobPosting[]> {
+  // Primary: v2 API with corrected params and Version header
+  const apiUrl = `https://api.justjoin.it/v2/user-panel/offers?keywords[]=${encodeURIComponent(keyword)}&orderBy=published_at&sortOrder=DESC&page=1&perPage=100`;
+
+  try {
+    const res = await axios.get(apiUrl, {
+      headers: API_HEADERS,
+      timeout: 20_000,
+      validateStatus: (s) => s < 500,
+    });
+
+    if (res.status === 200) {
+      const body = res.data as { data?: JjOffer[] } | JjOffer[];
+      const data: JjOffer[] = Array.isArray(body) ? body : (body as { data?: JjOffer[] }).data ?? [];
+      if (Array.isArray(data) && data.length > 0) {
+        console.log(`[justjoin] API v2 returned ${data.length} offers for "${keyword}"`);
+        return data
+          .filter((o) => {
+            const pub = o.publishedAt ?? o.published_at;
+            if (pub && new Date(pub).getTime() < cutoff) return false;
+            return isRelevant(o);
+          })
+          .map(mapOffer)
+          .filter((j): j is JobPosting => j !== null);
+      }
+    }
+
+    if (res.status !== 404) {
+      console.log(`[justjoin] API v2 returned ${res.status} for "${keyword}" — trying ScraperAPI HTML fallback`);
+    } else {
+      console.log(`[justjoin] API v2 404 for "${keyword}" — trying ScraperAPI HTML fallback`);
+    }
+  } catch {
+    console.log(`[justjoin] API v2 request failed for "${keyword}" — trying ScraperAPI HTML fallback`);
+  }
+
+  // Fallback: ScraperAPI rendered HTML
+  return fetchHtmlFallback(keyword, cutoff);
+}
+
+async function fetchHtmlFallback(keyword: string, cutoff: number): Promise<JobPosting[]> {
+  const targetUrl = `https://justjoin.it/job-offers/${encodeURIComponent(keyword)}`;
+  const apiKey = await getNextKey();
+  if (!apiKey) return [];
+
+  const url = buildScraperUrl(targetUrl, apiKey);
+  try {
+    const res = await axios.get<string>(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,*/*',
+      },
+      timeout: 60_000,
+      responseType: 'text',
+      validateStatus: (s) => s < 500,
+    });
+
+    if (res.status !== 200) {
+      console.log(`[justjoin] HTML fallback returned ${res.status} for "${keyword}"`);
+      return [];
+    }
+
+    const html = res.data;
+    const jobs = parseHtmlOffers(html, cutoff);
+    console.log(`[justjoin] HTML fallback parsed ${jobs.length} offers for "${keyword}"`);
+    return jobs;
+  } catch {
+    return [];
+  }
+}
+
+function parseHtmlOffers(html: string, cutoff: number): JobPosting[] {
+  const jobs: JobPosting[] = [];
+
+  // Try JSON-LD first
+  const ldMatches = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  for (const match of ldMatches) {
+    try {
+      const data = JSON.parse(match[1]);
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        if (item['@type'] === 'JobPosting') {
+          const dateStr = item.datePosted;
+          if (dateStr && new Date(dateStr).getTime() < cutoff) continue;
+          const canonicalUrl = item.url ?? item.mainEntityOfPage?.['@id'];
+          if (!canonicalUrl || !item.title) continue;
+          const company = item.hiringOrganization?.name ?? 'Unknown';
+          const locationStr = item.jobLocation?.address?.addressLocality ?? '';
+          jobs.push(makeJobPosting({
+            title: item.title,
+            canonicalUrl,
+            company,
+            locationStr,
+            description: item.description ?? '',
+            dateStr,
+            workplaceType: '',
+          }));
+        }
+      }
+    } catch { /* continue */ }
+  }
+  if (jobs.length > 0) return jobs;
+
+  // Try embedded __NEXT_DATA__ / __PRELOADED_STATE__
+  const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+  if (nextDataMatch) {
+    try {
+      const nextData = JSON.parse(nextDataMatch[1]);
+      const offers: unknown[] =
+        nextData?.props?.pageProps?.offers ??
+        nextData?.props?.pageProps?.jobs ??
+        nextData?.props?.pageProps?.data?.offers ??
+        [];
+      if (Array.isArray(offers) && offers.length > 0) {
+        return offers
+          .map((o) => mapOffer(o as JjOffer))
+          .filter((j): j is JobPosting => j !== null)
+          .filter((j) => new Date(j.publishedAt).getTime() >= cutoff);
+      }
+    } catch { /* fall through */ }
+  }
+
+  // HTML card fallback
+  const cardPattern = /<(?:article|div|li)[^>]*data-index=["']?\d+["']?[^>]*>([\s\S]*?)(?=<(?:article|div|li)[^>]*data-index|$)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = cardPattern.exec(html)) !== null) {
+    const block = m[1];
+    const titleMatch = block.match(/<h[1-4][^>]*>([^<]{5,120})<\/h[1-4]>/i);
+    const linkMatch = block.match(/href="(\/job-offer[^"]+|\/offers\/[^"]+)"/i);
+    const title = titleMatch?.[1].trim();
+    const rawUrl = linkMatch?.[1];
+    if (title && rawUrl) {
+      const canonicalUrl = rawUrl.startsWith('http') ? rawUrl : `https://justjoin.it${rawUrl}`;
+      jobs.push(makeJobPosting({ title, canonicalUrl, company: 'Unknown', locationStr: 'Poland', description: '', dateStr: undefined, workplaceType: '' }));
+    }
+  }
+
+  return jobs;
+}
+
+function makeJobPosting(p: { title: string; canonicalUrl: string; company: string; locationStr: string; description: string; dateStr?: string; workplaceType: string }): JobPosting {
+  const publishedAt = p.dateStr ? new Date(p.dateStr) : new Date();
+  const locationLabel = p.locationStr ? `${p.locationStr}, Poland` : 'Poland';
+  const text = `${p.title} ${p.description}`.toLowerCase();
+  return {
+    source: SOURCE, sourcePriority: 5,
+    canonicalUrl: p.canonicalUrl,
+    title: p.title, company: p.company, companySummary: '',
+    companySlug: p.company.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    locationLabel, countryCode: 'PL', city: p.locationStr || null,
+    workMode: p.workplaceType === 'remote' ? 'remote' : p.workplaceType === 'hybrid' ? 'hybrid' : 'on-site',
+    language: detectLanguage(p.title),
+    description: p.description, keyMissions: [], experienceLevelMinimum: null,
+    salaryCurrency: null, salaryPeriod: null, salaryMinimum: null,
+    salaryMaximum: null, salaryYearlyMinimum: null,
+    publishedAt: publishedAt.toISOString(),
+    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    startupSignals: [], applyUrl: p.canonicalUrl,
+    offersRelocation: text.includes('relocation') || text.includes('visa sponsor'),
+    isStartup: text.includes('startup') || text.includes('seed'),
+    employeeCount: null, companyCreationYear: null,
+  };
+}
+
 function isRelevant(offer: JjOffer): boolean {
   const category = (offer.marker_icon ?? offer.categoryId ?? '').toLowerCase();
   if (RELEVANT_CATEGORIES.has(category)) return true;
-
   const skills = [...(offer.skills ?? []), ...(offer.requiredSkills ?? [])].map((s) => (s.name ?? '').toLowerCase());
   const title = (offer.title ?? '').toLowerCase();
   return RELEVANT_SKILL_TAGS.some((t) => skills.some((s) => s.includes(t)) || title.includes(t));
@@ -126,16 +263,12 @@ function mapOffer(offer: JjOffer): JobPosting | null {
   const canonicalUrl = `https://justjoin.it/offers/${id}`;
   const company = offer.companyName ?? offer.company_name ?? 'Unknown';
   const city = offer.city ?? null;
-  const countryCode = offer.countryCode ?? offer.country_code ?? 'PL';
   const locationLabel = city ? `${city}, Poland` : 'Poland';
 
   const workplaceType = (offer.workplaceType ?? offer.workplace_type ?? '').toLowerCase();
   const workMode: 'remote' | 'hybrid' | 'on-site' =
-    workplaceType === 'remote' ? 'remote'
-    : workplaceType === 'hybrid' ? 'hybrid'
-    : 'on-site';
+    workplaceType === 'remote' ? 'remote' : workplaceType === 'hybrid' ? 'hybrid' : 'on-site';
 
-  // Pick the best salary from employment types (prefer b2b, then permanent)
   const types = offer.employmentTypes ?? offer.employment_types ?? [];
   const b2b = types.find((t) => t.type === 'b2b' && t.salary?.from);
   const permanent = types.find((t) => t.type === 'permanent' && t.salary?.from);
@@ -155,34 +288,21 @@ function mapOffer(offer: JjOffer): JobPosting | null {
   const experienceLevel = offer.experienceLevel ?? offer.experience_level;
 
   return {
-    source: SOURCE,
-    sourcePriority: 5,
+    source: SOURCE, sourcePriority: 5,
     canonicalUrl,
-    title: offer.title,
-    company,
-    companySummary: '',
+    title: offer.title, company, companySummary: '',
     companySlug: company.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    locationLabel,
-    countryCode,
-    city,
+    locationLabel, countryCode: offer.countryCode ?? offer.country_code ?? 'PL', city,
     workMode,
     language: detectLanguage(fullText),
-    description: skills,
-    keyMissions: [],
+    description: skills, keyMissions: [],
     experienceLevelMinimum: mapLevel(experienceLevel),
-    salaryCurrency,
-    salaryPeriod: salaryMin !== null ? 'monthly' : null,
-    salaryMinimum: salaryMin,
-    salaryMaximum: salaryMax,
-    salaryYearlyMinimum,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
-    startupSignals: [],
-    applyUrl: canonicalUrl,
-    offersRelocation: false,
-    isStartup: false,
-    employeeCount: null,
-    companyCreationYear: null,
+    salaryCurrency, salaryPeriod: salaryMin !== null ? 'monthly' : null,
+    salaryMinimum: salaryMin, salaryMaximum: salaryMax, salaryYearlyMinimum,
+    publishedAt: publishedAt.toISOString(), publishedAtTimestamp,
+    startupSignals: [], applyUrl: canonicalUrl,
+    offersRelocation: false, isStartup: false,
+    employeeCount: null, companyCreationYear: null,
   };
 }
 
@@ -193,4 +313,8 @@ function mapLevel(level: string | undefined): number | null {
     case 'senior': return 5;
     default: return null;
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

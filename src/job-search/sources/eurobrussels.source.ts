@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'eurobrussels.com';
 const BASE_URL = 'https://www.eurobrussels.com/jobs/search/';
@@ -45,9 +46,13 @@ export class EuroBrusselsSource implements JobSource {
 }
 
 async function fetchPage(query: string, _cutoff: number): Promise<JobPosting[]> {
-  const res = await axios.get<string>(`${BASE_URL}?q=${encodeURIComponent(query)}&cat=IT`, {
+  const targetUrl = `${BASE_URL}?q=${encodeURIComponent(query)}&cat=IT`;
+  const apiKey = await getNextKey();
+  const url = apiKey ? buildScraperUrl(targetUrl, apiKey) : targetUrl;
+
+  const res = await axios.get<string>(url, {
     headers: HEADERS,
-    timeout: 15_000,
+    timeout: 60_000,
     responseType: 'text',
     validateStatus: (s) => s < 500,
   });
