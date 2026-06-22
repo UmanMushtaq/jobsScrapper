@@ -1,6 +1,6 @@
 import { Redis } from '@upstash/redis';
 
-const DAILY_CAP = 33;
+const DAILY_CAP = 100;
 
 const KEY_SLOTS = ['SCRAPER_API_KEY_1', 'SCRAPER_API_KEY_2', 'SCRAPER_API_KEY_3'] as const;
 

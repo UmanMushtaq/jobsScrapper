@@ -85,13 +85,6 @@ export function scoreJob(
     return null;
   }
 
-  // Hard reject: LATAM / nearshore / staff-aug companies — incompatible with direct EU employment
-  const LATAM_SIGNALS = ['latam', 'latin america', 'latinoamérica', 'nearshore', 'near-shore', 'staff augmentation', 'based in latin america', 'headquartered in new york'];
-  if (LATAM_SIGNALS.some((s) => text.includes(s))) {
-    console.log(`[scorer] FILTERED: ${job.company}, LATAM/nearshore company not compatible`);
-    return null;
-  }
-
   // Safety net for sources (e.g. HackerNews) where the title field may be location/work-mode
   // metadata rather than the actual role name. When the title contains no role indicator,
   // also check the first line of the description.
@@ -106,17 +99,6 @@ export function scoreJob(
   const ELECTRON_DESKTOP_SIGNALS = ['desktop app', 'native app', 'macos api', 'windows api', 'screencapturekit', 'cgeventtap', 'win32'];
   if (text.includes('electron') && ELECTRON_DESKTOP_SIGNALS.some((s) => text.includes(s))) {
     console.log(`[scorer] FILTERED: ${job.company}, desktop/Electron role not relevant to backend profile`);
-    return null;
-  }
-
-  // Hard reject: production LLM/RAG experience required (not just nice-to-have)
-  // Split text at the first nice-to-have section header to isolate required skills.
-  const niceToHaveIdx = text.search(/(?:nice[- ]to[- ]have|bon[uo]s|preferred|would be a plus|not required but|optionnel|bon à avoir)/i);
-  const requiredSection = niceToHaveIdx > 0 ? text.slice(0, niceToHaveIdx) : text;
-  const LLM_TERMS = ['llm', 'rag', 'language model', 'large language'];
-  const PROD_LLM_TERMS = ['in production', 'evals', 'evaluation pipeline', 'hallucination', 'production llm', 'production rag'];
-  if (LLM_TERMS.some((s) => requiredSection.includes(s)) && PROD_LLM_TERMS.some((s) => requiredSection.includes(s))) {
-    console.log(`[scorer] FILTERED: ${job.company}, production LLM experience required, not in candidate profile`);
     return null;
   }
 

@@ -2,7 +2,6 @@ import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
-import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'justjoin.it';
 
@@ -48,11 +47,13 @@ interface JjOffer {
 const RELEVANT_CATEGORIES = new Set(['javascript', 'node.js', 'typescript', 'backend', 'devops']);
 const RELEVANT_SKILL_TAGS = ['node', 'node.js', 'nodejs', 'nestjs', 'typescript', 'javascript', 'backend', 'express'];
 
-const API_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'application/json',
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9',
-  'Version': '2',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Connection': 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
 };
 
 export class JustJoinSource implements JobSource {
@@ -84,74 +85,30 @@ export class JustJoinSource implements JobSource {
 }
 
 async function fetchKeyword(keyword: string, cutoff: number): Promise<JobPosting[]> {
-  // Primary: v2 API with corrected params and Version header
-  const apiUrl = `https://api.justjoin.it/v2/user-panel/offers?keywords[]=${encodeURIComponent(keyword)}&orderBy=published_at&sortOrder=DESC&page=1&perPage=100`;
+  const url = `https://justjoin.it/job-offers/${encodeURIComponent(keyword)}`;
 
+  let res;
   try {
-    const res = await axios.get(apiUrl, {
-      headers: API_HEADERS,
-      timeout: 20_000,
-      validateStatus: (s) => s < 500,
-    });
-
-    if (res.status === 200) {
-      const body = res.data as { data?: JjOffer[] } | JjOffer[];
-      const data: JjOffer[] = Array.isArray(body) ? body : (body as { data?: JjOffer[] }).data ?? [];
-      if (Array.isArray(data) && data.length > 0) {
-        console.log(`[justjoin] API v2 returned ${data.length} offers for "${keyword}"`);
-        return data
-          .filter((o) => {
-            const pub = o.publishedAt ?? o.published_at;
-            if (pub && new Date(pub).getTime() < cutoff) return false;
-            return isRelevant(o);
-          })
-          .map(mapOffer)
-          .filter((j): j is JobPosting => j !== null);
-      }
-    }
-
-    if (res.status !== 404) {
-      console.log(`[justjoin] API v2 returned ${res.status} for "${keyword}" — trying ScraperAPI HTML fallback`);
-    } else {
-      console.log(`[justjoin] API v2 404 for "${keyword}" — trying ScraperAPI HTML fallback`);
-    }
-  } catch {
-    console.log(`[justjoin] API v2 request failed for "${keyword}" — trying ScraperAPI HTML fallback`);
-  }
-
-  // Fallback: ScraperAPI rendered HTML
-  return fetchHtmlFallback(keyword, cutoff);
-}
-
-async function fetchHtmlFallback(keyword: string, cutoff: number): Promise<JobPosting[]> {
-  const targetUrl = `https://justjoin.it/job-offers/${encodeURIComponent(keyword)}`;
-  const apiKey = await getNextKey();
-  if (!apiKey) return [];
-
-  const url = buildScraperUrl(targetUrl, apiKey);
-  try {
-    const res = await axios.get<string>(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,*/*',
-      },
-      timeout: 60_000,
+    res = await axios.get<string>(url, {
+      headers: BROWSER_HEADERS,
+      timeout: 30_000,
       responseType: 'text',
       validateStatus: (s) => s < 500,
     });
-
-    if (res.status !== 200) {
-      console.log(`[justjoin] HTML fallback returned ${res.status} for "${keyword}"`);
-      return [];
-    }
-
-    const html = res.data;
-    const jobs = parseHtmlOffers(html, cutoff);
-    console.log(`[justjoin] HTML fallback parsed ${jobs.length} offers for "${keyword}"`);
-    return jobs;
   } catch {
     return [];
   }
+
+  if (res.status !== 200) {
+    console.log(`[justjoin] HTML fetch returned ${res.status} for "${keyword}"`);
+    return [];
+  }
+
+  const jobs = parseHtmlOffers(res.data, cutoff);
+  if (jobs.length > 0) {
+    console.log(`[justjoin] parsed ${jobs.length} offers for "${keyword}"`);
+  }
+  return jobs;
 }
 
 function parseHtmlOffers(html: string, cutoff: number): JobPosting[] {
@@ -186,7 +143,7 @@ function parseHtmlOffers(html: string, cutoff: number): JobPosting[] {
   }
   if (jobs.length > 0) return jobs;
 
-  // Try embedded __NEXT_DATA__ / __PRELOADED_STATE__
+  // Try embedded __NEXT_DATA__
   const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
   if (nextDataMatch) {
     try {
@@ -205,7 +162,7 @@ function parseHtmlOffers(html: string, cutoff: number): JobPosting[] {
     } catch { /* fall through */ }
   }
 
-  // HTML card fallback
+  // HTML card fallback — look for data-index attributes or job-specific anchors
   const cardPattern = /<(?:article|div|li)[^>]*data-index=["']?\d+["']?[^>]*>([\s\S]*?)(?=<(?:article|div|li)[^>]*data-index|$)/gi;
   let m: RegExpExecArray | null;
   while ((m = cardPattern.exec(html)) !== null) {
@@ -305,6 +262,10 @@ function mapOffer(offer: JjOffer): JobPosting | null {
     employeeCount: null, companyCreationYear: null,
   };
 }
+
+// kept for __NEXT_DATA__ path — eslint disable to suppress unused warning
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _isRelevant = isRelevant;
 
 function mapLevel(level: string | undefined): number | null {
   switch (level) {

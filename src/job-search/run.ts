@@ -925,26 +925,6 @@ function checkLocationEligibility(job: JobPosting): boolean {
   const locLabel = (job.locationLabel ?? '').toLowerCase();
   const combined = `${job.title} ${job.description}`.toLowerCase();
 
-  // Pre-check: explicit eligible-country list that excludes France.
-  // Matches patterns like "Remote - US only", "Remote: UK, Germany, Netherlands"
-  // or semicolon/comma lists of 3+ countries/cities with no France signal.
-  const FRANCE_SIGNALS = ['france', 'paris', ' fr,', ' fr;', '(fr)', 'french'];
-  const remoteCountryListPattern = /remote\s*[-–:]\s*([a-z ,;|/&]+)/i;
-  const semicolonListPattern = /([a-z]+(?:\s*[;|]\s*[a-z ]+){2,})/i;
-  const frInList = FRANCE_SIGNALS.some((s) => combined.includes(s));
-
-  if (!frInList) {
-    const listMatch = combined.match(remoteCountryListPattern) ?? combined.match(semicolonListPattern);
-    if (listMatch) {
-      const raw = listMatch[1];
-      const items = raw.split(/[,;|]/).map((s) => s.trim()).filter((s) => s.length > 1);
-      if (items.length >= 3) {
-        console.log(`[loc-filter] FILTERED: ${job.company}, France not in explicit eligible country list`);
-        return false;
-      }
-    }
-  }
-
   // Rule 1: France — always accept.
   // Check cc, locLabel, and the full combined text for any France signal.
   const isFranceSignal = cc === 'FR'
@@ -1024,7 +1004,7 @@ function getIntervalMinutes(profile: SearchProfile): number {
   }
 
   const profileMinutes = Math.round(profile.search.checkIntervalHours * 60);
-  return Math.max(360, profileMinutes);
+  return Math.max(480, profileMinutes);
 }
 
 async function updateState(
