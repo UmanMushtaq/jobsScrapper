@@ -4,26 +4,58 @@ import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect
 import { scoreLocation } from './sources/location-filter';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
 
+// Multilingual equivalents — all lowercased for use with .includes() on a lowercased text string.
+// Node.js variants (EN / FR / DE / NL)
+const NODE_VARIANTS = ['node.js', 'nodejs', 'node js', 'node.js', 'express.js', 'expressjs'];
+// NestJS variants
+const NEST_VARIANTS = ['nestjs', 'nest.js', 'nest js'];
+// TypeScript variants + abbreviation
+const TS_VARIANTS = ['typescript', 'type script', ' ts '];
+// Backend role terms (FR)
+const BACKEND_FR = [
+  'développeur backend', 'ingénieur backend',
+  'développeur back-end', 'ingénieur back-end',
+  'développeur node', 'ingénieur node',
+  'développeur logiciel', 'ingénieur logiciel',
+];
+// Backend role terms (DE)
+const BACKEND_DE = [
+  'backend-entwickler', 'softwareentwickler',
+  'node entwickler', 'entwickler node', 'backend entwickler',
+];
+// Backend role terms (NL)
+const BACKEND_NL = [
+  'backend ontwikkelaar', 'software ontwikkelaar', 'node ontwikkelaar',
+];
+// Fullstack — accepted as valid target role
+const FULLSTACK_VARIANTS = [
+  'fullstack', 'full-stack', 'full stack',
+  'développeur fullstack', 'ingénieur fullstack', 'fullstack entwickler',
+];
+
 const BASE_REQUIRED_WEIGHTS = [
   {
     // NestJS and Express.js are Node.js-only frameworks — if they appear, Node.js is implied.
-    matched: (text: string) => containsAny(text, ['node.js', 'nodejs', 'express.js']),
+    matched: (text: string) => containsAny(text, [...NODE_VARIANTS, ...NEST_VARIANTS]),
     weight: 24,
     reason: 'Node.js is explicitly required',
   },
   {
     // NestJS as a standalone signal — jobs mentioning only NestJS without "Node.js" still pass
-    matched: (text: string) => containsAny(text, ['nestjs', 'nest.js']),
+    matched: (text: string) => containsAny(text, NEST_VARIANTS),
     weight: 26,
     reason: 'NestJS is explicitly required',
   },
   {
-    matched: (text: string) => containsAny(text, ['typescript', 'javascript']),
+    matched: (text: string) => containsAny(text, [...TS_VARIANTS, 'javascript']),
     weight: 18,
     reason: 'TypeScript/JavaScript matches your backend stack',
   },
   {
-    matched: (text: string) => containsAny(text, ['backend', 'back-end', 'api', 'rest', 'server-side', 'microservice', 'server']),
+    matched: (text: string) => containsAny(text, [
+      'backend', 'back-end', 'api', 'rest', 'server-side', 'microservice', 'server',
+      ...BACKEND_FR, ...BACKEND_DE, ...BACKEND_NL, ...FULLSTACK_VARIANTS,
+    ]),
     weight: 18,
     reason: 'The role is centered on backend and API work',
   },
@@ -31,9 +63,12 @@ const BASE_REQUIRED_WEIGHTS = [
 
 // Group-based keyword filter (replaces hard mandatoryScore threshold).
 // A job passes if it matches Group A alone OR (Group B AND Group C).
-const KEYWORD_GROUP_A = ['node.js', 'nodejs', 'node js', 'nestjs', 'nest.js', 'express.js', 'expressjs'];
-const KEYWORD_GROUP_B = ['typescript', ' ts ', 'type script'];
-const KEYWORD_GROUP_C = ['backend', 'back-end', 'back end', 'server-side', 'api development', 'microservices', 'rest api', 'graphql'];
+const KEYWORD_GROUP_A = [...NODE_VARIANTS, ...NEST_VARIANTS, ...FULLSTACK_VARIANTS];
+const KEYWORD_GROUP_B = [...TS_VARIANTS];
+const KEYWORD_GROUP_C = [
+  'backend', 'back-end', 'back end', 'server-side', 'api development', 'microservices', 'rest api', 'graphql',
+  ...BACKEND_FR, ...BACKEND_DE, ...BACKEND_NL,
+];
 
 export function scoreJob(
   job: JobPosting,
@@ -238,18 +273,22 @@ export function scoreJob(
   );
 
   // Primary stack bonus: reward explicit Node.js / NestJS mentions in title or description.
-  // Checked case-insensitively on the already-lowercased `text` and `normalizedTitle`.
+  // Includes multilingual spelling variants (FR développeur node, DE node entwickler, etc.)
   const stackText = `${job.title} ${job.description}`.toLowerCase();
-  const hasNodeJs = /node\.js|nodejs|node\s+js\b/.test(stackText);
+  const hasNodeJs = /node\.js|nodejs|node\s+js\b/.test(stackText) ||
+    containsAny(stackText, ['développeur node', 'ingénieur node', 'node entwickler', 'entwickler node', 'node ontwikkelaar']);
   const hasNestJs = /nest\.js|nestjs|nest\s+js\b/.test(stackText);
   const stackBonus = (hasNodeJs ? 15 : 0) + (hasNestJs ? 20 : 0);
 
   const score = Math.min(100, rawScore + stackBonus);
 
-  // Adaptive threshold based on description length:
-  // Short descriptions can't physically contain many keywords — don't penalise them for it.
+  // Adaptive threshold based on description length and language.
+  // Non-English JDs (FR/DE/NL/IT/ES) naturally match fewer English keywords — use lower thresholds.
   const wordCount = job.description.trim().split(/\s+/).length;
-  const threshold = wordCount < 120 ? 55 : wordCount < 350 ? 57 : 60;
+  const isNonEnglishJd = /\b(nous|vous|notre|votre|emploi|poste|wir|sind|ihre|ihnen|wij|zijn|uw|onze|siamo|noi|nosotros|somos)\b/i.test(text);
+  const threshold = isNonEnglishJd
+    ? (wordCount < 120 ? 45 : wordCount < 350 ? 48 : 52)
+    : (wordCount < 120 ? 55 : wordCount < 350 ? 57 : 60);
 
   if (rawScore >= 35 && rawScore < threshold) {
     console.log(`[scorer-debug] "${job.title}" @ ${job.company} — raw score ${rawScore} → after bonus ${score}`);
