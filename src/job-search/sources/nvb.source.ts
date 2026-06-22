@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'nationalevacaturebank.nl';
 const BASE_URL = 'https://www.nationalevacaturebank.nl/vacature/zoeken';
@@ -26,17 +27,6 @@ const HEADERS = {
   'Accept-Language': 'nl-NL,nl;q=0.9,en;q=0.8',
 };
 
-function buildScraperUrl(targetUrl: string): string {
-  const key = process.env.SCRAPERAPI_KEY;
-  if (!key) return targetUrl;
-  const params = new URLSearchParams({
-    api_key: key,
-    url: targetUrl,
-    render: 'true',
-    residential: 'true',
-  });
-  return `https://api.scraperapi.com?${params}`;
-}
 
 interface RawJob {
   id?: string | number;
@@ -85,11 +75,13 @@ export class NvbNlSource implements JobSource {
 
 async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
   const targetUrl = `${BASE_URL}?query=${encodeURIComponent(query)}`;
-  const url = buildScraperUrl(targetUrl);
+  const apiKey = await getNextKey();
+  const url = apiKey ? buildScraperUrl(targetUrl, apiKey) : targetUrl;
   const res = await axios.get<string>(url, {
     headers: HEADERS,
-    timeout: 15_000,
+    timeout: 60_000,
     responseType: 'text',
+    validateStatus: (s) => s < 500,
   });
 
   if (res.status === 403 || res.status === 429) {

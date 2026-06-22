@@ -973,7 +973,8 @@ function getIntervalMinutes(profile: SearchProfile): number {
     return envInterval;
   }
 
-  return Math.max(15, Math.round(profile.search.checkIntervalHours * 60));
+  const profileMinutes = Math.round(profile.search.checkIntervalHours * 60);
+  return Math.max(360, profileMinutes);
 }
 
 async function updateState(

@@ -57,7 +57,14 @@ async function fetchPage(query: string, _cutoff: number): Promise<JobPosting[]> 
     return [];
   }
 
-  return parseJobCards(res.data as string);
+  const html = res.data as string;
+  const jobs = parseJobCards(html);
+
+  if (jobs.length === 0) {
+    console.log(`[eurobrussels] 0 jobs parsed for "${query}" (status ${res.status}) — response preview: ${html.slice(0, 300).replace(/\s+/g, ' ')}`);
+  }
+
+  return jobs;
 }
 
 function parseJobCards(html: string): JobPosting[] {
@@ -79,15 +86,16 @@ function parseJobCards(html: string): JobPosting[] {
   }
   if (jobs.length > 0) return jobs;
 
-  // Fallback: HTML cards — eurobrussels lists jobs in <article> or <div class="job-...">
-  const cardPattern = /<(?:article|div)[^>]*class="[^"]*job[^"]*"[^>]*>([\s\S]*?)<\/(?:article|div)>/gi;
+  // Fallback: HTML cards — eurobrussels lists jobs in <article>, <li>, or <div class="job*|vacancy*|offer*">
+  const cardPattern = /<(?:article|li|div)[^>]*class="[^"]*(?:job|vacancy|offer|position)[^"]*"[^>]*>([\s\S]*?)<\/(?:article|li|div)>/gi;
   let m: RegExpExecArray | null;
   while ((m = cardPattern.exec(html)) !== null) {
     const block = m[1];
     const titleMatch = block.match(/<h[1-4][^>]*>([^<]{5,120})<\/h[1-4]>/i)
       ?? block.match(/class="[^"]*title[^"]*"[^>]*>([^<]+)/i);
     const linkMatch = block.match(/href="(https?:\/\/[^"]*eurobrussels[^"]+)"/i)
-      ?? block.match(/href="(\/jobs\/[^"]+)"/i);
+      ?? block.match(/href="(\/jobs\/[^"]+)"/i)
+      ?? block.match(/href="(\/[^"]{5,})"/i);
     const companyMatch = block.match(/class="[^"]*(?:company|employer|organisation)[^"]*"[^>]*>([^<]+)/i);
     const locationMatch = block.match(/class="[^"]*(?:location|city|place)[^"]*"[^>]*>([^<]+)/i);
 

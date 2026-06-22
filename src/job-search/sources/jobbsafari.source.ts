@@ -75,7 +75,7 @@ async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
   const url = apiKey ? buildScraperUrl(targetUrl, apiKey) : targetUrl;
   const res = await axios.get<string>(url, {
     headers: HEADERS,
-    timeout: 30_000,
+    timeout: 60_000,
     responseType: 'text',
   });
 

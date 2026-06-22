@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'theprotocol.it';
 const BASE_URL = 'https://theprotocol.it/filtry/';
@@ -72,10 +73,13 @@ export class TheProtocolSource implements JobSource {
 }
 
 async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
-  const url = `${BASE_URL}${encodeURIComponent(query)};t`;
+  const targetUrl = `${BASE_URL}${encodeURIComponent(query)};t`;
+  const apiKey = await getNextKey();
+  const url = apiKey ? buildScraperUrl(targetUrl, apiKey) : targetUrl;
   const res = await axios.get(url, {
     headers: HEADERS,
-    timeout: 15_000,
+    timeout: 60_000,
+    validateStatus: (s) => s < 500,
   });
 
   if (res.status === 403 || res.status === 429) {
