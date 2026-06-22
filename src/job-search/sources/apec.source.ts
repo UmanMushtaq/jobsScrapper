@@ -8,8 +8,22 @@ import { redisSetApecStatus } from '../redis-store';
 
 const SOURCE = 'apec.fr';
 
+interface ApecDetailResponse {
+  data?: {
+    texteHtml?: string;
+    texte?: string;
+    description?: string;
+  };
+  texteHtml?: string;
+  texte?: string;
+  description?: string;
+}
+
 const SESSION_URL = 'https://www.apec.fr/candidat/recherche-emploi.html/emploi';
 const API_URL = 'https://www.apec.fr/cms/webservices/rechercheOffre';
+const DETAIL_BASE_URL = 'https://api.apec.fr/api-job-offer/v2/job-offers';
+const DETAIL_BATCH_SIZE = 10;
+const DETAIL_BATCH_DELAY_MS = 500;
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -162,7 +176,40 @@ export class ApecJobsSource implements JobSource {
     }
     console.log(`[apec] ${rawOffers.size} unique offers → ${jobs.size} mapped jobs`);
 
-    const result = Array.from(jobs.values());
+    // Fetch full descriptions in batches of 10 to replace the short listing snippets
+    const jobList = Array.from(jobs.values());
+    if (jobList.length > 0) {
+      console.log(`[apec] fetching full descriptions for ${jobList.length} jobs (batches of ${DETAIL_BATCH_SIZE})`);
+      let fetched = 0;
+      for (let i = 0; i < jobList.length; i += DETAIL_BATCH_SIZE) {
+        const batch = jobList.slice(i, i + DETAIL_BATCH_SIZE);
+        await Promise.all(batch.map(async (job) => {
+          const idMatch = job.canonicalUrl.match(/\/(\d+)$/);
+          if (!idMatch) return;
+          const jobId = idMatch[1];
+          try {
+            const res = await client.get<ApecDetailResponse>(`${DETAIL_BASE_URL}/${jobId}`, {
+              headers: { ...HEADERS, 'Referer': job.canonicalUrl },
+              timeout: 15_000,
+            });
+            const data = res.data?.data ?? res.data;
+            const fullDesc = data?.texteHtml ?? data?.texte ?? data?.description ?? '';
+            if (fullDesc && fullDesc.length > job.description.length) {
+              job.description = fullDesc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            }
+            fetched++;
+          } catch {
+            // keep short description, continue
+          }
+        }));
+        if (i + DETAIL_BATCH_SIZE < jobList.length) {
+          await new Promise((r) => setTimeout(r, DETAIL_BATCH_DELAY_MS));
+        }
+      }
+      console.log(`[apec] full descriptions fetched: ${fetched}/${jobList.length}`);
+    }
+
+    const result = jobList;
     const INTERVAL_MS = 6 * 60 * 60 * 1000;
     await redisSetApecStatus({
       lastRun: new Date().toISOString(),
