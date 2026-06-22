@@ -95,6 +95,25 @@ const ACTIVE_SOURCES = [
 // linkedin.com has no public API — requires a paid partner integration
 const BLOCKED_SOURCES = ['linkedin.com'];
 
+// Sources that do NOT use ScraperAPI — safe to run on a faster 180-min schedule.
+export const FAST_SOURCES = [
+  'apec.fr',
+  'welcometothejungle.com',
+  'news.ycombinator.com',
+  'arbeitsagentur.de',
+  'arbeitnow.com',
+  'berlinstartupjobs.com',
+  'greenhouse.io',
+  'jobs.lever.co',
+  'weworkremotely.com',
+  'remotive.com',
+  'remoteok.com',
+  'jobbird.nl',
+  'ictjob.be',
+  'francetravail.fr',
+  'jobicy.com',
+];
+
 export async function runJobSearchOnce(
   overrideProfile?: SearchProfile,
   excludeSources?: string[],

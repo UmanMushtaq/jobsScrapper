@@ -11,6 +11,7 @@ import { Response } from 'express';
 import { enrichMatch, generateShortAnswers, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
+  FAST_SOURCES,
   JobDecisionMeta,
   markJobDecision,
   readJobSearchState,
@@ -49,6 +50,7 @@ const PLATFORM_CACHE_TTL_MS  = 60_000;   // 60 s
 export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AppService.name);
   private intervalHandle: NodeJS.Timeout | null = null;
+  private fastIntervalHandle: NodeJS.Timeout | null = null;
   private apecIntervalHandle: NodeJS.Timeout | null = null;
   private pingHandle: NodeJS.Timeout | null = null;
   private activeRun: Promise<void> | null = null;
@@ -70,35 +72,38 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const intervalMs = this.intervalMinutes * 60 * 1000;
+    const SLOW_INTERVAL_MS = 480 * 60 * 1000;  // 8 hours — all sources including ScraperAPI
+    const FAST_INTERVAL_MS = 180 * 60 * 1000;  // 3 hours — no-ScraperAPI sources only
+    const APEC_INTERVAL_MS = 180 * 60 * 1000;  // 3 hours — APEC full pipeline
+
     const state = await readJobSearchState();
     const msSinceLastSuccess = state.lastSuccessAt
       ? Date.now() - new Date(state.lastSuccessAt).getTime()
       : Infinity;
 
-    if (msSinceLastSuccess < intervalMs - 60_000) {
-      // A scan completed recently — skip startup scan to avoid re-sending same jobs on every deploy.
-      // Schedule the next run at the correct offset from the last scan.
-      const nextRunMs = intervalMs - msSinceLastSuccess;
+    // SLOW scheduler: all sources, every 8 hours
+    if (msSinceLastSuccess < SLOW_INTERVAL_MS - 60_000) {
+      const nextRunMs = SLOW_INTERVAL_MS - msSinceLastSuccess;
       this.logger.log(
-        `Skipping startup scan (last success ${Math.round(msSinceLastSuccess / 60_000)}min ago). ` +
-          `Next scan in ${Math.round(nextRunMs / 60_000)}min.`,
+        `Skipping startup slow scan (last success ${Math.round(msSinceLastSuccess / 60_000)}min ago). ` +
+          `Next slow scan in ${Math.round(nextRunMs / 60_000)}min.`,
       );
       const handle = setTimeout(() => {
         void this.safeRun('interval');
-        this.intervalHandle = setInterval(() => void this.safeRun('interval'), intervalMs);
+        this.intervalHandle = setInterval(() => void this.safeRun('interval'), SLOW_INTERVAL_MS);
       }, nextRunMs);
       this.intervalHandle = handle as unknown as NodeJS.Timeout;
     } else {
       await this.safeRun('startup');
-      this.intervalHandle = setInterval(() => void this.safeRun('interval'), intervalMs);
+      this.intervalHandle = setInterval(() => void this.safeRun('interval'), SLOW_INTERVAL_MS);
     }
+    this.logger.log('Slow scheduler active — running every 480min (all sources including ScraperAPI)');
 
-    this.logger.log(`Scheduler running with ${this.intervalMinutes}min interval.`);
+    // FAST scheduler: no-ScraperAPI sources, every 3 hours
+    this.fastIntervalHandle = setInterval(() => void this.safeRunFast(), FAST_INTERVAL_MS);
+    this.logger.log('Fast scheduler active — running every 180min (no ScraperAPI sources)');
 
-    // APEC-only scheduler: runs every 180 minutes, independent of the main scan.
-    // APEC does not use ScraperAPI so there is no credit cost for frequent runs.
-    const APEC_INTERVAL_MS = 180 * 60 * 1000;
+    // APEC scheduler: APEC full pipeline, every 3 hours
     this.apecIntervalHandle = setInterval(() => void this.safeRunApec(), APEC_INTERVAL_MS);
     this.logger.log('APEC scheduler active — running every 180min');
   }
@@ -107,6 +112,10 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     if (this.intervalHandle) {
       clearInterval(this.intervalHandle);
       this.intervalHandle = null;
+    }
+    if (this.fastIntervalHandle) {
+      clearInterval(this.fastIntervalHandle);
+      this.fastIntervalHandle = null;
     }
     if (this.apecIntervalHandle) {
       clearInterval(this.apecIntervalHandle);
@@ -133,7 +142,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async runNow(): Promise<void> {
-    await this.safeRun('manual');
+    await this.safeRunFast();
   }
 
   async runSource(sourceName: 'apec' | 'indeed'): Promise<void> {
@@ -615,6 +624,27 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   async runApecFull(): Promise<void> {
     return this.safeRunApec();
+  }
+
+  private async safeRunFast(): Promise<void> {
+    if (this.activeRun) {
+      this.logger.warn('Skipping fast run because a scan is already active.');
+      return;
+    }
+    console.log('[fast-scheduler] Starting fast run (no ScraperAPI sources)');
+    this.activeRun = (async () => {
+      try {
+        const summary = await runJobSearchOnce(undefined, undefined, FAST_SOURCES);
+        _dashboardCache = null;
+        _healthCache = null;
+        this.logger.log(`[fast-scheduler] Done — ${summary.allJobsCount} fetched, ${summary.freshJobsCount} fresh, ${summary.matchCount} matched.`);
+      } catch (error) {
+        this.logger.error('[fast-scheduler] run failed', error instanceof Error ? error.stack : String(error));
+      } finally {
+        this.activeRun = null;
+      }
+    })();
+    return this.activeRun;
   }
 
   private async safeRunApec(): Promise<void> {

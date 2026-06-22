@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { acquirePlaywrightLock } from './playwright-queue';
 
 const SOURCE = 'eurobrussels.com';
 const BASE_URL = 'https://www.eurobrussels.com';
@@ -14,6 +15,10 @@ export class EuroBrusselsSource implements JobSource {
   priority = 4;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+    return acquirePlaywrightLock(() => this._fetch(settings));
+  }
+
+  private async _fetch(settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
     const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
 
