@@ -3,46 +3,34 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
-import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'nationalevacaturebank.nl';
-const BASE_URL = 'https://www.nationalevacaturebank.nl/vacature/zoeken';
+const BASE_URL = 'https://www.nationalevacaturebank.nl';
 
-const SEARCH_QUERIES = [
-  'nodejs',
-  'node.js',
-  'node js',
-  'NodeJS',
-  'Node.js',
-  'nestjs',
-  'nest.js',
-  'NestJS',
-  'backend typescript',
-  'backend node',
-];
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'nestjs', 'typescript backend'];
 
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+// NVB exposes a public search endpoint that returns JSON when Accept: application/json is sent
+const JSON_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
   'Accept-Language': 'nl-NL,nl;q=0.9,en;q=0.8',
+  'Referer': 'https://www.nationalevacaturebank.nl/',
 };
 
-
-interface RawJob {
+interface NvbJob {
   id?: string | number;
-  url?: string;
-  link?: string;
   title?: string;
-  name?: string;
+  jobTitle?: string;
   company?: string | { name?: string };
-  employer?: string | { name?: string };
-  location?: string | { name?: string; city?: string };
+  companyName?: string;
+  location?: string | { city?: string; name?: string };
   city?: string;
+  url?: string;
+  applyUrl?: string;
   description?: string;
-  summary?: string;
-  datePosted?: string;
   publishedAt?: string;
-  date?: string;
+  datePosted?: string;
+  workingHours?: string;
 }
 
 export class NvbNlSource implements JobSource {
@@ -55,11 +43,9 @@ export class NvbNlSource implements JobSource {
 
     for (const query of SEARCH_QUERIES) {
       try {
-        const fetched = await fetchPage(query, cutoff);
-        for (const job of fetched) {
-          jobs.set(job.canonicalUrl, job);
-        }
-        await sleep(2000);
+        const fetched = await fetchQuery(query, cutoff);
+        for (const job of fetched) jobs.set(job.canonicalUrl, job);
+        await sleep(1500);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (!msg.includes('ECONNREFUSED') && !msg.includes('ETIMEDOUT')) {
@@ -68,59 +54,64 @@ export class NvbNlSource implements JobSource {
       }
     }
 
-    console.log(`[nvb] ${jobs.size} unique jobs fetched`);
+    if (jobs.size === 0) console.log(`[nvb] 0 jobs — may be blocked or no results`);
+    else console.log(`[nvb] ${jobs.size} unique jobs fetched`);
     return Array.from(jobs.values());
   }
 }
 
-async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
-  const targetUrl = `${BASE_URL}?query=${encodeURIComponent(query)}`;
-  const apiKey = await getNextKey();
-  const url = apiKey ? buildScraperUrl(targetUrl, apiKey) : targetUrl;
-  const res = await axios.get<string>(url, {
-    headers: HEADERS,
-    timeout: 60_000,
-    responseType: 'text',
-    validateStatus: (s) => s < 500,
-  });
+async function fetchQuery(query: string, cutoff: number): Promise<JobPosting[]> {
+  // Try JSON API endpoint first
+  const jsonUrl = `${BASE_URL}/vacature/zoeken?query=${encodeURIComponent(query)}&limit=20`;
+  let res;
+  try {
+    res = await axios.get(jsonUrl, {
+      headers: JSON_HEADERS,
+      timeout: 20_000,
+      validateStatus: (s) => s < 500,
+    });
+  } catch { return []; }
 
   if (res.status === 403 || res.status === 429) {
     console.log(`[nvb] blocked ${res.status} for "${query}"`);
     return [];
   }
 
-  const html: string = res.data;
-  const jobs = extractJobs(html);
+  const body = res.data;
 
-  return jobs
-    .filter((j) => {
-      const dateStr = j.datePosted ?? j.publishedAt ?? j.date;
-      if (!dateStr) return true;
-      return new Date(dateStr).getTime() >= cutoff;
-    })
-    .map(mapJob)
-    .filter((j): j is JobPosting => j !== null);
-}
-
-function extractJobs(html: string): RawJob[] {
-  // 1. Try window.__INITIAL_STATE__
-  const stateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*(?:<\/script>|window\.)/);
-  if (stateMatch) {
-    try {
-      const state = JSON.parse(stateMatch[1]);
-      const list =
-        state?.vacatures?.items ??
-        state?.jobs?.items ??
-        state?.jobList?.jobs ??
-        state?.results?.items ??
-        state?.listings ??
-        [];
-      if (Array.isArray(list) && list.length > 0) return list as RawJob[];
-    } catch { /* fall through */ }
+  // If we got JSON back, extract jobs from it
+  if (typeof body === 'object' && body !== null) {
+    const list: NvbJob[] = Array.isArray(body)
+      ? body
+      : (body?.vacatures ?? body?.jobs ?? body?.results ?? body?.data ?? body?.items ?? []);
+    if (Array.isArray(list) && list.length > 0) {
+      return list
+        .filter((j) => {
+          const pub = j.publishedAt ?? j.datePosted;
+          return !pub || new Date(pub).getTime() >= cutoff;
+        })
+        .map(mapJob)
+        .filter((j): j is JobPosting => j !== null);
+    }
   }
 
-  // 2. Try JSON-LD (JobPosting schema.org)
-  const jsonLdJobs: RawJob[] = [];
+  // Fallback: parse HTML response for JSON-LD or __NEXT_DATA__
+  if (typeof body === 'string') {
+    const preview = body.slice(0, 500).replace(/\s+/g, ' ');
+    if (!body.includes('vacature') && !body.includes('job')) {
+      console.log(`[nvb] unexpected response for "${query}" — preview: ${preview}`);
+      return [];
+    }
+    return parseHtml(body, query, cutoff);
+  }
+
+  return [];
+}
+
+function parseHtml(html: string, query: string, cutoff: number): JobPosting[] {
+  const jobs: JobPosting[] = [];
+
+  // Try JSON-LD
   const ldMatches = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
   for (const match of ldMatches) {
     try {
@@ -128,173 +119,79 @@ function extractJobs(html: string): RawJob[] {
       const items = Array.isArray(data) ? data : [data];
       for (const item of items) {
         if (item['@type'] === 'JobPosting') {
-          jsonLdJobs.push({
-            title: item.title,
-            url: item.url,
-            company: item.hiringOrganization?.name ?? item.hiringOrganization,
-            location: item.jobLocation?.address?.addressLocality ?? item.jobLocation?.name,
-            description: item.description,
-            datePosted: item.datePosted,
-          });
+          const pub = item.datePosted;
+          if (pub && new Date(pub).getTime() < cutoff) continue;
+          const url = item.url ?? item.mainEntityOfPage?.['@id'];
+          if (!url || !item.title) continue;
+          jobs.push(makeJob({ title: item.title, url, company: item.hiringOrganization?.name ?? 'Unknown', city: item.jobLocation?.address?.addressLocality ?? '', publishedAt: pub }));
         }
       }
     } catch { /* continue */ }
   }
-  if (jsonLdJobs.length > 0) return jsonLdJobs;
+  if (jobs.length > 0) return jobs;
 
-  // 3. Try application/json script blocks
-  const scriptMatches = html.matchAll(/<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi);
-  for (const match of scriptMatches) {
+  // Try __NEXT_DATA__
+  const nextMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+  if (nextMatch) {
     try {
-      const data = JSON.parse(match[1]);
-      const list =
-        data?.vacatures ??
-        data?.jobs ??
-        data?.jobList?.jobs ??
-        data?.items ??
-        (Array.isArray(data) ? data : null);
-      if (Array.isArray(list) && list.length > 0) return list as RawJob[];
-    } catch { /* continue */ }
-  }
-
-  // 4. Try large JSON blob embedded in any script tag
-  const blobMatch = html.match(/"vacatures"\s*:\s*(\[[\s\S]{100,}\])\s*[,}]/);
-  if (blobMatch) {
-    try {
-      const list = JSON.parse(blobMatch[1]);
-      if (Array.isArray(list) && list.length > 0) return list as RawJob[];
+      const nd = JSON.parse(nextMatch[1]);
+      const list: NvbJob[] =
+        nd?.props?.pageProps?.vacatures ??
+        nd?.props?.pageProps?.jobs ??
+        nd?.props?.pageProps?.initialJobs ??
+        nd?.props?.pageProps?.data?.vacatures ??
+        [];
+      if (Array.isArray(list) && list.length > 0) {
+        return list
+          .filter((j) => { const p = j.publishedAt ?? j.datePosted; return !p || new Date(p).getTime() >= cutoff; })
+          .map(mapJob)
+          .filter((j): j is JobPosting => j !== null);
+      }
     } catch { /* fall through */ }
   }
 
-  // 5. Parse job cards from HTML
-  return parseJobCardsFromHtml(html);
-}
-
-function parseJobCardsFromHtml(html: string): RawJob[] {
-  const jobs: RawJob[] = [];
-
-  const cardPattern = /<(?:article|li)[^>]*class="[^"]*(?:vacancy|vacature|job)[^"]*"[^>]*>([\s\S]*?)<\/(?:article|li)>/gi;
-  let m: RegExpExecArray | null;
-
-  while ((m = cardPattern.exec(html)) !== null) {
-    const block = m[1];
-
-    const titleMatch = block.match(/<h[1-4][^>]*>([^<]{5,120})<\/h[1-4]>/i)
-      ?? block.match(/class="[^"]*(?:job-title|vacancy-title|title)[^"]*"[^>]*>([^<]+)/i);
-    const companyMatch = block.match(/class="[^"]*(?:company|employer|organisation)[^"]*"[^>]*>([^<]+)/i);
-    const locationMatch = block.match(/class="[^"]*(?:location|city|place|stad)[^"]*"[^>]*>([^<]+)/i);
-    const linkMatch = block.match(/href="([^"]*\/vacature[^"]+)"/i) ?? block.match(/href="(\/[^"]+)"/i);
-
-    const title = titleMatch ? titleMatch[1].trim() : null;
-    const rawUrl = linkMatch ? linkMatch[1] : null;
-    const url = rawUrl
-      ? (rawUrl.startsWith('http') ? rawUrl : `https://www.nationalevacaturebank.nl${rawUrl}`)
-      : null;
-
-    if (title && url) {
-      jobs.push({
-        title,
-        url,
-        company: companyMatch ? companyMatch[1].trim() : undefined,
-        location: locationMatch ? locationMatch[1].trim() : undefined,
-      });
-    }
-  }
-
+  console.log(`[nvb] 0 jobs parsed from HTML for "${query}"`);
   return jobs;
 }
 
-function mapJob(raw: RawJob): JobPosting | null {
-  const title = raw.title ?? raw.name;
+function mapJob(raw: NvbJob): JobPosting | null {
+  const title = raw.title ?? raw.jobTitle;
   if (!title) return null;
-
-  const url = raw.url ?? raw.link;
-  if (!url) return null;
-
-  const canonicalUrl = url.startsWith('http') ? url : `https://www.nationalevacaturebank.nl${url}`;
-
+  const rawUrl = raw.url ?? raw.applyUrl;
+  if (!rawUrl) return null;
+  const canonicalUrl = rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}`;
   const companyRaw = raw.company;
-  const company = typeof companyRaw === 'string'
-    ? companyRaw
-    : companyRaw?.name ?? (typeof raw.employer === 'string' ? raw.employer : raw.employer?.name) ?? 'Unknown';
-
-  const locationRaw = raw.location ?? raw.city;
-  const locationStr = typeof locationRaw === 'string'
-    ? locationRaw
-    : (locationRaw as { name?: string; city?: string })?.name ?? (locationRaw as { city?: string })?.city ?? '';
+  const company = typeof companyRaw === 'string' ? companyRaw : companyRaw?.name ?? raw.companyName ?? 'Unknown';
+  const locRaw = raw.location;
+  const locationStr = typeof locRaw === 'string' ? locRaw : locRaw?.city ?? locRaw?.name ?? raw.city ?? '';
   const locationLabel = locationStr ? `${locationStr}, Netherlands` : 'Netherlands';
-  const city = locationStr || null;
-
-  const description = raw.description ?? raw.summary
-    ? stripHtml(raw.description ?? raw.summary ?? '')
-    : '';
+  const description = raw.description ?? '';
   const text = `${title} ${description}`.toLowerCase();
-
-  const dateStr = raw.datePosted ?? raw.publishedAt ?? raw.date;
-  const publishedAt = dateStr ? new Date(dateStr) : new Date();
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
+  const pub = raw.publishedAt ?? raw.datePosted;
+  const publishedAt = pub ? new Date(pub) : new Date();
 
   return {
-    source: SOURCE,
-    sourcePriority: 4,
-    canonicalUrl,
-    title,
-    company,
-    companySummary: '',
+    source: SOURCE, sourcePriority: 4, canonicalUrl,
+    title, company, companySummary: '',
     companySlug: company.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    locationLabel,
-    countryCode: inferCountryCode(locationLabel) || 'NL',
-    city,
-    workMode: inferWorkMode(text),
+    locationLabel, countryCode: inferCountryCode(locationLabel) || 'NL',
+    city: locationStr || null,
+    workMode: text.includes('remote') ? 'remote' : text.includes('hybrid') ? 'hybrid' : 'on-site',
     language: detectLanguage(`${title} ${description.slice(0, 400)}`),
-    description,
-    keyMissions: [],
-    experienceLevelMinimum: extractExperienceMinimum(text),
-    salaryCurrency: null,
-    salaryPeriod: null,
-    salaryMinimum: null,
-    salaryMaximum: null,
-    salaryYearlyMinimum: null,
+    description, keyMissions: [], experienceLevelMinimum: null,
+    salaryCurrency: null, salaryPeriod: null, salaryMinimum: null,
+    salaryMaximum: null, salaryYearlyMinimum: null,
     publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
-    startupSignals: [],
-    applyUrl: canonicalUrl,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsor', 'visa support', 'work permit', 'sponsorship']),
-    isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage']),
-    employeeCount: null,
-    companyCreationYear: null,
+    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    startupSignals: [], applyUrl: canonicalUrl,
+    offersRelocation: text.includes('relocation') || text.includes('visa'),
+    isStartup: text.includes('startup') || text.includes('seed'),
+    employeeCount: null, companyCreationYear: null,
   };
 }
 
-function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {
-  if (containsAny(text, ['fully remote', '100% remote', 'remote only', 'full remote', 'work from anywhere'])) return 'remote';
-  if (containsAny(text, ['hybrid', 'hybride', 'thuiswerken', 'partial remote', 'work from home'])) return 'hybrid';
-  if (text.includes('remote')) return 'remote';
-  return 'on-site';
-}
-
-function extractExperienceMinimum(text: string): number | null {
-  const plusMatch = text.match(/(\d+)\+\s*years?/i);
-  if (plusMatch) return parseInt(plusMatch[1], 10);
-  const rangeMatch = text.match(/(\d+)\s*(?:to|-)\s*\d+\s+years?/i);
-  if (rangeMatch) return parseInt(rangeMatch[1], 10);
-  const patterns = [
-    /(?:minimum|at\s+least|min\.?)\s+(\d+)\s+years?/i,
-    /(\d+)\s+years?\s+(?:of\s+)?(?:professional\s+)?experience/i,
-  ];
-  for (const p of patterns) {
-    const m = text.match(p);
-    if (m) return parseInt(m[1], 10);
-  }
-  return null;
-}
-
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function containsAny(text: string, tokens: string[]): boolean {
-  return tokens.some((t) => text.includes(t));
+function makeJob(p: { title: string; url: string; company: string; city: string; publishedAt?: string }): JobPosting {
+  return mapJob({ title: p.title, url: p.url, company: p.company, city: p.city, publishedAt: p.publishedAt }) as JobPosting;
 }
 
 function sleep(ms: number): Promise<void> {

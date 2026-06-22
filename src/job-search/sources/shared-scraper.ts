@@ -75,14 +75,40 @@ export function extractJobsFromHtml(html: string, baseUrl: string): RawJob[] {
     } catch { /* continue */ }
   }
 
-  // 3. HTML card parsing with broad selectors
+  // 3. __NEXT_DATA__ / React hydration blob (Next.js and similar frameworks)
+  const nextMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+  if (nextMatch) {
+    try {
+      const nd = JSON.parse(nextMatch[1]);
+      const pp = nd?.props?.pageProps ?? {};
+      const list: unknown[] =
+        pp.jobs ?? pp.offers ?? pp.vacancies ?? pp.results ?? pp.jobList?.jobs ??
+        pp.data?.jobs ?? pp.data?.offers ?? pp.data?.vacancies ??
+        pp.initialJobs ?? pp.jobOffers ?? pp.searchResults ?? [];
+      if (Array.isArray(list) && list.length > 0) return list as RawJob[];
+    } catch { /* fall through */ }
+  }
+
+  // 4. window.__INITIAL_STATE__ / window.__STORE__ hydration
+  const stateMatch = html.match(/window\.__(?:INITIAL_STATE|STORE|STATE)__\s*=\s*(\{[\s\S]*?\});\s*(?:<\/script>|window\.)/);
+  if (stateMatch) {
+    try {
+      const state = JSON.parse(stateMatch[1]);
+      const list: unknown[] =
+        state?.jobs?.list ?? state?.jobs?.items ?? state?.jobList?.jobs ??
+        state?.offers?.list ?? state?.vacatures?.items ?? state?.results?.items ?? state?.listings ?? [];
+      if (Array.isArray(list) && list.length > 0) return list as RawJob[];
+    } catch { /* fall through */ }
+  }
+
+  // 5. HTML card parsing with broad selectors
   return parseCards(html, baseUrl);
 }
 
 function parseCards(html: string, baseUrl: string): RawJob[] {
   const jobs: RawJob[] = [];
 
-  const cardPattern = /<(?:article|li|div)[^>]*class="[^"]*(?:job|offer|vacancy|position|annonce|emploi|stelle)[^"]*"[^>]*>([\s\S]*?)(?=<(?:article|li|div)[^>]*class="[^"]*(?:job|offer|vacancy|position|annonce|emploi|stelle)|<\/(?:ul|main|section|div class="jobs))/gi;
+  const cardPattern = /<(?:article|li|div)[^>]*class="[^"]*(?:job|offer|vacancy|position|annonce|emploi|stelle|listing|result|card|vacature|offre)[^"]*"[^>]*>([\s\S]*?)(?=<(?:article|li|div)[^>]*class="[^"]*(?:job|offer|vacancy|position|annonce|emploi|stelle|listing|result|card|vacature|offre)|<\/(?:ul|main|section|div class="jobs))/gi;
   let m: RegExpExecArray | null;
 
   while ((m = cardPattern.exec(html)) !== null) {
