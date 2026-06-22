@@ -613,6 +613,10 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     return this.activeRun;
   }
 
+  async runApecFull(): Promise<void> {
+    return this.safeRunApec();
+  }
+
   private async safeRunApec(): Promise<void> {
     if (this.activeRun) {
       this.logger.warn('Skipping APEC-only run because a full scan is already active.');

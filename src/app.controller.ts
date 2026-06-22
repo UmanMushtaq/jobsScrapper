@@ -84,7 +84,7 @@ export class AppController {
 
   @Post('run/apec')
   async runApec(@Res() response: Response): Promise<void> {
-    void this.appService.runSource('apec');
+    void this.appService.runApecFull();
     response.redirect('/');
   }
 
