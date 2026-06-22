@@ -35,6 +35,19 @@ import { NvbNlSource } from './sources/nvb.source';
 import { PracujPlSource } from './sources/pracuj.source';
 import { TheProtocolSource } from './sources/theprotocol.source';
 import { JobbSafariSource } from './sources/jobbsafari.source';
+import { CadremploiSource } from './sources/cadremploi.source';
+import { HelloWorkSource } from './sources/hellowork.source';
+import { JobatSource } from './sources/jobat.source';
+import { VacancyNlSource } from './sources/vacancy-nl.source';
+import { IntermediairSource } from './sources/intermediair.source';
+import { XingJobsSource } from './sources/xing.source';
+import { JobwareSource } from './sources/jobware.source';
+import { InfoJobsItSource } from './sources/infojobs-it.source';
+import { TalentItSource } from './sources/talent-it.source';
+import { JobsLuSource } from './sources/jobslu.source';
+import { MoovijobSource } from './sources/moovijob.source';
+import { HimalayasSource } from './sources/himalayas.source';
+import { NodeskSource } from './sources/nodesk.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -69,8 +82,15 @@ const ACTIVE_SOURCES = [
   'nationalevacaturebank.nl', 'jobbird.nl',
   'pracuj.pl', 'theprotocol.it',
   'jobbsafari.se',
-  // removed (blocked/dead): nodesk.co (404), europeremotely.com (502),
-  // startup.jobs (403), wellfound.com (cloud IP block), himalayas.app (0 matches)
+  'cadremploi.fr', 'hellowork.com',
+  'jobat.be',
+  'vacancy.nl', 'intermediair.nl',
+  'xing.com', 'jobware.de',
+  'infojobs.it', 'talent.it',
+  'jobs.lu', 'moovijob.com',
+  'himalayas.app', 'nodesk.co',
+  // removed (blocked/dead): europeremotely.com (502),
+  // startup.jobs (403), wellfound.com (cloud IP block)
 ];
 // linkedin.com has no public API — requires a paid partner integration
 const BLOCKED_SOURCES = ['linkedin.com'];
@@ -176,6 +196,19 @@ export async function runJobSearchOnce(
       new PracujPlSource(),
       new TheProtocolSource(),
       new JobbSafariSource(),
+      new CadremploiSource(),
+      new HelloWorkSource(),
+      new JobatSource(),
+      new VacancyNlSource(),
+      new IntermediairSource(),
+      new XingJobsSource(),
+      new JobwareSource(),
+      new InfoJobsItSource(),
+      new TalentItSource(),
+      new JobsLuSource(),
+      new MoovijobSource(),
+      new HimalayasSource(),
+      new NodeskSource(),
     ];
     const sources = excludeSources?.length
       ? allSources.filter((s) => !excludeSources.includes(s.name))

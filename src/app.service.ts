@@ -1643,6 +1643,19 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'ictjob.be': 'BE',
     'nationalevacaturebank.nl': 'NL',
     'jobbird.nl': 'NL',
+    'cadremploi.fr': 'FR',
+    'hellowork.com': 'FR',
+    'jobat.be': 'BE',
+    'vacancy.nl': 'NL',
+    'intermediair.nl': 'NL',
+    'xing.com': 'DE',
+    'jobware.de': 'DE',
+    'infojobs.it': 'IT',
+    'talent.it': 'IT',
+    'jobs.lu': 'LU',
+    'moovijob.com': 'LU',
+    'himalayas.app': 'REMOTE',
+    'nodesk.co': 'REMOTE',
     'indeed.com': 'INTL',
     'greenhouse.io': 'INTL',
     'jobs.lever.co': 'INTL',
@@ -1660,6 +1673,8 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     { key: 'DE',     flag: '🇩🇪', label: 'Germany',                 bg: '#f0f9ff', border: '#bae6fd' },
     { key: 'BE',     flag: '🇧🇪', label: 'Belgium',                  bg: '#f5f3ff', border: '#ddd6fe' },
     { key: 'NL',     flag: '🇳🇱', label: 'Netherlands',              bg: '#f0fdf4', border: '#bbf7d0' },
+    { key: 'IT',     flag: '🇮🇹', label: 'Italy',                    bg: '#fff7ed', border: '#fed7aa' },
+    { key: 'LU',     flag: '🇱🇺', label: 'Luxembourg',               bg: '#fdf4ff', border: '#e9d5ff' },
     { key: 'PL',     flag: '🇵🇱', label: 'Poland',                   bg: '#fef2f2', border: '#fecaca' },
     { key: 'SE',     flag: '🇸🇪', label: 'Sweden',                   bg: '#f0f9ff', border: '#bfdbfe' },
     { key: 'INTL',   flag: '🌐', label: 'International / Multi-country', bg: '#fafaf9', border: '#e7e5e4' },
@@ -1743,6 +1758,8 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     { key: 'DE', flag: '🇩🇪', label: 'DE' },
     { key: 'BE', flag: '🇧🇪', label: 'BE' },
     { key: 'NL', flag: '🇳🇱', label: 'NL' },
+    { key: 'IT', flag: '🇮🇹', label: 'IT' },
+    { key: 'LU', flag: '🇱🇺', label: 'LU' },
     { key: 'PL', flag: '🇵🇱', label: 'PL' },
     { key: 'SE', flag: '🇸🇪', label: 'SE' },
     { key: 'INTL', flag: '🌐', label: 'INTL' },
@@ -1837,10 +1854,12 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       ? dashboardJobs.map((j) => ({ match: j.match as MatchResult, foundAt: j.foundAt }))
       : state.latestMatches.map((m) => ({ match: m }));
 
-  const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'adzuna.com']);
-  const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com', 'stepstone.de', 'stellenanzeigen.de']);
-  const BE_SOURCES = new Set(['eurobrussels.com', 'ictjob.be']);
-  const NL_SOURCES = new Set(['nationalevacaturebank.nl', 'jobbird.nl']);
+  const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'adzuna.com', 'cadremploi.fr', 'hellowork.com']);
+  const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com', 'stepstone.de', 'stellenanzeigen.de', 'xing.com', 'jobware.de']);
+  const BE_SOURCES = new Set(['eurobrussels.com', 'ictjob.be', 'jobat.be']);
+  const NL_SOURCES = new Set(['nationalevacaturebank.nl', 'jobbird.nl', 'vacancy.nl', 'intermediair.nl']);
+  const IT_SOURCES = new Set(['infojobs.it', 'talent.it']);
+  const LU_SOURCES = new Set(['jobs.lu', 'moovijob.com']);
   const PL_SOURCES = new Set(['nofluffjobs.com', 'justjoin.it', 'pracuj.pl', 'theprotocol.it']);
   const SE_SOURCES = new Set(['jobbsafari.se']);
 
@@ -1849,12 +1868,14 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
     if (DE_SOURCES.has(source)) return 'de';
     if (BE_SOURCES.has(source)) return 'be';
     if (NL_SOURCES.has(source)) return 'nl';
+    if (IT_SOURCES.has(source)) return 'it';
+    if (LU_SOURCES.has(source)) return 'lu';
     if (PL_SOURCES.has(source)) return 'pl';
     if (SE_SOURCES.has(source)) return 'se';
     return 'remote';
   }
 
-  const countryCounts: Record<string, number> = { all: displayMatches.length, fr: 0, de: 0, be: 0, nl: 0, pl: 0, se: 0, remote: 0 };
+  const countryCounts: Record<string, number> = { all: displayMatches.length, fr: 0, de: 0, be: 0, nl: 0, it: 0, lu: 0, pl: 0, se: 0, remote: 0 };
   for (const { match } of displayMatches) {
     const tab = sourceToCountryTab(match.job.source ?? '');
     countryCounts[tab] = (countryCounts[tab] ?? 0) + 1;
@@ -2386,6 +2407,8 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
               { key: 'de',     label: '🇩🇪 DE',          hash: 'germany' },
               { key: 'be',     label: '🇧🇪 BE',          hash: 'belgium' },
               { key: 'nl',     label: '🇳🇱 NL',          hash: 'netherlands' },
+              { key: 'it',     label: '🇮🇹 IT',          hash: 'italy' },
+              { key: 'lu',     label: '🇱🇺 LU',          hash: 'luxembourg' },
               { key: 'pl',     label: '🇵🇱 PL',          hash: 'poland' },
               { key: 'se',     label: '🇸🇪 SE',          hash: 'sweden' },
               { key: 'remote', label: '🌐 Remote',       hash: 'remote' },
