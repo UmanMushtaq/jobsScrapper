@@ -247,11 +247,23 @@ export async function runJobSearchOnce(
           Date.now() - profile.search.maxAgeHours * 60 * 60 * 1000 && baseFilter(job),
     );
 
+    // Per-source fresh/scored diagnostics — helps track sources that fetch many jobs but pass 0
+    const apecTotal = jobs.filter((j) => j.source === 'apec.fr').length;
+    const apecFresh = freshJobs.filter((j) => j.source === 'apec.fr').length;
+    if (apecTotal > 0) {
+      console.log(`[apec] ${apecFresh}/${apecTotal} jobs are fresh (not in seen/applied/dismissed)`);
+    }
+
     const rawMatches = freshJobs
       .map((job) => scoreJob(job, profile, prefModel))
       .filter((match): match is MatchResult => match !== null)
       .filter((match) => checkLocationEligibility(match.job))
       .sort(sortMatches);
+
+    if (apecTotal > 0) {
+      const apecScored = rawMatches.filter((m) => m.job.source === 'apec.fr').length;
+      console.log(`[apec] ${apecScored} passed scoring threshold out of ${apecFresh} fresh (${apecTotal} fetched total)`);
+    }
 
     // Deduplicate: job aggregators (Adzuna) post the same role across many cities/sources.
     // Key includes source so cross-source matches are preserved; strip "|city" suffixes from title.
@@ -273,6 +285,11 @@ export async function runJobSearchOnce(
       console.log(`[scorer] deduplicated ${dupCount} same-company/role listings (job aggregator multi-city posts)`);
     }
     const slicedMatches = dedupedMatches.slice(0, maxResults);
+
+    if (apecTotal > 0) {
+      const apecInBatch = slicedMatches.filter((m) => m.job.source === 'apec.fr').length;
+      console.log(`[apec] ${apecInBatch} jobs in final dashboard batch (maxResults=${maxResults})`);
+    }
 
     console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} passed scoring (${dupCount} dupes removed)`);
     await redisLog('info', 'scorer', `${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} matched (${dupCount} dupes removed)`);
