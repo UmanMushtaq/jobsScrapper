@@ -98,6 +98,7 @@ const BLOCKED_SOURCES = ['linkedin.com'];
 export async function runJobSearchOnce(
   overrideProfile?: SearchProfile,
   excludeSources?: string[],
+  onlySources?: string[],
 ): Promise<RunSummary> {
   const profile = overrideProfile ?? (await loadSearchProfile());
   if (isRedisAvailable()) {
@@ -210,9 +211,11 @@ export async function runJobSearchOnce(
       new HimalayasSource(),
       new NodeskSource(),
     ];
-    const sources = excludeSources?.length
-      ? allSources.filter((s) => !excludeSources.includes(s.name))
-      : allSources;
+    const sources = onlySources?.length
+      ? allSources.filter((s) => onlySources.includes(s.name))
+      : excludeSources?.length
+        ? allSources.filter((s) => !excludeSources.includes(s.name))
+        : allSources;
     const sourceResults: SourceRunResult[] = await Promise.all(
       sources.map(async (s): Promise<SourceRunResult> => {
         const startedAt = Date.now();
@@ -284,7 +287,7 @@ export async function runJobSearchOnce(
     const apecTotal = jobs.filter((j) => j.source === 'apec.fr').length;
     const apecFresh = freshJobs.filter((j) => j.source === 'apec.fr').length;
     if (apecTotal > 0) {
-      console.log(`[apec] ${apecFresh}/${apecTotal} jobs are fresh (not in seen/applied/dismissed)`);
+      console.log(`[apec] ${apecFresh}/${apecTotal} jobs are fresh (not seen before)`);
     }
 
     const rawMatches = freshJobs
@@ -295,7 +298,7 @@ export async function runJobSearchOnce(
 
     if (apecTotal > 0) {
       const apecScored = rawMatches.filter((m) => m.job.source === 'apec.fr').length;
-      console.log(`[apec] ${apecScored} passed scoring threshold out of ${apecFresh} fresh (${apecTotal} fetched total)`);
+      console.log(`[apec] ${apecScored} passed scoring threshold out of ${apecFresh} fresh`);
     }
 
     // Deduplicate: job aggregators (Adzuna) post the same role across many cities/sources.
@@ -321,7 +324,7 @@ export async function runJobSearchOnce(
 
     if (apecTotal > 0) {
       const apecInBatch = slicedMatches.filter((m) => m.job.source === 'apec.fr').length;
-      console.log(`[apec] ${apecInBatch} jobs in final dashboard batch (maxResults=${maxResults})`);
+      console.log(`[apec] ${apecInBatch} in final batch after maxResults cut`);
     }
 
     console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} passed scoring (${dupCount} dupes removed)`);

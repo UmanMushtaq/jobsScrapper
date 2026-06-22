@@ -49,6 +49,7 @@ const PLATFORM_CACHE_TTL_MS  = 60_000;   // 60 s
 export class AppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AppService.name);
   private intervalHandle: NodeJS.Timeout | null = null;
+  private apecIntervalHandle: NodeJS.Timeout | null = null;
   private pingHandle: NodeJS.Timeout | null = null;
   private activeRun: Promise<void> | null = null;
   private intervalMinutes = 0;
@@ -94,12 +95,22 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.logger.log(`Scheduler running with ${this.intervalMinutes}min interval.`);
+
+    // APEC-only scheduler: runs every 180 minutes, independent of the main scan.
+    // APEC does not use ScraperAPI so there is no credit cost for frequent runs.
+    const APEC_INTERVAL_MS = 180 * 60 * 1000;
+    this.apecIntervalHandle = setInterval(() => void this.safeRunApec(), APEC_INTERVAL_MS);
+    this.logger.log('APEC scheduler active — running every 180min');
   }
 
   onModuleDestroy(): void {
     if (this.intervalHandle) {
       clearInterval(this.intervalHandle);
       this.intervalHandle = null;
+    }
+    if (this.apecIntervalHandle) {
+      clearInterval(this.apecIntervalHandle);
+      this.apecIntervalHandle = null;
     }
     if (this.pingHandle) {
       clearInterval(this.pingHandle);
@@ -599,6 +610,27 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       }
     })();
 
+    return this.activeRun;
+  }
+
+  private async safeRunApec(): Promise<void> {
+    if (this.activeRun) {
+      this.logger.warn('Skipping APEC-only run because a full scan is already active.');
+      return;
+    }
+    console.log('[apec-scheduler] Starting APEC-only run');
+    this.activeRun = (async () => {
+      try {
+        const summary = await runJobSearchOnce(undefined, undefined, ['apec.fr']);
+        _dashboardCache = null;
+        _healthCache = null;
+        this.logger.log(`[apec-scheduler] Done — ${summary.allJobsCount} fetched, ${summary.freshJobsCount} fresh, ${summary.matchCount} matched.`);
+      } catch (error) {
+        this.logger.error('[apec-scheduler] run failed', error instanceof Error ? error.stack : String(error));
+      } finally {
+        this.activeRun = null;
+      }
+    })();
     return this.activeRun;
   }
 
