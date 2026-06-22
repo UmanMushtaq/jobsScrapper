@@ -85,13 +85,13 @@ export class AppController {
   @Post('run/apec')
   async runApec(@Res() response: Response): Promise<void> {
     void this.appService.runSource('apec');
-    response.redirect('/status');
+    response.redirect('/');
   }
 
   @Post('run/indeed')
   async runIndeed(@Res() response: Response): Promise<void> {
     void this.appService.runSource('indeed');
-    response.redirect('/status');
+    response.redirect('/');
   }
 
   @Post('jobs/:jobId/applied')
