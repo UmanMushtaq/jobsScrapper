@@ -185,21 +185,30 @@ export function scoreJob(
     return null;
   }
 
-  // Group-based keyword filter: pass if Group A OR (Group B AND Group C)
-  const hasGroupA = containsAny(text, KEYWORD_GROUP_A);
-  const hasGroupB = containsAny(text, KEYWORD_GROUP_B) || text.includes('typescript');
-  const hasGroupC = containsAny(text, KEYWORD_GROUP_C);
+  // Group-based keyword filter: pass if Group A OR (Group B AND Group C).
+  // Trusted sources (server-side keyword filtering) skip this check entirely —
+  // APEC and FranceTravail filter by keyword before returning results, so every
+  // job is pre-qualified and descriptions may legitimately be empty on listing pages.
+  const TRUSTED_SOURCES = ['apec.fr', 'welcometothejungle.com', 'arbeitsagentur.de'];
+  const isTrustedSource = TRUSTED_SOURCES.includes(job.source);
 
-  if (!hasGroupA && !(hasGroupB && hasGroupC)) {
-    console.log(`[keyword-filter] FILTERED: ${job.company}, no Node.js or backend+TS signal found`);
-    return null;
-  }
+  if (!isTrustedSource) {
+    const hasGroupA = containsAny(text, KEYWORD_GROUP_A);
+    const hasGroupB = containsAny(text, KEYWORD_GROUP_B) || text.includes('typescript');
+    const hasGroupC = containsAny(text, KEYWORD_GROUP_C);
 
-  // Reject jobs where a non-JS backend language is explicitly required and Node.js is absent.
-  if (!hasGroupA) {
-    const nonJsRequiredPattern = /\b(?:c#|\.net|java(?!script)|golang|go\s+lang|ruby|php|kotlin|scala)\b.{0,60}(?:required|is\s+a\s+must|mandatory|must\s+have)/i;
-    if (nonJsRequiredPattern.test(text)) {
+    if (!hasGroupA && !(hasGroupB && hasGroupC)) {
+      const snippet = `${job.title} | ${job.description.slice(0, 120).replace(/\s+/g, ' ')}`;
+      console.log(`[keyword-filter] FILTERED: ${job.company} — checked: "${snippet}"`);
       return null;
+    }
+
+    // Reject jobs where a non-JS backend language is explicitly required and Node.js is absent.
+    if (!hasGroupA) {
+      const nonJsRequiredPattern = /\b(?:c#|\.net|java(?!script)|golang|go\s+lang|ruby|php|kotlin|scala)\b.{0,60}(?:required|is\s+a\s+must|mandatory|must\s+have)/i;
+      if (nonJsRequiredPattern.test(text)) {
+        return null;
+      }
     }
   }
 
