@@ -11,10 +11,12 @@ const SOURCE = 'apec.fr';
 interface ApecDetailResponse {
   data?: {
     texteHtml?: string;
+    texteOffre?: string;
     texte?: string;
     description?: string;
   };
   texteHtml?: string;
+  texteOffre?: string;
   texte?: string;
   description?: string;
 }
@@ -211,7 +213,7 @@ export class ApecJobsSource implements JobSource {
           console.log(`[apec] listing description kept (${job.description.length} chars) for ${jobId}`);
         }
         fetched++;
-        await sleep(500);
+        await new Promise((r) => setTimeout(r, 500));
       }
 
       console.log(`[apec] full descriptions processed: ${fetched}/${jobList.length}`);
