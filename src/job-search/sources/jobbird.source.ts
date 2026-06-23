@@ -120,6 +120,18 @@ function mapAjaxJob(raw: AjaxJob, id: string): JobPosting | null {
   const title = raw.title;
   if (!title) return null;
 
+  const TECH_TITLE_KEYWORDS = [
+    'developer', 'engineer', 'backend', 'frontend', 'fullstack', 'full-stack',
+    'full stack', 'software', 'node', 'typescript', 'javascript', 'devops',
+    'cloud', 'architect', 'data', 'python', 'java', 'php', 'programmer',
+    'ontwikkelaar',
+    'ingenieur',
+  ];
+
+  const titleLower = title.toLowerCase();
+  const isTechJob = TECH_TITLE_KEYWORDS.some(kw => titleLower.includes(kw));
+  if (!isTechJob) return null;
+
   const canonicalUrl = raw.url
     ? (raw.url.startsWith('http') ? raw.url : `https://www.jobbird.com${raw.url}`)
     : `https://www.jobbird.com/nl/vacature/${id}`;
