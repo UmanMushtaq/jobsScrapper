@@ -22,8 +22,6 @@ interface ApecDetailResponse {
 const SESSION_URL = 'https://www.apec.fr/candidat/recherche-emploi.html/emploi';
 const API_URL = 'https://www.apec.fr/cms/webservices/rechercheOffre';
 const DETAIL_BASE_URL = 'https://api.apec.fr/api-job-offer/v2/job-offers';
-const DETAIL_BATCH_SIZE = 10;
-const DETAIL_BATCH_DELAY_MS = 500;
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -184,42 +182,39 @@ export class ApecJobsSource implements JobSource {
     }
     console.log(`[apec] ${rawOffers.size} unique offers → ${jobs.size} mapped jobs`);
 
-    // Fetch full descriptions in batches of 10 to replace the short listing snippets
+    // Fetch full descriptions sequentially, one by one, to avoid hammering api.apec.fr
+    // and conflicting with Playwright mutex used by other scrapers.
+    // Always fetch the detail API regardless of listing description length,
+    // then keep whichever description is longer.
     const jobList = Array.from(jobs.values());
     if (jobList.length > 0) {
-      console.log(`[apec] fetching full descriptions for ${jobList.length} jobs (batches of ${DETAIL_BATCH_SIZE})`);
+      console.log(`[apec] fetching full descriptions for ${jobList.length} jobs (sequential, one by one)`);
       let fetched = 0;
       let firstJobLogged = false;
-      for (let i = 0; i < jobList.length; i += DETAIL_BATCH_SIZE) {
-        const batch = jobList.slice(i, i + DETAIL_BATCH_SIZE);
-        await Promise.all(batch.map(async (job) => {
-          // IDs include an optional letter suffix, e.g. "178880244W"
-          const idMatch = job.canonicalUrl.match(/detail-offre\/([A-Z0-9]+)/i);
-          if (!idMatch) return;
-          const jobId = idMatch[1];
 
-          const logFirst = !firstJobLogged;
-          if (logFirst) {
-            firstJobLogged = true;
-            console.log(`[apec] fetching detail for job ID: ${jobId}`);
-          }
+      for (const job of jobList) {
+        const idMatch = job.canonicalUrl.match(/detail-offre\/([A-Z0-9]+)/i);
+        if (!idMatch) continue;
+        const jobId = idMatch[1];
 
-          // Skip detail fetch if texteOffre from the listing is already substantial
-          if (job.description.length >= 100) {
-            fetched++;
-            return;
-          }
-          const fullDesc = await fetchApecDetail(client, jobId, job.canonicalUrl, logFirst);
-          if (fullDesc && fullDesc.length > job.description.length) {
-            job.description = fullDesc;
-            fetched++;
-          }
-        }));
-        if (i + DETAIL_BATCH_SIZE < jobList.length) {
-          await new Promise((r) => setTimeout(r, DETAIL_BATCH_DELAY_MS));
+        const logFirst = !firstJobLogged;
+        if (logFirst) {
+          firstJobLogged = true;
+          console.log(`[apec] fetching detail for first job ID: ${jobId}`);
         }
+
+        const fullDesc = await fetchApecDetail(client, jobId, job.canonicalUrl, logFirst);
+        if (fullDesc && fullDesc.length > job.description.length) {
+          console.log(`[apec] detail description longer (${fullDesc.length} chars vs ${job.description.length} chars) — using detail for ${jobId}`);
+          job.description = fullDesc;
+        } else {
+          console.log(`[apec] listing description kept (${job.description.length} chars) for ${jobId}`);
+        }
+        fetched++;
+        await sleep(500);
       }
-      console.log(`[apec] full descriptions fetched: ${fetched}/${jobList.length}`);
+
+      console.log(`[apec] full descriptions processed: ${fetched}/${jobList.length}`);
     }
 
     const result = jobList;
@@ -252,7 +247,7 @@ async function fetchApecDetail(
     if (logStatus) console.log(`[apec] detail response status: ${res.status}`);
     if (res.status === 200) {
       const data = res.data?.data ?? res.data;
-      const raw = data?.texteHtml ?? data?.texte ?? data?.description ?? '';
+      const raw = data?.texteHtml ?? data?.texteOffre ?? data?.texte ?? data?.description ?? '';
       if (raw) return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
       if (logStatus) console.log(`[apec] detail fetch failed for ${jobId} — status ${res.status}, trying HTML fallback`);

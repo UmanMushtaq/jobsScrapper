@@ -71,12 +71,36 @@ export function scoreLocation(
     };
   }
 
-  // Europe acceptance — non-preferred EU countries (ES, IT, PL, GB, etc.).
-  // For preferred countries (FR, DE, NL…) the early-return above already handled it.
-  // Here we only accept if the company explicitly offers relocation/visa support;
-  // `willingToRelocate` alone is not enough because the candidate would bear all costs.
+  // Target relocation countries — candidate is willing to relocate here without
+  // requiring the company to explicitly offer a relocation package.
+  // EU Blue Card / skilled worker visa covers Germany and all other EU targets.
+  // GB is excluded — post-Brexit visa complexity makes it a special case.
+  const TARGET_RELOCATION_COUNTRIES = ['IT', 'ES', 'SE', 'DK', 'CZ', 'PL', 'AT', 'PT', 'NO'];
+
   if (profile.europeCountryCodes.includes(countryCode)) {
+    // UK: only accept remote or if relocation explicitly offered — too complex post-Brexit
+    if (countryCode === 'GB') {
+      if (workMode === 'hybrid' || workMode === 'on-site') {
+        if (!offersRelocation) {
+          return {
+            isAcceptable: false,
+            score: 0,
+            priority: 'rejected',
+            reason: 'UK hybrid/on-site — post-Brexit visa complexity, relocation support required',
+          };
+        }
+      }
+    }
+
     if (workMode === 'on-site') {
+      if (TARGET_RELOCATION_COUNTRIES.includes(countryCode)) {
+        return {
+          isAcceptable: true,
+          score: offersRelocation ? 75 : 65,
+          priority: 'acceptable',
+          reason: `Target country on-site (${countryCode}) — willing to relocate${offersRelocation ? ' + relocation support offered' : ''}`,
+        };
+      }
       if (offersRelocation) {
         return {
           isAcceptable: true,
@@ -89,17 +113,17 @@ export function scoreLocation(
         isAcceptable: false,
         score: 0,
         priority: 'rejected',
-        reason: `Europe on-site (${countryCode}) — not in preferred countries and no relocation offered`,
+        reason: `Europe on-site (${countryCode}) — not a target relocation country and no relocation offered`,
       };
     }
 
     if (workMode === 'hybrid') {
-      if (countryCode === 'GB') {
+      if (TARGET_RELOCATION_COUNTRIES.includes(countryCode)) {
         return {
-          isAcceptable: false,
-          score: 0,
-          priority: 'rejected',
-          reason: 'UK hybrid — not viable from Paris (remote or full relocation only)',
+          isAcceptable: true,
+          score: offersRelocation ? 80 : 70,
+          priority: 'acceptable',
+          reason: `Target country hybrid (${countryCode}) — willing to relocate${offersRelocation ? ' + relocation support offered' : ''}`,
         };
       }
       if (offersRelocation) {
@@ -114,7 +138,7 @@ export function scoreLocation(
         isAcceptable: false,
         score: 0,
         priority: 'rejected',
-        reason: `Europe hybrid (${countryCode}) — not in preferred countries and no relocation offered`,
+        reason: `Europe hybrid (${countryCode}) — not a target relocation country and no relocation offered`,
       };
     }
   }
