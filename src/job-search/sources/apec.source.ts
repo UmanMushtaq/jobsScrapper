@@ -155,6 +155,14 @@ export class ApecJobsSource implements JobSource {
         const resultats = res.data?.resultats ?? [];
         console.log(`[apec] fetched ${resultats.length} jobs from API (query: "${motsCles}")`);
 
+        // Log all fields of the first job from the very first query to diagnose available data
+        if (resultats.length > 0 && rawOffers.size === 0) {
+          const sample = resultats[0];
+          console.log(`[apec] listing API first job fields: ${Object.keys(sample as object).join(', ')}`);
+          console.log(`[apec] texteOffre length: ${String(sample.texteOffre ?? '').length} chars | description length: ${String(sample.description ?? '').length} chars`);
+          if (sample.texteOffre) console.log(`[apec] texteOffre preview: ${String(sample.texteOffre).slice(0, 200)}`);
+        }
+
         for (const offer of resultats) {
           const key = String(offer.numeroOffre ?? offer.id ?? '');
           if (key) rawOffers.set(key, offer);
@@ -248,7 +256,7 @@ async function fetchApecDetail(
     if (logStatus) console.log(`[apec] detail API error for ${jobId}, trying HTML fallback`);
   }
 
-  // Fallback: fetch the HTML detail page and extract the description div
+  // Fallback: fetch the HTML detail page and extract the description
   try {
     const res = await client.get<string>(canonicalUrl, {
       headers: {
@@ -267,20 +275,126 @@ async function fetchApecDetail(
       return null;
     }
     const html: string = res.data;
-    // Extract the largest text block from description/content divs
-    const descMatch = html.match(/<div[^>]*class="[^"]*(?:description|content|offer-detail|job-detail|texte-offre)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-    if (descMatch) {
-      return descMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-    // Last resort: find the largest <p> block sequence in the page body
-    const paragraphs = [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
-      .map((m) => m[1].replace(/<[^>]+>/g, ' ').trim())
-      .filter((t) => t.length > 80);
-    if (paragraphs.length > 0) return paragraphs.join(' ');
+    const result = extractDescriptionFromHtml(html, jobId, logStatus);
+    if (result) return result;
   } catch {
     console.log(`[apec] detail fetch failed for ${jobId} — network error, keeping short description`);
   }
 
+  return null;
+}
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/\s+/g, ' ').trim();
+}
+
+function extractDescriptionFromHtml(html: string, jobId: string, logStatus: boolean): string | null {
+  // Strategy 1: find heading "Job description" / "Description du poste" / "Description de l'offre"
+  // then collect all content until the next heading.
+  const headingPattern = /(?:job\s+description|description\s+du\s+poste|description\s+de\s+l['']offre)/i;
+  // Match any h1-h4 or strong/b tag that contains the heading text
+  const headingTagRe = /<(?:h[1-4]|strong|b|p)[^>]*>([\s\S]*?)<\/(?:h[1-4]|strong|b|p)>/gi;
+  let headingEnd = -1;
+  let m: RegExpExecArray | null;
+  while ((m = headingTagRe.exec(html)) !== null) {
+    if (headingPattern.test(stripHtml(m[1]))) {
+      headingEnd = m.index + m[0].length;
+      break;
+    }
+  }
+
+  if (headingEnd !== -1) {
+    // Grab the HTML slice after the heading until the next h-tag or section boundary
+    const afterHeading = html.slice(headingEnd, headingEnd + 8000);
+    const nextSectionMatch = afterHeading.search(/<(?:h[1-4])[^>]*>/i);
+    const contentHtml = nextSectionMatch > 0 ? afterHeading.slice(0, nextSectionMatch) : afterHeading;
+    // Extract all <p> and <li> text
+    const parts: string[] = [];
+    for (const tag of contentHtml.matchAll(/<(?:p|li)[^>]*>([\s\S]*?)<\/(?:p|li)>/gi)) {
+      const t = stripHtml(tag[1]);
+      if (t.length > 10) parts.push(t);
+    }
+    if (parts.length > 0) {
+      const result = parts.join(' ');
+      if (logStatus) {
+        console.log(`[apec] HTML parser found description (heading strategy): ${result.slice(0, 200)}`);
+        console.log(`[apec] description length: ${result.length} chars`);
+      }
+      return result;
+    }
+    // Heading found but no <p>/<li> — take raw stripped text after heading
+    const raw = stripHtml(contentHtml);
+    if (raw.length > 100) {
+      if (logStatus) console.log(`[apec] HTML parser found description (heading+rawtext): ${raw.slice(0, 200)}`);
+      return raw;
+    }
+  }
+
+  // Strategy 2: CSS class selectors for known description containers
+  const classSelectors = [
+    /class="[^"]*(?:job-description|offer-description|description-content|texte-offre|job-detail|offer-detail)[^"]*"/i,
+    /data-testid="job-description"/i,
+    /class="[^"]*(?:description|content-detail)[^"]*"/i,
+  ];
+  for (const selectorRe of classSelectors) {
+    // Find opening tag matching selector, then grab until matching close tag
+    const tagMatch = selectorRe.exec(html);
+    if (!tagMatch) continue;
+    const tagStart = html.lastIndexOf('<', tagMatch.index);
+    if (tagStart === -1) continue;
+    // Walk forward to find matching closing </div> (simple depth counter)
+    let depth = 0;
+    let pos = tagStart;
+    let end = -1;
+    while (pos < html.length && pos < tagStart + 30000) {
+      const open = html.indexOf('<', pos);
+      if (open === -1) break;
+      if (html.slice(open, open + 2) === '</') {
+        if (depth <= 1) { end = html.indexOf('>', open) + 1; break; }
+        depth--;
+      } else if (!html.slice(open, open + 3).includes('/>')) {
+        depth++;
+      }
+      pos = open + 1;
+    }
+    const contentHtml = end > -1 ? html.slice(tagStart, end) : html.slice(tagStart, tagStart + 5000);
+    const text = stripHtml(contentHtml);
+    if (text.length > 100) {
+      if (logStatus) {
+        console.log(`[apec] HTML parser found description (CSS selector): ${text.slice(0, 200)}`);
+        console.log(`[apec] description length: ${text.length} chars`);
+      }
+      return text;
+    }
+  }
+
+  // Strategy 3: any div/section containing >200 chars of text — pick the longest
+  const blockMatches = [...html.matchAll(/<(?:div|section|article)[^>]*>([\s\S]{200,5000}?)<\/(?:div|section|article)>/gi)]
+    .map((match) => stripHtml(match[1]))
+    .filter((t) => t.length > 200 && !t.includes('<script') && !t.includes('function('));
+  if (blockMatches.length > 0) {
+    const longest = blockMatches.reduce((a, b) => (a.length >= b.length ? a : b));
+    if (logStatus) {
+      console.log(`[apec] HTML parser found description (largest block, ${blockMatches.length} candidates): ${longest.slice(0, 200)}`);
+      console.log(`[apec] description length: ${longest.length} chars`);
+    }
+    return longest;
+  }
+
+  // Strategy 4: collect all <p> tags with >80 chars
+  const paragraphs = [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((match) => stripHtml(match[1]))
+    .filter((t) => t.length > 80);
+  if (paragraphs.length > 0) {
+    const result = paragraphs.join(' ');
+    if (logStatus) {
+      console.log(`[apec] HTML parser found description (paragraph fallback, ${paragraphs.length} <p> tags): ${result.slice(0, 200)}`);
+      console.log(`[apec] description length: ${result.length} chars`);
+    }
+    return result;
+  }
+
+  if (logStatus) console.log(`[apec] HTML parser: no description found for ${jobId} — HTML length: ${html.length} chars`);
   return null;
 }
 
