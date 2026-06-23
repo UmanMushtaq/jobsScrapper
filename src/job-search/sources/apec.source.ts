@@ -204,6 +204,11 @@ export class ApecJobsSource implements JobSource {
             console.log(`[apec] fetching detail for job ID: ${jobId}`);
           }
 
+          // Skip detail fetch if texteOffre from the listing is already substantial
+          if (job.description.length >= 100) {
+            fetched++;
+            return;
+          }
           const fullDesc = await fetchApecDetail(client, jobId, job.canonicalUrl, logFirst);
           if (fullDesc && fullDesc.length > job.description.length) {
             job.description = fullDesc;

@@ -185,9 +185,9 @@ export function scoreJob(
 
   // Hard reject: absolute salary floor (logged explicitly)
   const absoluteMonthlyEur = toMonthlyEur(job);
-  if (absoluteMonthlyEur !== null && absoluteMonthlyEur < 2900) {
-    console.log(`[scorer] FILTERED: ${job.company}, salary below minimum threshold (${Math.round(absoluteMonthlyEur)} EUR/month < 2,900 EUR/month)`);
-    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: salary<min (${Math.round(absoluteMonthlyEur)} EUR/month < 2,900)`);
+  if (absoluteMonthlyEur !== null && absoluteMonthlyEur < 2500) {
+    console.log(`[scorer] FILTERED: ${job.company}, salary below minimum threshold (${Math.round(absoluteMonthlyEur)} EUR/month < 2,500 EUR/month)`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: salary<min (${Math.round(absoluteMonthlyEur)} EUR/month < 2,500)`);
     return null;
   }
 
