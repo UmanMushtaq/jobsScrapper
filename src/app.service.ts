@@ -53,7 +53,9 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   private fastIntervalHandle: NodeJS.Timeout | null = null;
   private apecIntervalHandle: NodeJS.Timeout | null = null;
   private pingHandle: NodeJS.Timeout | null = null;
-  private activeRun: Promise<void> | null = null;
+  private activeRun: Promise<void> | null = null;       // slow (all sources)
+  private activeFastRun: Promise<void> | null = null;   // fast (no-ScraperAPI sources)
+  private activeApecRun: Promise<void> | null = null;   // APEC full pipeline
   private intervalMinutes = 0;
   private _keyStatusCache: { result: Record<string, unknown>; at: number } | null = null;
   private readonly KEY_STATUS_CACHE_TTL_MS = 20 * 60 * 1000;
@@ -101,7 +103,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
     // FAST scheduler: no-ScraperAPI sources, every 3 hours
     this.fastIntervalHandle = setInterval(() => void this.safeRunFast(), FAST_INTERVAL_MS);
-    this.logger.log('Fast scheduler active — running every 180min (no ScraperAPI sources)');
+    this.logger.log(`Fast scheduler active — running every 180min (no ScraperAPI sources)`);
+    this.logger.log(`Fast scheduler sources: ${FAST_SOURCES.join(', ')}`);
 
     // APEC scheduler: APEC full pipeline, every 3 hours
     this.apecIntervalHandle = setInterval(() => void this.safeRunApec(), APEC_INTERVAL_MS);
@@ -627,12 +630,12 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async safeRunFast(): Promise<void> {
-    if (this.activeRun) {
-      this.logger.warn('Skipping fast run because a scan is already active.');
+    if (this.activeFastRun) {
+      this.logger.warn('[fast-scheduler] Skipping — previous fast run still in progress.');
       return;
     }
-    console.log('[fast-scheduler] Starting fast run (no ScraperAPI sources)');
-    this.activeRun = (async () => {
+    console.log(`[fast-scheduler] Starting fast run — ${FAST_SOURCES.length} sources`);
+    this.activeFastRun = (async () => {
       try {
         const summary = await runJobSearchOnce(undefined, undefined, FAST_SOURCES);
         _dashboardCache = null;
@@ -641,19 +644,19 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       } catch (error) {
         this.logger.error('[fast-scheduler] run failed', error instanceof Error ? error.stack : String(error));
       } finally {
-        this.activeRun = null;
+        this.activeFastRun = null;
       }
     })();
-    return this.activeRun;
+    return this.activeFastRun;
   }
 
   private async safeRunApec(): Promise<void> {
-    if (this.activeRun) {
-      this.logger.warn('Skipping APEC-only run because a full scan is already active.');
+    if (this.activeApecRun) {
+      this.logger.warn('[apec-scheduler] Skipping — previous APEC run still in progress.');
       return;
     }
     console.log('[apec-scheduler] Starting APEC-only run');
-    this.activeRun = (async () => {
+    this.activeApecRun = (async () => {
       try {
         const summary = await runJobSearchOnce(undefined, undefined, ['apec.fr']);
         _dashboardCache = null;
@@ -662,10 +665,10 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       } catch (error) {
         this.logger.error('[apec-scheduler] run failed', error instanceof Error ? error.stack : String(error));
       } finally {
-        this.activeRun = null;
+        this.activeApecRun = null;
       }
     })();
-    return this.activeRun;
+    return this.activeApecRun;
   }
 
   // ─── Admin / permit-update page ──────────────────────────────────────────
