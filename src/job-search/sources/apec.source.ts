@@ -181,25 +181,25 @@ export class ApecJobsSource implements JobSource {
     if (jobList.length > 0) {
       console.log(`[apec] fetching full descriptions for ${jobList.length} jobs (batches of ${DETAIL_BATCH_SIZE})`);
       let fetched = 0;
+      let firstJobLogged = false;
       for (let i = 0; i < jobList.length; i += DETAIL_BATCH_SIZE) {
         const batch = jobList.slice(i, i + DETAIL_BATCH_SIZE);
         await Promise.all(batch.map(async (job) => {
-          const idMatch = job.canonicalUrl.match(/\/(\d+)$/);
+          // IDs include an optional letter suffix, e.g. "178880244W"
+          const idMatch = job.canonicalUrl.match(/detail-offre\/([A-Z0-9]+)/i);
           if (!idMatch) return;
           const jobId = idMatch[1];
-          try {
-            const res = await client.get<ApecDetailResponse>(`${DETAIL_BASE_URL}/${jobId}`, {
-              headers: { ...HEADERS, 'Referer': job.canonicalUrl },
-              timeout: 15_000,
-            });
-            const data = res.data?.data ?? res.data;
-            const fullDesc = data?.texteHtml ?? data?.texte ?? data?.description ?? '';
-            if (fullDesc && fullDesc.length > job.description.length) {
-              job.description = fullDesc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-            }
+
+          const logFirst = !firstJobLogged;
+          if (logFirst) {
+            firstJobLogged = true;
+            console.log(`[apec] fetching detail for job ID: ${jobId}`);
+          }
+
+          const fullDesc = await fetchApecDetail(client, jobId, job.canonicalUrl, logFirst);
+          if (fullDesc && fullDesc.length > job.description.length) {
+            job.description = fullDesc;
             fetched++;
-          } catch {
-            // keep short description, continue
           }
         }));
         if (i + DETAIL_BATCH_SIZE < jobList.length) {
@@ -221,6 +221,67 @@ export class ApecJobsSource implements JobSource {
 
     return result;
   }
+}
+
+async function fetchApecDetail(
+  client: ReturnType<typeof wrapper>,
+  jobId: string,
+  canonicalUrl: string,
+  logStatus: boolean,
+): Promise<string | null> {
+  // Try JSON API first
+  try {
+    const res = await client.get<ApecDetailResponse>(`${DETAIL_BASE_URL}/${jobId}`, {
+      headers: { ...HEADERS, 'Referer': canonicalUrl },
+      timeout: 15_000,
+      validateStatus: (s) => s < 600,
+    });
+    if (logStatus) console.log(`[apec] detail response status: ${res.status}`);
+    if (res.status === 200) {
+      const data = res.data?.data ?? res.data;
+      const raw = data?.texteHtml ?? data?.texte ?? data?.description ?? '';
+      if (raw) return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    } else {
+      if (logStatus) console.log(`[apec] detail fetch failed for ${jobId} — status ${res.status}, trying HTML fallback`);
+    }
+  } catch {
+    if (logStatus) console.log(`[apec] detail API error for ${jobId}, trying HTML fallback`);
+  }
+
+  // Fallback: fetch the HTML detail page and extract the description div
+  try {
+    const res = await client.get<string>(canonicalUrl, {
+      headers: {
+        ...HEADERS,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+      },
+      timeout: 20_000,
+      responseType: 'text',
+      validateStatus: (s) => s < 600,
+    });
+    if (logStatus) console.log(`[apec] HTML fallback status: ${res.status} for ${jobId}`);
+    if (res.status !== 200) {
+      console.log(`[apec] detail fetch failed for ${jobId} — status ${res.status}, keeping short description`);
+      return null;
+    }
+    const html: string = res.data;
+    // Extract the largest text block from description/content divs
+    const descMatch = html.match(/<div[^>]*class="[^"]*(?:description|content|offer-detail|job-detail|texte-offre)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    if (descMatch) {
+      return descMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    // Last resort: find the largest <p> block sequence in the page body
+    const paragraphs = [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+      .map((m) => m[1].replace(/<[^>]+>/g, ' ').trim())
+      .filter((t) => t.length > 80);
+    if (paragraphs.length > 0) return paragraphs.join(' ');
+  } catch {
+    console.log(`[apec] detail fetch failed for ${jobId} — network error, keeping short description`);
+  }
+
+  return null;
 }
 
 function mapOffer(offer: ApecApiJob): JobPosting | null {
