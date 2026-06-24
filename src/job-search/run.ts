@@ -236,8 +236,18 @@ export async function runJobSearchOnce(
       : excludeSources?.length
         ? allSources.filter((s) => !excludeSources.includes(s.name))
         : allSources;
-    const sourceResults: SourceRunResult[] = await Promise.all(
-      sources.map(async (s): Promise<SourceRunResult> => {
+    // Split sources into Playwright (memory-heavy) and non-Playwright (safe to parallelize)
+    const PLAYWRIGHT_SOURCES = new Set([
+      'cadremploi.fr', 'hellowork.com', 'eurobrussels.com',
+      'justjoin.it', 'nofluffjobs.com', 'apec.fr',
+    ]);
+
+    const playwrightSources = sources.filter((s) => PLAYWRIGHT_SOURCES.has(s.name));
+    const fastSources = sources.filter((s) => !PLAYWRIGHT_SOURCES.has(s.name));
+
+    // Run non-Playwright sources in parallel
+    const fastResults: SourceRunResult[] = await Promise.all(
+      fastSources.map(async (s): Promise<SourceRunResult> => {
         const startedAt = Date.now();
         try {
           const jobs = await s.fetch(profile.search.queries, profile.search);
@@ -253,6 +263,28 @@ export async function runJobSearchOnce(
         }
       }),
     );
+
+    // Run Playwright sources sequentially one by one to avoid memory crashes
+    const playwrightResults: SourceRunResult[] = [];
+    for (const s of playwrightSources) {
+      const startedAt = Date.now();
+      try {
+        console.log(`[run] starting Playwright source: ${s.name}`);
+        const jobs = await s.fetch(profile.search.queries, profile.search);
+        playwrightResults.push({ source: s.name, jobs, durationMs: Date.now() - startedAt, error: null });
+        console.log(`[run] finished Playwright source: ${s.name} — ${jobs.length} jobs`);
+      } catch (err) {
+        console.error(`[run] ${s.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+        playwrightResults.push({
+          source: s.name,
+          jobs: [],
+          durationMs: Date.now() - startedAt,
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
+      }
+    }
+
+    const sourceResults: SourceRunResult[] = [...fastResults, ...playwrightResults];
     const jobMap = new Map<string, JobPosting>();
     // Also dedup by title+company+source to catch same job posted under multiple tracking URLs
     const jobDedupeKeys = new Set<string>();
