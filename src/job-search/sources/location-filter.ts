@@ -15,6 +15,8 @@ export function scoreLocation(
   profile: SearchSettings,
   locationLabel?: string,
 ): LocationScore {
+  let effectiveCountryCode = countryCode;
+
   // Remote jobs: acceptable regardless of country, BUT respect usaJobs:false.
   // If the company is USA-based and the profile opts out of USA jobs, reject even for remote.
   if (workMode === 'remote') {
@@ -65,7 +67,7 @@ export function scoreLocation(
     if (inferredCode) {
       // Re-run with inferred country code by falling through to the checks below
       // Use the inferred code for the rest of the function
-      countryCode = inferredCode;
+      effectiveCountryCode = inferredCode;
       console.log(`[loc-filter] inferred countryCode ${inferredCode} from locationLabel "${locationLabel}"`);
     } else {
       // Truly unknown location
@@ -87,22 +89,22 @@ export function scoreLocation(
   }
 
   // Blacklisted countries
-  if (profile.excludedCountries.includes(countryCode)) {
+  if (profile.excludedCountries.includes(effectiveCountryCode!)) {
     return {
       isAcceptable: false,
       score: 0,
       priority: 'rejected',
-      reason: `Country ${countryCode} is in exclude list`,
+      reason: `Country ${effectiveCountryCode} is in exclude list`,
     };
   }
 
   // Preferred countries (France)
-  if (profile.preferredCountries.includes(countryCode)) {
+  if (profile.preferredCountries.includes(effectiveCountryCode!)) {
     return {
       isAcceptable: true,
       score: 100,
       priority: 'preferred',
-      reason: `Preferred country: ${countryCode}`,
+      reason: `Preferred country: ${effectiveCountryCode}`,
     };
   }
 
@@ -112,9 +114,9 @@ export function scoreLocation(
   // GB is excluded — post-Brexit visa complexity makes it a special case.
   const TARGET_RELOCATION_COUNTRIES = ['IT', 'ES', 'SE', 'DK', 'CZ', 'PL', 'AT', 'PT', 'NO'];
 
-  if (profile.europeCountryCodes.includes(countryCode)) {
+  if (profile.europeCountryCodes.includes(effectiveCountryCode!)) {
     // UK: only accept remote or if relocation explicitly offered — too complex post-Brexit
-    if (countryCode === 'GB') {
+    if (effectiveCountryCode === 'GB') {
       if (workMode === 'hybrid' || workMode === 'on-site') {
         if (!offersRelocation) {
           return {
@@ -128,12 +130,12 @@ export function scoreLocation(
     }
 
     if (workMode === 'on-site') {
-      if (TARGET_RELOCATION_COUNTRIES.includes(countryCode)) {
+      if (TARGET_RELOCATION_COUNTRIES.includes(effectiveCountryCode!)) {
         return {
           isAcceptable: true,
           score: offersRelocation ? 75 : 65,
           priority: 'acceptable',
-          reason: `Target country on-site (${countryCode}) — willing to relocate${offersRelocation ? ' + relocation support offered' : ''}`,
+          reason: `Target country on-site (${effectiveCountryCode}) — willing to relocate${offersRelocation ? ' + relocation support offered' : ''}`,
         };
       }
       if (offersRelocation) {
@@ -141,24 +143,24 @@ export function scoreLocation(
           isAcceptable: true,
           score: 70,
           priority: 'acceptable',
-          reason: `Europe on-site (${countryCode}) with relocation support`,
+          reason: `Europe on-site (${effectiveCountryCode}) with relocation support`,
         };
       }
       return {
         isAcceptable: false,
         score: 0,
         priority: 'rejected',
-        reason: `Europe on-site (${countryCode}) — not a target relocation country and no relocation offered`,
+        reason: `Europe on-site (${effectiveCountryCode}) — not a target relocation country and no relocation offered`,
       };
     }
 
     if (workMode === 'hybrid') {
-      if (TARGET_RELOCATION_COUNTRIES.includes(countryCode)) {
+      if (TARGET_RELOCATION_COUNTRIES.includes(effectiveCountryCode!)) {
         return {
           isAcceptable: true,
           score: offersRelocation ? 80 : 70,
           priority: 'acceptable',
-          reason: `Target country hybrid (${countryCode}) — willing to relocate${offersRelocation ? ' + relocation support offered' : ''}`,
+          reason: `Target country hybrid (${effectiveCountryCode}) — willing to relocate${offersRelocation ? ' + relocation support offered' : ''}`,
         };
       }
       if (offersRelocation) {
@@ -166,20 +168,20 @@ export function scoreLocation(
           isAcceptable: true,
           score: 80,
           priority: 'acceptable',
-          reason: `Europe hybrid (${countryCode}) with relocation support`,
+          reason: `Europe hybrid (${effectiveCountryCode}) with relocation support`,
         };
       }
       return {
         isAcceptable: false,
         score: 0,
         priority: 'rejected',
-        reason: `Europe hybrid (${countryCode}) — not a target relocation country and no relocation offered`,
+        reason: `Europe hybrid (${effectiveCountryCode}) — not a target relocation country and no relocation offered`,
       };
     }
   }
 
   // USA acceptance
-  if (profile.usaJobs && profile.usaCountryCodes.includes(countryCode)) {
+  if (profile.usaJobs && profile.usaCountryCodes.includes(effectiveCountryCode!)) {
     const score = offersRelocation ? 70 : 50;
     return {
       isAcceptable: true,
@@ -193,6 +195,6 @@ export function scoreLocation(
     isAcceptable: false,
     score: 0,
     priority: 'rejected',
-    reason: `Country ${countryCode} not in acceptable regions`,
+    reason: `Country ${effectiveCountryCode} not in acceptable regions`,
   };
 }
