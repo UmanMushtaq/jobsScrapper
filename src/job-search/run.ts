@@ -36,6 +36,7 @@ import { NvbNlSource } from './sources/nvb.source';
 import { PracujPlSource } from './sources/pracuj.source';
 import { TheProtocolSource } from './sources/theprotocol.source';
 import { JobbSafariSource } from './sources/jobbsafari.source';
+import { PlatsbankenSource } from './sources/platsbanken.source';
 import { CadremploiSource } from './sources/cadremploi.source';
 import { HelloWorkSource } from './sources/hellowork.source';
 import { JobatSource } from './sources/jobat.source';
@@ -82,7 +83,7 @@ const ACTIVE_SOURCES = [
   'eurobrussels.com', 'ictjob.be',
   'nationalevacaturebank.nl', 'jobbird.nl',
   'pracuj.pl', 'theprotocol.it',
-  'jobbsafari.se',
+
   'cadremploi.fr', 'hellowork.com',
   'jobat.be',
   'vacancy.nl', 'intermediair.nl',
@@ -102,6 +103,7 @@ export const FAST_SOURCES = [
   'welcometothejungle.com',
   'news.ycombinator.com',
   'arbeitsagentur.de',
+  'arbetsformedlingen.se',
   'arbeitnow.com',
   'berlinstartupjobs.com',
   'greenhouse.io',
@@ -130,7 +132,7 @@ export async function runJobSearchOnce(
   const scraperKey = process.env.SCRAPER_API_KEY_1 ?? process.env.SCRAPERAPI_KEY;
   if (scraperKey) {
     const dual = process.env.SCRAPER_API_DUAL_KEY_ENABLED === 'true' && process.env.SCRAPER_API_KEY_2;
-    console.log(`[scraperapi] active on: pracuj.pl, jobbsafari.se, stellenanzeigen.de${dual ? ' (dual-key rotation)' : ''}`);
+    console.log(`[scraperapi] active on: pracuj.pl, stellenanzeigen.de${dual ? ' (dual-key rotation)' : ''}`);
   } else {
     console.log('[scraperapi] key not set — all sources running direct');
   }
@@ -216,7 +218,7 @@ export async function runJobSearchOnce(
       new JobbirdNlSource(),
       new PracujPlSource(),
       new TheProtocolSource(),
-      new JobbSafariSource(),
+      new PlatsbankenSource(),
       new CadremploiSource(),
       new HelloWorkSource(),
       new JobatSource(),
