@@ -59,7 +59,7 @@ import {
   writeJsonFile,
 } from './storage';
 import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
-import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGetJobHistory, redisGetRoleSet, redisLog, redisStoreJobHistory, redisSaveDashboardJobBatch } from './redis-store';
+import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGet, redisGetJobHistory, redisGetRoleSet, redisLog, redisSetEx, redisStoreJobHistory, redisSaveDashboardJobBatch } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef, hashJobUrl } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, ScorerDiagnostic, SearchProfile } from './types';
@@ -262,24 +262,31 @@ export async function runJobSearchOnce(
       }),
     );
 
-    // Run Playwright sources sequentially one by one to avoid memory crashes
+    // Run only ONE Playwright source per slow run to stay under 512MB RAM.
+    // Rotate between cadremploi, hellowork, eurobrussels using Redis to track last run.
     const playwrightResults: SourceRunResult[] = [];
-    for (const s of playwrightSources) {
-      const startedAt = Date.now();
+    if (playwrightSources.length > 0) {
+      const REDIS_PLAYWRIGHT_KEY = 'scheduler:playwright:last_index';
+      let lastIndex = 0;
       try {
-        console.log(`[run] starting Playwright source: ${s.name}`);
+        const stored = await redisGet(REDIS_PLAYWRIGHT_KEY);
+        if (stored) lastIndex = parseInt(stored, 10);
+      } catch { lastIndex = 0; }
+
+      const nextIndex = (lastIndex + 1) % playwrightSources.length;
+      const s = playwrightSources[nextIndex];
+
+      try {
+        await redisSetEx(REDIS_PLAYWRIGHT_KEY, String(nextIndex), 86400 * 7);
+        console.log(`[run] Playwright slot ${nextIndex + 1}/${playwrightSources.length}: ${s.name}`);
+        const startedAt = Date.now();
         const jobs = await s.fetch(profile.search.queries, profile.search);
         playwrightResults.push({ source: s.name, jobs, durationMs: Date.now() - startedAt, error: null });
         console.log(`[run] finished Playwright source: ${s.name} — ${jobs.length} jobs`);
-        await new Promise((r) => setTimeout(r, 3000));
       } catch (err) {
-        console.error(`[run] ${s.name} failed: ${err instanceof Error ? err.message : String(err)}`);
-        playwrightResults.push({
-          source: s.name,
-          jobs: [],
-          durationMs: Date.now() - startedAt,
-          error: err instanceof Error ? err : new Error(String(err)),
-        });
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[run] ${s.name} failed: ${msg}`);
+        playwrightResults.push({ source: s.name, jobs: [], durationMs: 0, error: new Error(msg) });
       }
     }
 
