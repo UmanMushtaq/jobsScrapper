@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
-import { redisGet, redisSet } from '../redis-store';
+import { redisGet, redisSetEx } from '../redis-store';
 
 const SOURCE = 'apec.fr';
 const BASE_URL = 'https://www.apec.fr';
@@ -92,13 +92,13 @@ export class ApecPlaywrightSource implements JobSource {
     console.log(`[apec-playwright] ${result.length} unique jobs fetched`);
 
     const INTERVAL_MS = 180 * 60 * 1000;
-    await redisSet(REDIS_STATUS_KEY, JSON.stringify({
+    await redisSetEx(REDIS_STATUS_KEY, JSON.stringify({
       lastRun: new Date().toISOString(),
       jobsFound: result.length,
       status,
       nextRun: new Date(Date.now() + INTERVAL_MS).toISOString(),
       playwrightEnabled: true,
-    }));
+    }), 86400 * 7);
 
     return result;
   }
