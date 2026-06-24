@@ -194,7 +194,6 @@ export async function runJobSearchOnce(
       new WttjJobsSource(),
       new AdzunaJobsSource(),
       new FranceTravailJobsSource(),
-      new ApecPlaywrightSource(),
       new GreenhouseJobsSource(),
       new AshbyJobsSource(),
       new LeverJobsSource(),
@@ -210,8 +209,6 @@ export async function runJobSearchOnce(
       new TalentioJobsSource(),
       new IndeedJobsSource(),
       new HackerNewsJobsSource(),
-      new NoFluffJobsSource(),
-      new JustJoinSource(),
       new EuroBrusselsSource(),
       new IctJobBelgiumSource(),
       new NvbNlSource(),
@@ -241,7 +238,6 @@ export async function runJobSearchOnce(
     // Split sources into Playwright (memory-heavy) and non-Playwright (safe to parallelize)
     const PLAYWRIGHT_SOURCES = new Set([
       'cadremploi.fr', 'hellowork.com', 'eurobrussels.com',
-      'justjoin.it', 'nofluffjobs.com', 'apec.fr',
     ]);
 
     const playwrightSources = sources.filter((s) => PLAYWRIGHT_SOURCES.has(s.name));
@@ -275,6 +271,7 @@ export async function runJobSearchOnce(
         const jobs = await s.fetch(profile.search.queries, profile.search);
         playwrightResults.push({ source: s.name, jobs, durationMs: Date.now() - startedAt, error: null });
         console.log(`[run] finished Playwright source: ${s.name} — ${jobs.length} jobs`);
+        await new Promise((r) => setTimeout(r, 3000));
       } catch (err) {
         console.error(`[run] ${s.name} failed: ${err instanceof Error ? err.message : String(err)}`);
         playwrightResults.push({
