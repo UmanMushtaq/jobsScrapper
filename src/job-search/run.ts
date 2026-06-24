@@ -122,6 +122,7 @@ export async function runJobSearchOnce(
   excludeSources?: string[],
   onlySources?: string[],
 ): Promise<RunSummary> {
+  return;
   const profile = overrideProfile ?? (await loadSearchProfile());
   if (isRedisAvailable()) {
     console.log('[storage] Redis (Upstash) — state persists across restarts');
