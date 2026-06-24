@@ -13,6 +13,7 @@ export function scoreLocation(
   workMode: 'remote' | 'hybrid' | 'on-site',
   offersRelocation: boolean,
   profile: SearchSettings,
+  locationLabel?: string,
 ): LocationScore {
   // Remote jobs: acceptable regardless of country, BUT respect usaJobs:false.
   // If the company is USA-based and the profile opts out of USA jobs, reject even for remote.
@@ -33,22 +34,56 @@ export function scoreLocation(
     };
   }
 
-  // If no country code provided but work mode accepted, reject on-site
+  // If no country code provided, try to infer from locationLabel
   if (!countryCode) {
-    if (workMode === 'on-site') {
+    const labelLower = (locationLabel ?? '').toLowerCase();
+
+    // Check if locationLabel contains a preferred/target country name
+    const COUNTRY_HINTS: Record<string, string> = {
+      'germany': 'DE', 'deutschland': 'DE', 'berlin': 'DE', 'munich': 'DE', 'münchen': 'DE',
+      'hamburg': 'DE', 'frankfurt': 'DE', 'cologne': 'DE', 'köln': 'DE',
+      'belgium': 'BE', 'belgique': 'BE', 'belgie': 'BE', 'brussels': 'BE', 'bruxelles': 'BE',
+      'netherlands': 'NL', 'amsterdam': 'NL', 'rotterdam': 'NL', 'nederland': 'NL',
+      'luxembourg': 'LU', 'france': 'FR', 'paris': 'FR',
+      'ireland': 'IE', 'dublin': 'IE',
+      'poland': 'PL', 'polska': 'PL', 'warsaw': 'PL', 'warszawa': 'PL', 'krakow': 'PL', 'wroclaw': 'PL',
+      'spain': 'ES', 'españa': 'ES', 'madrid': 'ES', 'barcelona': 'ES',
+      'sweden': 'SE', 'sverige': 'SE', 'stockholm': 'SE',
+      'italy': 'IT', 'italia': 'IT', 'milan': 'IT', 'rome': 'IT',
+      'denmark': 'DK', 'danmark': 'DK', 'copenhagen': 'DK',
+      'czech': 'CZ', 'prague': 'CZ', 'praha': 'CZ',
+    };
+
+    let inferredCode: string | null = null;
+    for (const [hint, code] of Object.entries(COUNTRY_HINTS)) {
+      if (labelLower.includes(hint)) {
+        inferredCode = code;
+        break;
+      }
+    }
+
+    if (inferredCode) {
+      // Re-run with inferred country code by falling through to the checks below
+      // Use the inferred code for the rest of the function
+      countryCode = inferredCode;
+      console.log(`[loc-filter] inferred countryCode ${inferredCode} from locationLabel "${locationLabel}"`);
+    } else {
+      // Truly unknown location
+      if (workMode === 'on-site') {
+        return {
+          isAcceptable: false,
+          score: 0,
+          priority: 'rejected',
+          reason: 'On-site but location unknown',
+        };
+      }
       return {
-        isAcceptable: false,
-        score: 0,
-        priority: 'rejected',
-        reason: 'On-site but location unknown',
+        isAcceptable: true,
+        score: 70,
+        priority: 'backup',
+        reason: 'Hybrid/Unknown location - need clarification',
       };
     }
-    return {
-      isAcceptable: true,
-      score: 70,
-      priority: 'backup',
-      reason: 'Hybrid/Unknown location - need clarification',
-    };
   }
 
   // Blacklisted countries

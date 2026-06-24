@@ -88,16 +88,23 @@ async function fetchQuery(context: import('playwright').BrowserContext, query: s
       const results: Array<{ title: string; company: string; location: string; url: string }> = [];
       // Try links that point to /job/ paths
       const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+      const seen = new Set<string>();
       for (const a of anchors) {
         const href = a.getAttribute('href') ?? '';
-        if (!href.includes('/job/') && !href.includes('/jobs/')) continue;
-        const title = a.textContent?.trim() ?? a.getAttribute('title') ?? '';
-        if (!title || title.length < 5 || title.length > 150) continue;
+        // Only match actual job detail pages — must have /job/ followed by a slug/id, not query params
+        // Exclude navigation links like /jobs/?category=... or /jobs/search/...
+        if (!href.match(/\/job\/[a-z0-9_-]+/i)) continue;
+        // Exclude links that are clearly filter/search navigation
+        if (href.includes('?') && !href.includes('/job/')) continue;
+        const url = href.startsWith('http') ? href : `${baseUrl}${href}`;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        const title = a.textContent?.trim() ?? '';
+        if (!title || title.length < 5) continue;
         const card = a.closest('li, article, div[class*="job"], div[class*="vacancy"]');
         const company = card?.querySelector('[class*="company"], [class*="employer"], [class*="organisation"]')?.textContent?.trim() ?? '';
         const location = card?.querySelector('[class*="location"], [class*="city"]')?.textContent?.trim() ?? 'Brussels';
-        const canonicalUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
-        results.push({ title, company, location, url: canonicalUrl });
+        results.push({ title, company, location, url });
       }
       return results;
     }, BASE_URL);
