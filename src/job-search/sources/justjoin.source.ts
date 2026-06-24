@@ -1,279 +1,245 @@
-import axios from 'axios';
+import { chromium } from 'playwright';
 import { JobPosting, SearchSettings } from '../types';
-import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { detectLanguage } from './language-detect';
+import { acquirePlaywrightLock } from './playwright-queue';
 
 const SOURCE = 'justjoin.it';
+const BASE_URL = 'https://justjoin.it';
 
-interface JjSalary {
-  from?: number;
-  to?: number;
-  currency?: string;
-}
+const SEARCH_QUERIES = [
+  'nodejs',
+  'nestjs',
+  'typescript',
+];
 
-interface JjEmploymentType {
-  type?: string;
-  salary?: JjSalary | null;
-}
-
-interface JjSkill {
-  name?: string;
-  level?: number;
-}
-
-interface JjOffer {
-  id?: string;
-  slug?: string;
-  title?: string;
-  companyName?: string;
-  company_name?: string;
-  city?: string;
-  countryCode?: string;
-  country_code?: string;
-  workplaceType?: string;
-  workplace_type?: string;
-  categoryId?: string;
-  marker_icon?: string;
-  experienceLevel?: string;
-  experience_level?: string;
-  publishedAt?: string;
-  published_at?: string;
-  employmentTypes?: JjEmploymentType[];
-  employment_types?: JjEmploymentType[];
-  requiredSkills?: JjSkill[];
-  skills?: JjSkill[];
-}
-
-const RELEVANT_CATEGORIES = new Set(['javascript', 'node.js', 'typescript', 'backend', 'devops']);
-const RELEVANT_SKILL_TAGS = ['node', 'node.js', 'nodejs', 'nestjs', 'typescript', 'javascript', 'backend', 'express'];
-
-const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Connection': 'keep-alive',
-  'Upgrade-Insecure-Requests': '1',
-};
+const RELEVANT_TITLE_KEYWORDS = [
+  'node', 'nest', 'typescript', 'javascript', 'backend', 'fullstack',
+  'full-stack', 'full stack', 'software engineer', 'developer',
+];
 
 export class JustJoinSource implements JobSource {
   name = SOURCE;
   priority = 5;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+    return acquirePlaywrightLock(() => this._fetch(settings));
+  }
+
+  private async _fetch(settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
-    const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
 
-    const SEARCH_KEYWORDS = ['nodejs', 'typescript', 'nestjs'];
+    let browser;
+    try {
+      browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
 
-    for (const keyword of SEARCH_KEYWORDS) {
-      try {
-        const fetched = await fetchKeyword(keyword, cutoff);
-        for (const job of fetched) jobs.set(job.canonicalUrl, job);
-        await sleep(2000);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.includes('ECONNREFUSED') && !msg.includes('ETIMEDOUT')) {
-          console.error(`[justjoin] error for "${keyword}": ${msg}`);
+      const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        locale: 'en-US',
+      });
+
+      for (const query of SEARCH_QUERIES) {
+        try {
+          const fetched = await fetchSearchPage(context, query, cutoff);
+          console.log(`[justjoin] found ${fetched.length} jobs for "${query}"`);
+          for (const job of fetched) jobs.set(job.canonicalUrl, job);
+          await sleep(2000);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[justjoin] error for "${query}": ${msg}`);
         }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[justjoin] browser launch failed: ${msg}`);
+    } finally {
+      await browser?.close();
     }
 
-    console.log(`[justjoin] ${jobs.size} jobs fetched`);
+    console.log(`[justjoin] ${jobs.size} unique jobs fetched`);
     return Array.from(jobs.values());
   }
 }
 
-async function fetchKeyword(keyword: string, cutoff: number): Promise<JobPosting[]> {
-  const url = `https://justjoin.it/job-offers/${encodeURIComponent(keyword)}`;
-
-  let res;
-  try {
-    res = await axios.get<string>(url, {
-      headers: BROWSER_HEADERS,
-      timeout: 30_000,
-      responseType: 'text',
-      validateStatus: (s) => s < 500,
-    });
-  } catch {
-    return [];
-  }
-
-  if (res.status !== 200) {
-    console.log(`[justjoin] HTML fetch returned ${res.status} for "${keyword}"`);
-    return [];
-  }
-
-  const jobs = parseHtmlOffers(res.data, cutoff);
-  if (jobs.length > 0) {
-    console.log(`[justjoin] parsed ${jobs.length} offers for "${keyword}"`);
-  }
-  return jobs;
-}
-
-function parseHtmlOffers(html: string, cutoff: number): JobPosting[] {
+async function fetchSearchPage(
+  context: import('playwright').BrowserContext,
+  query: string,
+  cutoff: number,
+): Promise<JobPosting[]> {
+  const page = await context.newPage();
   const jobs: JobPosting[] = [];
 
-  // Try JSON-LD first
-  const ldMatches = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-  for (const match of ldMatches) {
-    try {
-      const data = JSON.parse(match[1]);
-      const items = Array.isArray(data) ? data : [data];
-      for (const item of items) {
-        if (item['@type'] === 'JobPosting') {
-          const dateStr = item.datePosted;
-          if (dateStr && new Date(dateStr).getTime() < cutoff) continue;
-          const canonicalUrl = item.url ?? item.mainEntityOfPage?.['@id'];
-          if (!canonicalUrl || !item.title) continue;
-          const company = item.hiringOrganization?.name ?? 'Unknown';
-          const locationStr = item.jobLocation?.address?.addressLocality ?? '';
-          jobs.push(makeJobPosting({
-            title: item.title,
-            canonicalUrl,
-            company,
-            locationStr,
-            description: item.description ?? '',
-            dateStr,
-            workplaceType: '',
-          }));
-        }
-      }
-    } catch { /* continue */ }
-  }
-  if (jobs.length > 0) return jobs;
+  try {
+    const url = `${BASE_URL}/job-offers/all-locations/${encodeURIComponent(query)}?orderBy=DESC&sortBy=published`;
 
-  // Try embedded __NEXT_DATA__
-  const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
-  if (nextDataMatch) {
-    try {
-      const nextData = JSON.parse(nextDataMatch[1]);
-      const offers: unknown[] =
-        nextData?.props?.pageProps?.offers ??
-        nextData?.props?.pageProps?.jobs ??
-        nextData?.props?.pageProps?.data?.offers ??
-        [];
-      if (Array.isArray(offers) && offers.length > 0) {
-        return offers
-          .map((o) => mapOffer(o as JjOffer))
-          .filter((j): j is JobPosting => j !== null)
-          .filter((j) => new Date(j.publishedAt).getTime() >= cutoff);
-      }
-    } catch { /* fall through */ }
-  }
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.waitForTimeout(4000);
 
-  // HTML card fallback — look for data-index attributes or job-specific anchors
-  const cardPattern = /<(?:article|div|li)[^>]*data-index=["']?\d+["']?[^>]*>([\s\S]*?)(?=<(?:article|div|li)[^>]*data-index|$)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = cardPattern.exec(html)) !== null) {
-    const block = m[1];
-    const titleMatch = block.match(/<h[1-4][^>]*>([^<]{5,120})<\/h[1-4]>/i);
-    const linkMatch = block.match(/href="(\/job-offer[^"]+|\/offers\/[^"]+)"/i);
-    const title = titleMatch?.[1].trim();
-    const rawUrl = linkMatch?.[1];
-    if (title && rawUrl) {
-      const canonicalUrl = rawUrl.startsWith('http') ? rawUrl : `https://justjoin.it${rawUrl}`;
-      jobs.push(makeJobPosting({ title, canonicalUrl, company: 'Unknown', locationStr: 'Poland', description: '', dateStr: undefined, workplaceType: '' }));
+    // Accept cookies if banner appears
+    try {
+      const cookieBtn = page.locator('button:has-text("Accept"), button:has-text("Agree"), #onetrust-accept-btn-handler');
+      if (await cookieBtn.first().isVisible({ timeout: 3000 })) {
+        await cookieBtn.first().click();
+        await page.waitForTimeout(1000);
+      }
+    } catch { /* no cookie banner */ }
+
+    // Extract job data from rendered DOM
+    const cards = await page.evaluate(() => {
+      const results: Array<{
+        title: string;
+        company: string;
+        location: string;
+        url: string;
+        salary: string;
+        workMode: string;
+        date: string;
+        skills: string;
+      }> = [];
+
+      const seen = new Set<string>();
+
+      // justjoin.it renders job cards as list items with offer links
+      const links = Array.from(
+        document.querySelectorAll('a[href*="/job-offer/"], a[href*="/offers/"]')
+      ) as HTMLAnchorElement[];
+
+      for (const link of links) {
+        const href = link.getAttribute('href') ?? '';
+        const url = href.startsWith('http') ? href : `https://justjoin.it${href}`;
+        if (seen.has(url)) continue;
+        seen.add(url);
+
+        const card = link.closest('li, article, [class*="offer"], [class*="job"]') ?? link.parentElement;
+
+        const title = (
+          card?.querySelector('h2, h3, [class*="title"], [class*="position"]')?.textContent ??
+          link.textContent ?? ''
+        ).trim();
+
+        if (!title || title.length < 5) continue;
+
+        const company = (
+          card?.querySelector('[class*="company"], [class*="employer"]')?.textContent ?? ''
+        ).trim();
+
+        const location = (
+          card?.querySelector('[class*="location"], [class*="city"]')?.textContent ?? 'Poland'
+        ).trim();
+
+        const salary = (
+          card?.querySelector('[class*="salary"], [class*="remuneration"]')?.textContent ?? ''
+        ).trim();
+
+        const workMode = (
+          card?.querySelector('[class*="remote"], [class*="workplace"], [class*="work-type"]')?.textContent ?? ''
+        ).trim().toLowerCase();
+
+        const date = (
+          card?.querySelector('time')?.getAttribute('datetime') ??
+          card?.querySelector('[class*="date"]')?.textContent ?? ''
+        ).trim();
+
+        const skills = Array.from(
+          card?.querySelectorAll('[class*="skill"], [class*="tech"], [class*="tag"]') ?? []
+        ).map((el) => el.textContent?.trim() ?? '').filter(Boolean).join(', ');
+
+        results.push({ title, company, location, url, salary, workMode, date, skills });
+      }
+
+      return results;
+    });
+
+    if (cards.length === 0) {
+      const preview = await page.evaluate(() => document.body.innerHTML.slice(0, 300).replace(/\s+/g, ' '));
+      console.log(`[justjoin] 0 cards for "${query}" — preview: ${preview}`);
     }
+
+    for (const card of cards) {
+      if (!card.title || !card.url) continue;
+
+      // Filter by relevant title keywords
+      const titleLower = card.title.toLowerCase();
+      const isRelevant = RELEVANT_TITLE_KEYWORDS.some((kw) => titleLower.includes(kw));
+      if (!isRelevant) continue;
+
+      // Date cutoff check
+      if (card.date) {
+        const pubMs = new Date(card.date).getTime();
+        if (!isNaN(pubMs) && pubMs < cutoff) continue;
+      }
+
+      const publishedAt = card.date ? new Date(card.date).toISOString() : new Date().toISOString();
+      const publishedAtTimestamp = card.date
+        ? Math.floor(new Date(card.date).getTime() / 1000)
+        : Math.floor(Date.now() / 1000);
+
+      const workMode = inferWorkMode(card.workMode);
+      const salary = parseSalary(card.salary);
+      const description = card.skills ? `Skills: ${card.skills}` : '';
+
+      jobs.push({
+        source: SOURCE,
+        sourcePriority: 5,
+        canonicalUrl: card.url,
+        title: card.title,
+        company: card.company || 'Unknown',
+        companySummary: '',
+        companySlug: (card.company || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        locationLabel: card.location ? `${card.location}, Poland` : 'Poland',
+        countryCode: 'PL',
+        city: card.location || null,
+        workMode,
+        language: detectLanguage(card.title),
+        description,
+        keyMissions: [],
+        experienceLevelMinimum: null,
+        salaryCurrency: salary.currency,
+        salaryPeriod: salary.period,
+        salaryMinimum: salary.min,
+        salaryMaximum: salary.max,
+        salaryYearlyMinimum: salary.yearlyMin,
+        publishedAt,
+        publishedAtTimestamp,
+        startupSignals: [],
+        applyUrl: card.url,
+        offersRelocation: false,
+        isStartup: false,
+        employeeCount: null,
+        companyCreationYear: null,
+      });
+    }
+  } finally {
+    await page.close();
   }
 
   return jobs;
 }
 
-function makeJobPosting(p: { title: string; canonicalUrl: string; company: string; locationStr: string; description: string; dateStr?: string; workplaceType: string }): JobPosting {
-  const publishedAt = p.dateStr ? new Date(p.dateStr) : new Date();
-  const locationLabel = p.locationStr ? `${p.locationStr}, Poland` : 'Poland';
-  const text = `${p.title} ${p.description}`.toLowerCase();
-  return {
-    source: SOURCE, sourcePriority: 5,
-    canonicalUrl: p.canonicalUrl,
-    title: p.title, company: p.company, companySummary: '',
-    companySlug: p.company.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    locationLabel, countryCode: 'PL', city: p.locationStr || null,
-    workMode: p.workplaceType === 'remote' ? 'remote' : p.workplaceType === 'hybrid' ? 'hybrid' : 'on-site',
-    language: detectLanguage(p.title),
-    description: p.description, keyMissions: [], experienceLevelMinimum: null,
-    salaryCurrency: null, salaryPeriod: null, salaryMinimum: null,
-    salaryMaximum: null, salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
-    startupSignals: [], applyUrl: p.canonicalUrl,
-    offersRelocation: text.includes('relocation') || text.includes('visa sponsor'),
-    isStartup: text.includes('startup') || text.includes('seed'),
-    employeeCount: null, companyCreationYear: null,
-  };
+function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {
+  const lower = text.toLowerCase();
+  if (lower.includes('remote') || lower.includes('fully remote')) return 'remote';
+  if (lower.includes('hybrid')) return 'hybrid';
+  return 'on-site';
 }
 
-function isRelevant(offer: JjOffer): boolean {
-  const category = (offer.marker_icon ?? offer.categoryId ?? '').toLowerCase();
-  if (RELEVANT_CATEGORIES.has(category)) return true;
-  const skills = [...(offer.skills ?? []), ...(offer.requiredSkills ?? [])].map((s) => (s.name ?? '').toLowerCase());
-  const title = (offer.title ?? '').toLowerCase();
-  return RELEVANT_SKILL_TAGS.some((t) => skills.some((s) => s.includes(t)) || title.includes(t));
-}
-
-function mapOffer(offer: JjOffer): JobPosting | null {
-  if (!offer.title) return null;
-  const id = offer.slug ?? offer.id;
-  if (!id) return null;
-
-  const canonicalUrl = `https://justjoin.it/offers/${id}`;
-  const company = offer.companyName ?? offer.company_name ?? 'Unknown';
-  const city = offer.city ?? null;
-  const locationLabel = city ? `${city}, Poland` : 'Poland';
-
-  const workplaceType = (offer.workplaceType ?? offer.workplace_type ?? '').toLowerCase();
-  const workMode: 'remote' | 'hybrid' | 'on-site' =
-    workplaceType === 'remote' ? 'remote' : workplaceType === 'hybrid' ? 'hybrid' : 'on-site';
-
-  const types = offer.employmentTypes ?? offer.employment_types ?? [];
-  const b2b = types.find((t) => t.type === 'b2b' && t.salary?.from);
-  const permanent = types.find((t) => t.type === 'permanent' && t.salary?.from);
-  const best = b2b ?? permanent ?? types.find((t) => t.salary?.from);
-  const salaryMin = best?.salary?.from ?? null;
-  const salaryMax = best?.salary?.to ?? null;
-  const salaryCurrency = best?.salary?.currency ?? null;
-  const salaryYearlyMinimum = salaryMin !== null && salaryCurrency === 'PLN' ? salaryMin * 12 : salaryMin;
-
-  const skills = [...(offer.skills ?? []), ...(offer.requiredSkills ?? [])].map((s) => s.name ?? '').join(', ');
-  const fullText = `${offer.title} ${skills}`.toLowerCase();
-
-  const publishedAtRaw = offer.publishedAt ?? offer.published_at;
-  const publishedAt = publishedAtRaw ? new Date(publishedAtRaw) : new Date();
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
-
-  const experienceLevel = offer.experienceLevel ?? offer.experience_level;
-
-  return {
-    source: SOURCE, sourcePriority: 5,
-    canonicalUrl,
-    title: offer.title, company, companySummary: '',
-    companySlug: company.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    locationLabel, countryCode: offer.countryCode ?? offer.country_code ?? 'PL', city,
-    workMode,
-    language: detectLanguage(fullText),
-    description: skills, keyMissions: [],
-    experienceLevelMinimum: mapLevel(experienceLevel),
-    salaryCurrency, salaryPeriod: salaryMin !== null ? 'monthly' : null,
-    salaryMinimum: salaryMin, salaryMaximum: salaryMax, salaryYearlyMinimum,
-    publishedAt: publishedAt.toISOString(), publishedAtTimestamp,
-    startupSignals: [], applyUrl: canonicalUrl,
-    offersRelocation: false, isStartup: false,
-    employeeCount: null, companyCreationYear: null,
-  };
-}
-
-// kept for __NEXT_DATA__ path — eslint disable to suppress unused warning
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _isRelevant = isRelevant;
-
-function mapLevel(level: string | undefined): number | null {
-  switch (level) {
-    case 'junior': return 1;
-    case 'mid': return 3;
-    case 'senior': return 5;
-    default: return null;
-  }
+function parseSalary(salaryText: string): {
+  currency: string | null;
+  period: string | null;
+  min: number | null;
+  max: number | null;
+  yearlyMin: number | null;
+} {
+  if (!salaryText) return { currency: null, period: null, min: null, max: null, yearlyMin: null };
+  const currency = salaryText.includes('PLN') ? 'PLN' : salaryText.includes('EUR') ? 'EUR' : salaryText.includes('USD') ? 'USD' : null;
+  const numbers = salaryText.match(/[\d\s]+/g)?.map((n) => parseInt(n.replace(/\s/g, ''), 10)).filter((n) => !isNaN(n) && n > 100) ?? [];
+  const min = numbers[0] ?? null;
+  const max = numbers[1] ?? null;
+  return { currency, period: min ? 'monthly' : null, min, max, yearlyMin: min && currency === 'PLN' ? min * 12 : min };
 }
 
 function sleep(ms: number): Promise<void> {

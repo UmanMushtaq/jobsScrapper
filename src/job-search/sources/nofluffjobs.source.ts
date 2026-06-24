@@ -1,49 +1,16 @@
-import axios from 'axios';
+import { chromium } from 'playwright';
 import { JobPosting, SearchSettings } from '../types';
-import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { detectLanguage } from './language-detect';
+import { acquirePlaywrightLock } from './playwright-queue';
 
 const SOURCE = 'nofluffjobs.com';
-
-interface NfLocation {
-  places?: Array<{ city?: string; country?: { code?: string; name?: string } }>;
-  fullyRemote?: boolean;
-}
-
-interface NfSalary {
-  from?: number;
-  to?: number;
-  currency?: string;
-  type?: string; // 'b2b' | 'permanent'
-}
-
-interface NfPosting {
-  id?: string;
-  name?: string;       // URL slug
-  title?: string;
-  company?: { name?: string };
-  location?: NfLocation;
-  salary?: NfSalary;
-  technology?: string;
-  category?: string;
-  seniority?: string[];
-  essentialSkills?: string[];
-  niceToHaveSkills?: string[];
-  english?: string;    // e.g. 'b2', 'c1' — present when English is required
-  posted?: string;     // ISO 8601
-}
-
-const RELEVANT_TAGS = ['node', 'node.js', 'nodejs', 'nestjs', 'typescript', 'javascript', 'backend', 'express', 'postgresql'];
-
-const ENGLISH_SIGNALS = [
-  'english', 'anglais', 'język angielski', 'english required', 'english mandatory',
-  'english speaking', 'b2', 'c1', 'c2', 'fluent english', 'working in english',
-];
+const BASE_URL = 'https://nofluffjobs.com';
 
 const SEARCH_PAGES = [
-  'https://nofluffjobs.com/jobs/backend?criteria=requirement%3Dnode.js',
-  'https://nofluffjobs.com/jobs/backend?criteria=requirement%3Dtypescript',
-  'https://nofluffjobs.com/jobs/backend?criteria=requirement%3Dnestjs',
+  '/jobs/backend?criteria=requirement%3Dnode.js',
+  '/jobs/backend?criteria=requirement%3Dnestjs',
+  '/jobs/backend?criteria=requirement%3Dtypescript',
 ];
 
 export class NoFluffJobsSource implements JobSource {
@@ -51,174 +18,216 @@ export class NoFluffJobsSource implements JobSource {
   priority = 5;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+    return acquirePlaywrightLock(() => this._fetch(settings));
+  }
+
+  private async _fetch(settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
-    const cutoff = Date.now() - settings.maxAgeHours * 60 * 60 * 1000;
+    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
 
-    for (const pageUrl of SEARCH_PAGES) {
-      try {
-        const res = await axios.get<string>(pageUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'en-US,en;q=0.9',
-          },
-          timeout: 15_000,
-          responseType: 'text',
-        });
+    let browser;
+    try {
+      browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
 
-        if (res.status === 403 || res.status === 429) {
-          console.log(`[nofluffjobs] blocked ${res.status} — skipping`);
-          continue;
-        }
+      const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        locale: 'en-US',
+      });
 
-        const html: string = res.data;
-        const postings = extractPostingsFromHtml(html);
-
-        const relevant = postings.filter((p) => {
-          if (p.posted && new Date(p.posted).getTime() < cutoff) return false;
-          return isRelevant(p);
-        });
-
-        for (const posting of relevant) {
-          const mapped = mapPosting(posting);
-          if (mapped) jobs.set(mapped.canonicalUrl, mapped);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.includes('ECONNREFUSED') && !msg.includes('ETIMEDOUT')) {
-          console.error(`[nofluffjobs] error: ${msg}`);
+      for (const path of SEARCH_PAGES) {
+        try {
+          const fetched = await fetchSearchPage(context, `${BASE_URL}${path}`, cutoff);
+          console.log(`[nofluffjobs] found ${fetched.length} jobs for "${path}"`);
+          for (const job of fetched) jobs.set(job.canonicalUrl, job);
+          await sleep(2000);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[nofluffjobs] error for "${path}": ${msg}`);
         }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[nofluffjobs] browser launch failed: ${msg}`);
+    } finally {
+      await browser?.close();
     }
 
-    console.log(`[nofluffjobs] ${jobs.size} jobs fetched`);
+    console.log(`[nofluffjobs] ${jobs.size} unique jobs fetched`);
     return Array.from(jobs.values());
   }
 }
 
-function extractPostingsFromHtml(html: string): NfPosting[] {
-  // Try window.__INITIAL_STATE__ first
-  const stateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*(?:<\/script>|window\.)/);
-  if (stateMatch) {
+async function fetchSearchPage(
+  context: import('playwright').BrowserContext,
+  url: string,
+  cutoff: number,
+): Promise<JobPosting[]> {
+  const page = await context.newPage();
+  const jobs: JobPosting[] = [];
+
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.waitForTimeout(4000);
+
+    // Accept cookies if banner appears
     try {
-      const state = JSON.parse(stateMatch[1]);
-      const postings =
-        state?.postings?.list ??
-        state?.jobOffers?.list ??
-        state?.search?.postings ??
-        [];
-      if (Array.isArray(postings) && postings.length > 0) return postings as NfPosting[];
-    } catch { /* fall through */ }
+      const cookieBtn = page.locator('button:has-text("Accept"), button:has-text("Agree"), #onetrust-accept-btn-handler, [class*="cookie"] button');
+      if (await cookieBtn.first().isVisible({ timeout: 3000 })) {
+        await cookieBtn.first().click();
+        await page.waitForTimeout(1000);
+      }
+    } catch { /* no cookie banner */ }
+
+    const cards = await page.evaluate(() => {
+      const results: Array<{
+        title: string;
+        company: string;
+        location: string;
+        url: string;
+        salary: string;
+        workMode: string;
+        date: string;
+        skills: string;
+      }> = [];
+
+      const seen = new Set<string>();
+
+      // nofluffjobs renders job cards as list items with postings links
+      const links = Array.from(
+        document.querySelectorAll('a[href*="/job/"], a[href*="/posting/"]')
+      ) as HTMLAnchorElement[];
+
+      for (const link of links) {
+        const href = link.getAttribute('href') ?? '';
+        const url = href.startsWith('http') ? href : `https://nofluffjobs.com${href}`;
+        if (seen.has(url)) continue;
+        seen.add(url);
+
+        const card = link.closest('li, article, [class*="posting"], [class*="job-item"]') ?? link.parentElement;
+
+        const title = (
+          card?.querySelector('h2, h3, h4, [class*="title"], [class*="position"]')?.textContent ??
+          link.textContent ?? ''
+        ).trim();
+
+        if (!title || title.length < 5) continue;
+
+        const company = (
+          card?.querySelector('[class*="company"], [class*="employer"], [class*="name"]')?.textContent ?? ''
+        ).trim();
+
+        const location = (
+          card?.querySelector('[class*="location"], [class*="city"], [class*="place"]')?.textContent ?? 'Poland'
+        ).trim();
+
+        const salary = (
+          card?.querySelector('[class*="salary"], [class*="pay"], [class*="rate"]')?.textContent ?? ''
+        ).trim();
+
+        const workMode = (
+          card?.querySelector('[class*="remote"], [class*="workplace"], [class*="work-mode"]')?.textContent ?? ''
+        ).trim().toLowerCase();
+
+        const date = (
+          card?.querySelector('time')?.getAttribute('datetime') ??
+          card?.querySelector('[class*="date"], [class*="posted"]')?.textContent ?? ''
+        ).trim();
+
+        const skills = Array.from(
+          card?.querySelectorAll('[class*="skill"], [class*="tech"], [class*="tag"], [class*="requirement"]') ?? []
+        ).map((el) => el.textContent?.trim() ?? '').filter(Boolean).join(', ');
+
+        results.push({ title, company, location, url, salary, workMode, date, skills });
+      }
+
+      return results;
+    });
+
+    if (cards.length === 0) {
+      const preview = await page.evaluate(() => document.body.innerHTML.slice(0, 300).replace(/\s+/g, ' '));
+      console.log(`[nofluffjobs] 0 cards for "${url}" — preview: ${preview}`);
+    }
+
+    for (const card of cards) {
+      if (!card.title || !card.url) continue;
+
+      if (card.date) {
+        const pubMs = new Date(card.date).getTime();
+        if (!isNaN(pubMs) && pubMs < cutoff) continue;
+      }
+
+      const publishedAt = card.date ? new Date(card.date).toISOString() : new Date().toISOString();
+      const publishedAtTimestamp = card.date
+        ? Math.floor(new Date(card.date).getTime() / 1000)
+        : Math.floor(Date.now() / 1000);
+
+      const workMode = inferWorkMode(card.workMode);
+      const salary = parseSalary(card.salary);
+      const description = card.skills ? `Skills: ${card.skills}` : '';
+
+      jobs.push({
+        source: SOURCE,
+        sourcePriority: 5,
+        canonicalUrl: card.url,
+        title: card.title,
+        company: card.company || 'Unknown',
+        companySummary: '',
+        companySlug: (card.company || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        locationLabel: card.location ? `${card.location}, Poland` : 'Poland',
+        countryCode: 'PL',
+        city: card.location || null,
+        workMode,
+        language: detectLanguage(card.title),
+        description,
+        keyMissions: [],
+        experienceLevelMinimum: null,
+        salaryCurrency: salary.currency,
+        salaryPeriod: salary.period,
+        salaryMinimum: salary.min,
+        salaryMaximum: salary.max,
+        salaryYearlyMinimum: salary.yearlyMin,
+        publishedAt,
+        publishedAtTimestamp,
+        startupSignals: [],
+        applyUrl: card.url,
+        offersRelocation: false,
+        isStartup: false,
+        employeeCount: null,
+        companyCreationYear: null,
+      });
+    }
+  } finally {
+    await page.close();
   }
 
-  // Try <script type="application/json"> blocks
-  const scriptMatches = html.matchAll(/<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi);
-  for (const match of scriptMatches) {
-    try {
-      const data = JSON.parse(match[1]);
-      // Could be the full initial data blob or a postings array directly
-      const postings =
-        data?.postings?.list ??
-        data?.jobOffers?.list ??
-        data?.search?.postings ??
-        (Array.isArray(data) ? data : null);
-      if (Array.isArray(postings) && postings.length > 0) return postings as NfPosting[];
-    } catch { /* continue */ }
-  }
-
-  // Try any JSON blob that looks like it has postings
-  const jsonMatches = html.matchAll(/\bpostings\b[^{]*(\{[\s\S]{100,10000}?\})/g);
-  for (const match of jsonMatches) {
-    try {
-      const data = JSON.parse(match[1]);
-      if (Array.isArray(data?.list)) return data.list as NfPosting[];
-    } catch { /* continue */ }
-  }
-
-  return [];
+  return jobs;
 }
 
-function isRelevant(p: NfPosting): boolean {
-  const skills = [...(p.essentialSkills ?? []), ...(p.niceToHaveSkills ?? [])].map((s) => s.toLowerCase());
-  const title = (p.title ?? '').toLowerCase();
-  const tech = (p.technology ?? '').toLowerCase();
-  const category = (p.category ?? '').toLowerCase();
-
-  const tagMatch = RELEVANT_TAGS.some((t) => skills.includes(t) || title.includes(t) || tech.includes(t) || category.includes(t));
-  if (!tagMatch) return false;
-
-  // Require English: either the `english` field is set or description/skills mention English signals
-  if (p.english) return true;
-  const allText = [...skills, title].join(' ');
-  return ENGLISH_SIGNALS.some((s) => allText.includes(s));
+function inferWorkMode(text: string): 'remote' | 'hybrid' | 'on-site' {
+  const lower = text.toLowerCase();
+  if (lower.includes('remote') || lower.includes('fully remote')) return 'remote';
+  if (lower.includes('hybrid')) return 'hybrid';
+  return 'on-site';
 }
 
-function mapPosting(p: NfPosting): JobPosting | null {
-  if (!p.title || !p.name) return null;
-
-  const canonicalUrl = `https://nofluffjobs.com/job/${p.name}`;
-  const company = p.company?.name ?? 'Unknown';
-  const location = p.location;
-  const fullyRemote = location?.fullyRemote ?? false;
-  const firstPlace = location?.places?.[0];
-  const city = firstPlace?.city ?? null;
-  const countryCode = firstPlace?.country?.code ?? 'PL';
-  const locationLabel = city ? `${city}, ${firstPlace?.country?.name ?? 'Poland'}` : (fullyRemote ? 'Remote' : 'Poland');
-
-  const salary = p.salary;
-  const salaryMin = salary?.from ?? null;
-  const salaryMax = salary?.to ?? null;
-  const salaryCurrency = salary?.currency ?? null;
-
-  // Convert monthly PLN to yearly for consistent comparison
-  const salaryYearlyMinimum = salaryMin !== null && salaryCurrency === 'PLN' ? salaryMin * 12 : salaryMin;
-
-  const skills = [...(p.essentialSkills ?? []), ...(p.niceToHaveSkills ?? [])].join(' ');
-  const fullText = `${p.title} ${skills}`.toLowerCase();
-
-  const publishedAt = p.posted ? new Date(p.posted) : new Date();
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
-
-  return {
-    source: SOURCE,
-    sourcePriority: 5,
-    canonicalUrl,
-    title: p.title,
-    company,
-    companySummary: '',
-    companySlug: company.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    locationLabel,
-    countryCode,
-    city,
-    workMode: fullyRemote ? 'remote' : 'on-site',
-    language: detectLanguage(fullText),
-    description: skills,
-    keyMissions: [],
-    experienceLevelMinimum: mapSeniority(p.seniority),
-    salaryCurrency,
-    salaryPeriod: salaryMin !== null ? 'monthly' : null,
-    salaryMinimum: salaryMin,
-    salaryMaximum: salaryMax,
-    salaryYearlyMinimum,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
-    startupSignals: [],
-    applyUrl: canonicalUrl,
-    offersRelocation: false,
-    isStartup: containsAny(fullText, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
-    employeeCount: null,
-    companyCreationYear: null,
-  };
+function parseSalary(salaryText: string): {
+  currency: string | null;
+  period: string | null;
+  min: number | null;
+  max: number | null;
+  yearlyMin: number | null;
+} {
+  if (!salaryText) return { currency: null, period: null, min: null, max: null, yearlyMin: null };
+  const currency = salaryText.includes('PLN') ? 'PLN' : salaryText.includes('EUR') ? 'EUR' : salaryText.includes('USD') ? 'USD' : null;
+  const numbers = salaryText.match(/[\d\s]+/g)?.map((n) => parseInt(n.replace(/\s/g, ''), 10)).filter((n) => !isNaN(n) && n > 100) ?? [];
+  const min = numbers[0] ?? null;
+  const max = numbers[1] ?? null;
+  return { currency, period: min ? 'monthly' : null, min, max, yearlyMin: min && currency === 'PLN' ? min * 12 : min };
 }
 
-function mapSeniority(levels: string[] | undefined): number | null {
-  if (!levels?.length) return null;
-  if (levels.includes('junior')) return 1;
-  if (levels.includes('mid')) return 3;
-  if (levels.includes('senior')) return 5;
-  return null;
-}
-
-function containsAny(text: string, tokens: string[]): boolean {
-  return tokens.some((t) => text.includes(t));
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
