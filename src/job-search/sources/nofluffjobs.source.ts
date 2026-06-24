@@ -29,7 +29,23 @@ export class NoFluffJobsSource implements JobSource {
     try {
       browser = await chromium.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--disable-sync',
+          '--disable-translate',
+          '--hide-scrollbars',
+          '--mute-audio',
+          '--no-first-run',
+          '--safebrowsing-disable-auto-update',
+          '--js-flags=--max-old-space-size=128',
+          '--single-process',
+        ],
       });
 
       const context = await browser.newContext({

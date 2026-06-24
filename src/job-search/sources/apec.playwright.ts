@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
 import { redisGet, redisSetEx } from '../redis-store';
+import { acquirePlaywrightLock } from './playwright-queue';
 
 const SOURCE = 'apec.fr';
 const BASE_URL = 'https://www.apec.fr';
@@ -41,9 +42,10 @@ export class ApecPlaywrightSource implements JobSource {
   priority = 4;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
-    // Dedicated Chromium — completely independent from acquirePlaywrightLock
-    // which is used by cadremploi, hellowork, and eurobrussels.
-    // APEC runs on its own 180min scheduler so there is no conflict.
+    return acquirePlaywrightLock(() => this._fetch(settings));
+  }
+
+  private async _fetch(settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
     const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
 
@@ -53,7 +55,23 @@ export class ApecPlaywrightSource implements JobSource {
     try {
       browser = await chromium.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--disable-sync',
+          '--disable-translate',
+          '--hide-scrollbars',
+          '--mute-audio',
+          '--no-first-run',
+          '--safebrowsing-disable-auto-update',
+          '--js-flags=--max-old-space-size=128',
+          '--single-process',
+        ],
       });
 
       const context = await browser.newContext({
