@@ -92,8 +92,12 @@ async function fetchSearchPage(
   try {
     const url = `${BASE_URL}/job-offers/all-locations/${encodeURIComponent(query)}?orderBy=DESC&sortBy=published`;
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await page.waitForTimeout(4000);
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
+    await page.waitForTimeout(6000);
+    // Wait for actual job offer links to appear before extracting
+    await page.waitForSelector('a[href*="/job-offer/"], a[href*="/offers/"], [class*="offer"], [class*="job-item"]', { timeout: 15_000 }).catch(() => {
+      console.log(`[justjoin] selector timeout — page may not have rendered`);
+    });
 
     // Accept cookies if banner appears
     try {
