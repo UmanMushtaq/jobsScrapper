@@ -9,6 +9,7 @@ import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
 import { AdzunaJobsSource } from './sources/adzuna.source';
 import { ApecJobsSource } from './sources/apec.source';
+import { ApecPlaywrightSource } from './sources/apec.playwright';
 import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
 import { AshbyJobsSource } from './sources/ashby.source';
 import { BerlinStartupJobsSource } from './sources/berlinstartupjobs.source';
@@ -191,7 +192,7 @@ export async function runJobSearchOnce(
       new WttjJobsSource(),
       new AdzunaJobsSource(),
       new FranceTravailJobsSource(),
-      new ApecJobsSource(),
+      new ApecPlaywrightSource(),
       new GreenhouseJobsSource(),
       new AshbyJobsSource(),
       new LeverJobsSource(),
