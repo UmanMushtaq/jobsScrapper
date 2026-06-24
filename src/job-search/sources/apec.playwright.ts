@@ -67,7 +67,7 @@ export class ApecPlaywrightSource implements JobSource {
       for (const query of SEARCH_QUERIES) {
         try {
           console.log(`[apec-playwright] searching: "${query}"`);
-          const fetched = await fetchSearchPage(context, query, cutoff);
+          const fetched = await fetchSearchPage(browser, context, query, cutoff);
           console.log(`[apec-playwright] found ${fetched.length} jobs for "${query}"`);
           for (const job of fetched) {
             jobs.set(job.canonicalUrl, job);
@@ -105,6 +105,7 @@ export class ApecPlaywrightSource implements JobSource {
 }
 
 async function fetchSearchPage(
+  browser: import('playwright').Browser,
   context: import('playwright').BrowserContext,
   query: string,
   cutoff: number,
@@ -228,7 +229,7 @@ async function fetchSearchPage(
           if (!isNaN(pubMs) && pubMs < cutoff) continue;
         }
 
-        const description = await fetchDetailPage(context, card.url);
+        const description = await fetchDetailPage(browser, card.url);
         await sleep(800);
 
         const publishedAt = card.date ? new Date(card.date).toISOString() : new Date().toISOString();
@@ -282,16 +283,20 @@ async function fetchSearchPage(
 }
 
 async function fetchDetailPage(
-  context: import('playwright').BrowserContext,
+  browser: import('playwright').Browser,
   url: string,
 ): Promise<string> {
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    locale: 'fr-FR',
+  });
   const page = await context.newPage();
   try {
     await page.goto(url, {
-      waitUntil: 'networkidle',
-      timeout: 60_000,
+      waitUntil: 'domcontentloaded',
+      timeout: 45_000,
     });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
     // Accept cookies if banner appears
     try {
@@ -353,7 +358,8 @@ async function fetchDetailPage(
     console.error(`[apec-playwright] detail page error: ${msg}`);
     return '';
   } finally {
-    await page.close();
+    await page.close().catch(() => undefined);
+    await context.close().catch(() => undefined);
   }
 }
 
