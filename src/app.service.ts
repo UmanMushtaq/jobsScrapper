@@ -27,7 +27,7 @@ import {
   resolveJobRef,
   sendTelegramMessages,
 } from './job-search/telegram';
-import { ApecRunStatus, AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGetApecStatus, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob } from './job-search/redis-store';
+import { ApecRunStatus, AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGet, redisGetApecStatus, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob, redisSetEx } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
 import { ApecPlaywrightStatus, getApecPlaywrightStatus } from './job-search/sources/apec.playwright';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
@@ -513,14 +513,19 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     if (_dashboardCache && Date.now() - _dashboardCache.ts < DASHBOARD_CACHE_TTL_MS) {
       return _dashboardCache.html;
     }
-    const [state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus] = await Promise.all([
+    const [state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus, schedulerRuns] = await Promise.all([
       readJobSearchState(),
       redisGetIndeedLastRun(),
       redisGetDashboardJobs(),
       getApecPlaywrightStatus(),
       redisGetApecStatus(),
+      Promise.all([
+        redisGet('scheduler:last_run:slow'),
+        redisGet('scheduler:last_run:fast'),
+        redisGet('scheduler:last_run:apec'),
+      ]).then(([slow, fast, apec]) => ({ slow, fast, apec })),
     ]);
-    const html = renderHtml(state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus);
+    const html = renderHtml(state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus, schedulerRuns);
     _dashboardCache = { html, ts: Date.now() };
     return html;
   }
@@ -596,6 +601,21 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async getSchedulersStatus(): Promise<Record<string, unknown>> {
+    const [slow, fast, apec] = await Promise.all([
+      redisGet('scheduler:last_run:slow'),
+      redisGet('scheduler:last_run:fast'),
+      redisGet('scheduler:last_run:apec'),
+    ]);
+    return {
+      schedulers: [
+        { name: 'Slow (all sources)', key: 'slow', intervalMinutes: 480, lastRun: slow },
+        { name: 'Fast (no ScraperAPI)', key: 'fast', intervalMinutes: 180, lastRun: fast },
+        { name: 'APEC only', key: 'apec', intervalMinutes: 180, lastRun: apec },
+      ],
+    };
+  }
+
   private async safeRun(trigger: 'startup' | 'interval' | 'manual'): Promise<void> {
     if (this.activeRun) {
       this.logger.warn(`Skipping ${trigger} run because another scan is still active.`);
@@ -606,6 +626,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
     this.activeRun = (async () => {
       try {
+        await redisSetEx('scheduler:last_run:slow', new Date().toISOString(), 86400 * 30).catch(() => undefined);
         const summary = await runJobSearchOnce(undefined, excludeSources);
         _dashboardCache = null; // new jobs available — next load rebuilds from Redis
         _healthCache = null;
@@ -637,6 +658,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     console.log(`[fast-scheduler] Starting fast run — ${FAST_SOURCES.length} sources`);
     this.activeFastRun = (async () => {
       try {
+        await redisSetEx('scheduler:last_run:fast', new Date().toISOString(), 86400 * 30).catch(() => undefined);
         const summary = await runJobSearchOnce(undefined, undefined, FAST_SOURCES);
         _dashboardCache = null;
         _healthCache = null;
@@ -658,6 +680,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     console.log('[apec-scheduler] Starting APEC-only run');
     this.activeApecRun = (async () => {
       try {
+        await redisSetEx('scheduler:last_run:apec', new Date().toISOString(), 86400 * 30).catch(() => undefined);
         const summary = await runJobSearchOnce(undefined, undefined, ['apec.fr']);
         _dashboardCache = null;
         _healthCache = null;
@@ -1915,7 +1938,7 @@ function escapeBr(value: string): string {
   return escapeHtml(value).replace(/\n/g, '<br>');
 }
 
-function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, dashboardJobs?: DashboardJobEntry[], apecStatus?: ApecPlaywrightStatus | null, apecRunStatus?: ApecRunStatus | null): string {
+function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, dashboardJobs?: DashboardJobEntry[], apecStatus?: ApecPlaywrightStatus | null, apecRunStatus?: ApecRunStatus | null, schedulerRuns?: { slow: string | null; fast: string | null; apec: string | null } | null): string {
   // Use persistent dashboard jobs if available, fall back to state.latestMatches
   const now = Date.now();
   const displayMatches: Array<{ match: MatchResult; foundAt?: number }> =
@@ -2425,6 +2448,42 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
         </div>
       </div>
 
+      <div class="card" id="scheduler-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+          <h2 style="margin:0;">Schedulers</h2>
+          <span id="sched-refresh-label" style="font-size:12px;color:#9ca3af;">auto-refreshes every 60s</span>
+        </div>
+        <div id="sched-status">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e5e7eb;">Scheduler</th>
+                <th style="text-align:left;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e5e7eb;">Interval</th>
+                <th style="text-align:left;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e5e7eb;">Last Run (local time)</th>
+                <th style="text-align:left;padding:8px 12px;background:#f8fafc;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e5e7eb;">Next Run (local time)</th>
+              </tr>
+            </thead>
+            <tbody id="sched-tbody">
+              ${[
+                { name: 'Slow (all sources)', intervalMinutes: 480, lastRun: schedulerRuns?.slow ?? null },
+                { name: 'Fast (no ScraperAPI)', intervalMinutes: 180, lastRun: schedulerRuns?.fast ?? null },
+                { name: 'APEC only', intervalMinutes: 180, lastRun: schedulerRuns?.apec ?? null },
+              ].map((s) => {
+                const lastRunAttr = s.lastRun ? `data-lastrun="${escapeHtml(s.lastRun)}"` : '';
+                const nextRunMs = s.lastRun ? new Date(s.lastRun).getTime() + s.intervalMinutes * 60_000 : null;
+                const nextRunAttr = nextRunMs ? `data-nextrun="${escapeHtml(new Date(nextRunMs).toISOString())}"` : '';
+                return `<tr>
+                  <td style="padding:10px 12px;font-weight:600;border-bottom:1px solid #f3f4f6;">${escapeHtml(s.name)}</td>
+                  <td style="padding:10px 12px;color:#374151;border-bottom:1px solid #f3f4f6;">${s.intervalMinutes} min</td>
+                  <td style="padding:10px 12px;color:#374151;border-bottom:1px solid #f3f4f6;" class="ts-local" ${lastRunAttr}>${s.lastRun ? escapeHtml(s.lastRun) : '<span style="color:#9ca3af;">Not yet run</span>'}</td>
+                  <td style="padding:10px 12px;color:#374151;border-bottom:1px solid #f3f4f6;" class="ts-local" ${nextRunAttr}>${nextRunMs ? escapeHtml(new Date(nextRunMs).toISOString()) : '<span style="color:#9ca3af;">Pending first run</span>'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card" id="health-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
           <h2 style="margin:0;">System status</h2>
@@ -2732,6 +2791,52 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
         var d = new Date(iso);
         return isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
       }
+
+      function fmtLocal(iso) {
+        if (!iso) return null;
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return null;
+        return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' (local time)';
+      }
+
+      function applyLocalTimes() {
+        document.querySelectorAll('.ts-local[data-lastrun]').forEach(function(el) {
+          var fmt = fmtLocal(el.getAttribute('data-lastrun'));
+          if (fmt) el.textContent = fmt;
+        });
+        document.querySelectorAll('.ts-local[data-nextrun]').forEach(function(el) {
+          var fmt = fmtLocal(el.getAttribute('data-nextrun'));
+          if (fmt) el.textContent = fmt;
+        });
+      }
+
+      function refreshSchedulers() {
+        fetch('/api/schedulers')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            var scheds = data.schedulers || [];
+            var tbody = document.getElementById('sched-tbody');
+            if (!tbody) return;
+            tbody.innerHTML = scheds.map(function(s) {
+              var lastIso = s.lastRun || '';
+              var nextIso = lastIso ? new Date(new Date(lastIso).getTime() + s.intervalMinutes * 60000).toISOString() : '';
+              var lastFmt = fmtLocal(lastIso) || '<span style="color:#9ca3af;">Not yet run</span>';
+              var nextFmt = fmtLocal(nextIso) || '<span style="color:#9ca3af;">Pending first run</span>';
+              return '<tr>' +
+                '<td style="padding:10px 12px;font-weight:600;border-bottom:1px solid #f3f4f6;">' + s.name + '</td>' +
+                '<td style="padding:10px 12px;color:#374151;border-bottom:1px solid #f3f4f6;">' + s.intervalMinutes + ' min</td>' +
+                '<td style="padding:10px 12px;color:#374151;border-bottom:1px solid #f3f4f6;">' + lastFmt + '</td>' +
+                '<td style="padding:10px 12px;color:#374151;border-bottom:1px solid #f3f4f6;">' + nextFmt + '</td>' +
+                '</tr>';
+            }).join('');
+            var lbl = document.getElementById('sched-refresh-label');
+            if (lbl) lbl.textContent = 'refreshed ' + new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+          })
+          .catch(function() {});
+      }
+
+      applyLocalTimes();
+      setInterval(refreshSchedulers, 60000);
 
       function systemDot(ok) {
         return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + (ok ? '#16a34a' : '#dc2626') + ';margin-right:5px;vertical-align:middle;"></span>';

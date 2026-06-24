@@ -71,6 +71,11 @@ export class AppController {
     return this.appService.getGeminiStatusLite();
   }
 
+  @Get('api/schedulers')
+  async schedulersStatus() {
+    return this.appService.getSchedulersStatus();
+  }
+
   @Get('debug/keys')
   async validateKeys(@Query('force') force?: string) {
     return this.appService.validateGeminiKeys(force === 'true');
