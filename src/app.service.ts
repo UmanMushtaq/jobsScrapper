@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Response } from 'express';
-import { enrichMatch, generateShortAnswers, getGeminiModuleState, lastGeminiError } from './job-search/ai-enrichment';
+import { enrichMatch, generateShortAnswers, getGeminiModuleState, lastGeminiError, resetGeminiQuotaState } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
   FAST_SOURCES,
@@ -53,6 +53,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   private fastIntervalHandle: NodeJS.Timeout | null = null;
   private apecIntervalHandle: NodeJS.Timeout | null = null;
   private pingHandle: NodeJS.Timeout | null = null;
+  private geminiResetHandle: NodeJS.Timeout | null = null;
   private activeRun: Promise<void> | null = null;       // slow (all sources)
   private activeFastRun: Promise<void> | null = null;   // fast (no-ScraperAPI sources)
   private activeApecRun: Promise<void> | null = null;   // APEC full pipeline
@@ -109,6 +110,15 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     // APEC scheduler: APEC full pipeline, every 3 hours
     this.apecIntervalHandle = setInterval(() => void this.safeRunApec(), APEC_INTERVAL_MS);
     this.logger.log('APEC scheduler active — running every 180min');
+
+    // Gemini quota reset scheduler: fires at midnight Pacific time daily.
+    // Clears the in-memory exhausted-key blacklist so all keys are retried after Google's quota refresh.
+    const msToMidnightPacific = msTillNextMidnightPacific();
+    this.logger.log(`[gemini] quota reset scheduled in ${Math.round(msToMidnightPacific / 60_000)}min (midnight Pacific)`);
+    this.geminiResetHandle = setTimeout(() => {
+      resetGeminiQuotaState();
+      this.geminiResetHandle = setInterval(() => resetGeminiQuotaState(), 24 * 60 * 60 * 1000);
+    }, msToMidnightPacific);
   }
 
   onModuleDestroy(): void {
@@ -127,6 +137,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     if (this.pingHandle) {
       clearInterval(this.pingHandle);
       this.pingHandle = null;
+    }
+    if (this.geminiResetHandle) {
+      clearTimeout(this.geminiResetHandle);
+      clearInterval(this.geminiResetHandle);
+      this.geminiResetHandle = null;
     }
   }
 
@@ -848,6 +863,22 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 function shouldEnableScheduler(): boolean {
   const runMode = (process.env.RUN_MODE ?? 'continuous').toLowerCase();
   return runMode === 'continuous' || runMode === 'railway' || runMode === 'web';
+}
+
+// Returns milliseconds until the next midnight in America/Los_Angeles (where Google resets quota).
+function msTillNextMidnightPacific(): number {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false,
+  });
+  const parts = fmt.formatToParts(now);
+  const h = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10);
+  const m = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+  const s = parseInt(parts.find((p) => p.type === 'second')?.value ?? '0', 10);
+  const msIntoPacificDay = (h * 3600 + m * 60 + s) * 1000 + now.getMilliseconds();
+  // Add 30 seconds buffer so the reset fires just after midnight, not just before.
+  return 24 * 60 * 60 * 1000 - msIntoPacificDay + 30_000;
 }
 
 function renderLogsHtml(logs: BotLogEntry[]): string {
@@ -2497,7 +2528,10 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
       <div class="card" id="gemini-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-          <h2 style="margin:0;">Gemini API keys</h2>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <h2 style="margin:0;">Gemini API keys</h2>
+            <span id="gemini-quota-countdown" style="font-size:12px;color:#6b7280;padding:3px 10px;background:#f1f5f9;border-radius:99px;">computing reset time…</span>
+          </div>
           <div style="display:flex;gap:8px;">
             <button onclick="loadKeyStatus(false)" id="key-refresh-btn"
               style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:#374151;">
@@ -2750,6 +2784,27 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       }
 
       loadKeyStatus(false);
+
+      function updateGeminiCountdown() {
+        var el = document.getElementById('gemini-quota-countdown');
+        if (!el) return;
+        try {
+          var now = new Date();
+          var fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false });
+          var parts = fmt.formatToParts(now);
+          var h = parseInt(parts.find(function(p) { return p.type === 'hour'; }).value, 10);
+          var m = parseInt(parts.find(function(p) { return p.type === 'minute'; }).value, 10);
+          var s = parseInt(parts.find(function(p) { return p.type === 'second'; }).value, 10);
+          var secsLeft = 24 * 3600 - h * 3600 - m * 60 - s;
+          var hLeft = Math.floor(secsLeft / 3600);
+          var mLeft = Math.floor((secsLeft % 3600) / 60);
+          el.textContent = 'Quota resets in ' + hLeft + 'h ' + mLeft + 'm (midnight Pacific)';
+          el.style.color = secsLeft < 3600 ? '#15803d' : '#6b7280';
+          el.style.background = secsLeft < 3600 ? '#dcfce7' : '#f1f5f9';
+        } catch (e) { el.textContent = 'reset: midnight Pacific'; }
+      }
+      updateGeminiCountdown();
+      setInterval(updateGeminiCountdown, 60000);
 
       function toggleDet(id) {
         var row = document.getElementById(id);

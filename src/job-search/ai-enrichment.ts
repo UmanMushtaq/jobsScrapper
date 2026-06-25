@@ -26,6 +26,22 @@ let _allKeysDownPacificDay: string | null = null;
 let _isCurrentlyOverloaded = false;
 export function isGeminiOverloaded(): boolean { return _isCurrentlyOverloaded; }
 export function clearGeminiOverloadFlag(): void { _isCurrentlyOverloaded = false; }
+
+// Proactively reset all in-memory quota state — called by the midnight Pacific scheduler.
+export function resetGeminiQuotaState(): void {
+  const entries = getApiKeyEntries();
+  const wasDown = _allKeysDown;
+  const count = _quotaExhaustedKeyIndices.size;
+  _allKeysDown = false;
+  _allKeysDownPacificDay = null;
+  _quotaExhaustedKeyIndices.clear();
+  _confirmedWorkingKeyIndices.clear();
+  console.log(
+    `[gemini] quota reset scheduler fired — clearing all blacklisted keys` +
+    (count > 0 ? ` (${count} unblacklisted: ${entries.slice(0, count).map((e) => e.source).join(', ')})` : ' (no keys were blacklisted)') +
+    (wasDown ? ' · allKeysDown flag cleared' : ''),
+  );
+}
 // Successful Gemini calls today (Pacific day). Resets on day rollover.
 let _dailyCallCount = 0;
 let _dailyCallPacificDay = '';
