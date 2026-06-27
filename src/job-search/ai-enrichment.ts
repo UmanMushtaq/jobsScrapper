@@ -737,7 +737,6 @@ async function enrichSingle(
   const coverLetterThreshold = descWordCount < 120 ? 45 : descWordCount < 350 ? 50 : 55;
   const shouldGenerateCoverLetter = relevanceScore >= coverLetterThreshold;
   const coverLetterStatus = shouldGenerateCoverLetter ? 'generated' : 'skipped';
-  console.log(`[gemini-debug] "${job.title}" @ ${job.company} — description: ${descWordCount} words, relevanceScore: ${relevanceScore}, threshold: ${coverLetterThreshold}, coverLetter: ${coverLetterStatus}`);
 
   let suggestedSalary: string | null = null;
   if (raw.salaryMin && raw.salaryMax && raw.salaryCurrency) {

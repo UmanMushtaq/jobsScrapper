@@ -313,7 +313,7 @@ export function scoreJob(
   const isNonEnglishJd = /\b(nous|vous|notre|votre|emploi|poste|wir|sind|ihre|ihnen|wij|zijn|uw|onze|siamo|noi|nosotros|somos)\b/i.test(text);
   const threshold = isNonEnglishJd
     ? (wordCount < 120 ? 45 : wordCount < 350 ? 48 : 52)
-    : (wordCount < 120 ? 55 : wordCount < 350 ? 57 : 60);
+    : (wordCount < 120 ? 54 : wordCount < 350 ? 56 : 59);
 
   if (score < threshold) {
     const lang = isNonEnglishJd ? (text.match(/\b(nous|vous|wir|sind|wij|zijn)\b/i)?.[0] ? (text.includes('wir') || text.includes('sind') ? 'DE' : text.includes('wij') || text.includes('zijn') ? 'NL' : 'FR') : 'non-EN') : 'EN';

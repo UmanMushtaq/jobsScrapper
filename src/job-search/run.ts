@@ -455,7 +455,7 @@ export async function runJobSearchOnce(
       console.log(`  lang=${diagCounts.lang} | titleExcl=${diagCounts.title} | roleExcl=${diagCounts.role}`);
       console.log(`  location=${diagCounts.location} (usa-remote=${diagLocBreak.usaRemote} eu-onsite=${diagLocBreak.euOnsite} eu-hybrid=${diagLocBreak.euHybrid} other=${diagLocBreak.other})`);
       console.log(`  exp=${diagCounts.exp} | salary<min=${diagCounts.salary} | mandatory=${diagCounts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
-      console.log(`  score<threshold=${diagCounts.score} (adaptive: <120w→55, 120-350w→57, >350w→60)`);
+      console.log(`  score<threshold=${diagCounts.score} (adaptive: <120w→54, 120-350w→56, >350w→59)`);
 
       if (nearMisses.length > 0) {
         console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed mandatory but scored <threshold — top 5:`);
