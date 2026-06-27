@@ -8,15 +8,20 @@ const API_BASE = 'https://api.ashbyhq.com/posting-api/job-board';
 
 // EU-focused tech companies known to use Ashby for hiring
 const DEFAULT_COMPANIES = [
-  // French companies
-  'qonto', 'alan', 'ledger', 'dataiku', 'deepki',
-  'shine', 'memo-bank', 'oblean', 'backmarket', 'vestiairecollective',
-  // UK / EU scale-ups
-  'monzo', 'revolut', 'wise', 'checkout', 'yapily', 'truelayer',
-  'starling-bank', 'pleo', 'klarna', 'sumup', 'moss',
-  // broader EU tech
-  'contentful', 'personio', 'babbel', 'n26', 'adyen', 'mollie',
-  'mambu', 'leanix', 'moss-group', 'nelly-solutions',
+  // French scale-ups
+  'qonto', 'shine', 'memo-bank', 'pennylane', 'payfit', 'spendesk',
+  'swile', 'luko', 'alma-pay', 'silvr',
+  // Belgian / Luxembourg / Dutch
+  'teamleader', 'crelan', 'sodexo-benefits', 'bux',
+  // German scale-ups
+  'billie', 'ratepay', 'solaris', 'mambu', 'contentful', 'personio',
+  // International remote-friendly
+  'remote', 'deel', 'oyster-hr', 'lano', 'omnipresent',
+  // UK / EU fintech & scale-ups
+  'monzo', 'wise', 'checkout', 'yapily', 'truelayer',
+  'sumup', 'klarna', 'revolut', 'starling-bank',
+  // Other EU tech
+  'dataiku', 'oblean', 'vestiairecollective',
 ];
 
 interface AshbyJobPosting {
