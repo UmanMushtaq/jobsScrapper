@@ -9,6 +9,7 @@ const SOURCE = 'weworkremotely.com';
 const FEED_URLS = [
   'https://weworkremotely.com/categories/remote-programming-jobs.rss',
   'https://weworkremotely.com/categories/remote-back-end-programming-jobs.rss',
+  'https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss',
 ];
 
 export class WeWorkRemotelyJobsSource implements JobSource {
@@ -26,9 +27,7 @@ export class WeWorkRemotelyJobsSource implements JobSource {
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        if (!msg.includes('fetch failed') && !msg.includes('403') && !msg.includes('530')) {
-          console.error(`[weworkremotely] error for ${feedUrl}: ${msg}`);
-        }
+        console.error('[weworkremotely] fetch error:', msg);
       }
     }
 
@@ -51,7 +50,7 @@ async function fetchFeed(feedUrl: string, settings: SearchSettings): Promise<Job
   });
 
   if (response.status === 403 || response.status === 429 || response.status === 530) {
-    console.log(`[weworkremotely] blocked by ${response.status} — cloud IP likely rejected`);
+    console.error('[weworkremotely] blocked:', response.status, feedUrl);
     return [];
   }
   if (!response.ok) throw new Error(`WeWorkRemotely feed ${response.status}`);
@@ -113,7 +112,7 @@ function cleanCdata(str: string): string {
 
 function isRelevant(title: string): boolean {
   const t = title.toLowerCase();
-  const relevant = ['backend', 'back-end', 'node', 'typescript', 'javascript', 'software engineer', 'fullstack', 'full stack', 'full-stack', 'api engineer', 'web developer'];
+  const relevant = ['engineer', 'developer', 'software', 'platform', 'backend', 'back-end', 'node', 'typescript', 'javascript', 'software engineer', 'fullstack', 'full stack', 'full-stack', 'api engineer', 'web developer'];
   const excluded = ['frontend', 'front-end', 'react', 'vue', 'angular', 'ios', 'android', 'mobile', 'devops', 'data engineer', 'machine learning', 'ai engineer'];
   if (excluded.some((k) => t.includes(k))) return false;
   return relevant.some((k) => t.includes(k));
