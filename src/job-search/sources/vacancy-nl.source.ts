@@ -21,26 +21,9 @@ export class VacancyNlSource implements JobSource {
   name = SOURCE;
   priority = 4;
 
-  async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
-    const jobs = new Map<string, JobPosting>();
-    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
-
-    for (const query of SEARCH_QUERIES) {
-      try {
-        const fetched = await fetchPage(query, cutoff);
-        for (const job of fetched) jobs.set(job.canonicalUrl, job);
-        await sleep(2000);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.includes('ECONNREFUSED') && !msg.includes('ETIMEDOUT')) {
-          console.error(`[vacancy-nl] error for "${query}": ${msg}`);
-        }
-      }
-    }
-
-    if (jobs.size === 0) console.log(`[vacancy-nl] 0 jobs — may be blocked`);
-    else console.log(`[vacancy-nl] ${jobs.size} unique jobs fetched`);
-    return Array.from(jobs.values());
+  async fetch(_queries: string[], _settings: SearchSettings): Promise<JobPosting[]> {
+    console.warn('[vacancy-nl] disabled — URL structure changed, returns 404 on all queries');
+    return [];
   }
 }
 
