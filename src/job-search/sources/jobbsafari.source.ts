@@ -6,7 +6,7 @@ import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'jobbsafari.se';
-const BASE_URL = 'https://www.jobbsafari.se/jobb';
+const BASE_URL = 'https://www.jobbsafari.se/lediga-jobb';
 
 const SEARCH_QUERIES = [
   'nodejs',
@@ -46,6 +46,7 @@ export class JobbSafariSource implements JobSource {
   priority = 4;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+    console.warn('[jobbsafari] note: general Swedish board, low Node.js coverage expected');
     const jobs = new Map<string, JobPosting>();
     const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
 
