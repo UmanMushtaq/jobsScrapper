@@ -34,12 +34,8 @@ interface JobicyQuery {
 
 const QUERIES: JobicyQuery[] = [
   { tag: 'node.js' },
-  { tag: 'node.js', geo: 'europe' },
-  { tag: 'node.js', geo: 'france' },
   { tag: 'typescript' },
-  { tag: 'typescript', geo: 'europe' },
   { tag: 'backend-engineer' },
-  { tag: 'backend-engineer', geo: 'europe' },
 ];
 
 export class JobicyJobsSource implements JobSource {
