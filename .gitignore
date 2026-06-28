@@ -75,3 +75,4 @@ tsconfig.build.tsbuildinfo
 scripts/*.js
 scripts/*.js.map
 scripts/*.d.ts
+tsconfig.build.tsbuildinfo
