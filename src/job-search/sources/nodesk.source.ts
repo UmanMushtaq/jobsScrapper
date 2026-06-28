@@ -19,6 +19,9 @@ export class NodeskSource implements JobSource {
   priority = 5;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+    console.warn('[nodesk] disabled — no public API, 403 on cloud IPs');
+    return [];
+
     const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
 
     try {
