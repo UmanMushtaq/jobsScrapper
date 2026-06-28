@@ -129,7 +129,7 @@ export class ApecJobsSource implements JobSource {
           fonctions: [],
           statutPoste: [],
           typesContrat: [],
-          typesConvention: ['143684', '143685', '143686', '143687', '143706'],
+          typesConvention: [143684, 143685, 143686, 143687, 143706],
           niveauxExperience: [],
           idsEtablissement: [],
           secteursActivite: [],
