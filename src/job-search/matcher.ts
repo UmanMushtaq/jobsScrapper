@@ -630,7 +630,7 @@ function buildCoverLetter(job: JobPosting, profile: SearchProfile, _reasons: str
   const { statusLine } = resolveWorkAuth(profile);
 
   return [
-    `Hello ${job.company} team,`,
+    `Hi ${job.company} team,`,
     '',
     `I am a Paris-based Node.js and NestJS backend engineer with ${profile.candidate.experienceYears}+ years of production experience. The ${job.title} role at ${job.company} is a strong match for my background in backend microservices, TypeScript engineering, and fintech platforms.`,
     '',
