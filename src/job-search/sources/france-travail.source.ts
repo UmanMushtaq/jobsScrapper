@@ -41,6 +41,20 @@ interface FranceTravailResponse {
   resultats: FranceTravailOffer[];
 }
 
+// France Travail's search index is French-first — English tech terms often return 0 results.
+// Use French variants alongside English to maximise recall.
+const FRANCE_TRAVAIL_QUERIES = [
+  'nodejs',
+  'node.js',
+  'nestjs',
+  'typescript',
+  'développeur nodejs',
+  'développeur node.js',
+  'ingénieur backend nodejs',
+  'développeur typescript',
+  'développeur nestjs',
+];
+
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
 async function getAccessToken(clientId: string, clientSecret: string): Promise<string> {
@@ -101,7 +115,7 @@ export class FranceTravailJobsSource implements JobSource {
     const jobs = new Map<string, JobPosting>();
     let totalRaw = 0;
 
-    for (const query of queries) {
+    for (const query of FRANCE_TRAVAIL_QUERIES) {
       try {
         const results = await fetchOffers(token, query, minCreationDate, maxCreationDate);
         totalRaw += results.length;
