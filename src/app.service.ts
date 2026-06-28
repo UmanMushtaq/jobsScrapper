@@ -812,7 +812,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       country,
       countryCode,
       expiry: pExpiry,
-      statusLine: `Authorized to work in ${country}. ${pName} valid to ${pExpiry}, standard changement de statut on contract signing.`,
+      statusLine: `APS visa, no sponsorship required, immediately available.`,
       visaContext: `French ${pName} (valid to ${pExpiry}). Already legally resident in France, no overseas visa process required.`,
     };
 
