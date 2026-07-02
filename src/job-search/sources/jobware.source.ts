@@ -7,7 +7,7 @@ const SOURCE = 'jobware.de';
 const BASE_URL = 'https://www.jobware.de';
 const API_URL = 'https://www.jobware.de/api/d48b2/xnfwe';
 
-const SEARCH_QUERIES = ['nodejs', 'nestjs', 'typescript'];
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'node', 'typescript', 'backend entwickler'];
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

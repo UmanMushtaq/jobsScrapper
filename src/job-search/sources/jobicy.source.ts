@@ -34,8 +34,10 @@ interface JobicyQuery {
 
 const QUERIES: JobicyQuery[] = [
   { tag: 'node.js' },
+  { tag: 'nodejs' },
+  { tag: 'nestjs' },
   { tag: 'typescript' },
-  { tag: 'backend-engineer' },
+  { tag: 'backend' },
 ];
 
 export class JobicyJobsSource implements JobSource {
@@ -82,6 +84,10 @@ async function fetchJobs(tag: string, geo: string | undefined, settings: SearchS
 
   if (response.status === 403 || response.status === 429) {
     console.log(`[jobicy] blocked by ${response.status} for tag="${tag}" — cloud IP or rate limit`);
+    return [];
+  }
+  if (response.status === 404) {
+    // Jobicy returns 404 when a tag/search has zero results — not an error
     return [];
   }
   if (!response.ok) throw new Error(`Jobicy API ${response.status}`);

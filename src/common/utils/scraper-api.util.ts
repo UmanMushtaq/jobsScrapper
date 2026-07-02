@@ -80,13 +80,19 @@ export async function getNextKey(): Promise<string | null> {
   return bestValue;
 }
 
-export function buildScraperUrl(targetUrl: string, apiKey: string, premium = false): string {
+export function buildScraperUrl(
+  targetUrl: string,
+  apiKey: string,
+  premium = false,
+  options: { render?: boolean; residential?: boolean } = {},
+): string {
+  const { render = true, residential = true } = options;
   const params: Record<string, string> = {
     api_key: apiKey,
     url: targetUrl,
-    render: 'true',
-    residential: 'true',
   };
+  if (render) params['render'] = 'true';
+  if (residential) params['residential'] = 'true';
   if (premium) params['premium'] = 'true';
   return `https://api.scraperapi.com?${new URLSearchParams(params)}`;
 }

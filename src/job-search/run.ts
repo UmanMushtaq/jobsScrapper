@@ -114,7 +114,6 @@ export const FAST_SOURCES = [
   'ictjob.be',
   'francetravail.fr',
   'jobicy.com',
-  'nationalevacaturebank.nl',
   'jobware.de',
 ];
 

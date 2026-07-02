@@ -3,12 +3,13 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'nationalevacaturebank.nl';
 const BASE_URL = 'https://www.nationalevacaturebank.nl';
 const API_URL = 'https://api.nationalevacaturebank.nl/api/jobs/v3/sites/nationalevacaturebank.nl/jobs';
 
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'nestjs', 'typescript'];
+const SEARCH_QUERIES = ['nodejs', 'typescript'];
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -74,15 +75,22 @@ export class NvbNlSource implements JobSource {
 }
 
 async function fetchQuery(query: string, cutoff: number): Promise<JobPosting[]> {
-  const res = await axios.get<NvbResponse>(API_URL, {
-    params: { page: 1, limit: 20, sort: 'date', query },
+  const apiKey = await getNextKey();
+  if (!apiKey) {
+    console.log('[nvb] no ScraperAPI key/credits available — skipping');
+    return [];
+  }
+  const targetUrl = `${API_URL}?${new URLSearchParams({ page: '1', limit: '20', sort: 'date', query })}`;
+  const proxiedUrl = buildScraperUrl(targetUrl, apiKey, false, { render: false, residential: false });
+
+  const res = await axios.get<NvbResponse>(proxiedUrl, {
     headers: HEADERS,
-    timeout: 20_000,
+    timeout: 60_000,
     validateStatus: (s) => s < 500,
   });
 
   if (res.status === 403 || res.status === 429) {
-    console.log(`[nvb] blocked ${res.status} for "${query}"`);
+    console.log(`[nvb] blocked ${res.status} for "${query}" (via ScraperAPI)`);
     return [];
   }
 
