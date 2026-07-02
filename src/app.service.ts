@@ -637,7 +637,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return this.activeRun;
     }
 
-    const excludeSources = trigger === 'manual' ? ['apec.fr', 'indeed.com'] : undefined;
+    const excludeSources = ['apec.fr', ...(trigger === 'manual' ? ['indeed.com'] : [])];
 
     this.activeRun = (async () => {
       try {

@@ -8,7 +8,6 @@ import { buildPreferenceContext, buildPreferenceModel } from './preference';
 import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
 import { AdzunaJobsSource } from './sources/adzuna.source';
-import { ApecJobsSource } from './sources/apec.source';
 import { ApecPlaywrightSource } from './sources/apec.playwright';
 import { ArbeitnowJobsSource } from './sources/arbeitnow.source';
 import { AshbyJobsSource } from './sources/ashby.source';
@@ -231,6 +230,7 @@ export async function runJobSearchOnce(
       new MoovijobSource(),
       new HimalayasSource(),
       new NodeskSource(),
+      new ApecPlaywrightSource(),
     ];
     const sources = onlySources?.length
       ? allSources.filter((s) => onlySources.includes(s.name))
@@ -239,7 +239,7 @@ export async function runJobSearchOnce(
         : allSources;
     // Split sources into Playwright (memory-heavy) and non-Playwright (safe to parallelize)
     const PLAYWRIGHT_SOURCES = new Set([
-      'cadremploi.fr', 'hellowork.com', 'eurobrussels.com',
+      'cadremploi.fr', 'hellowork.com', 'eurobrussels.com', 'apec.fr',
     ]);
 
     const playwrightSources = sources.filter((s) => PLAYWRIGHT_SOURCES.has(s.name));
@@ -268,19 +268,26 @@ export async function runJobSearchOnce(
     // Rotate between cadremploi, hellowork, eurobrussels using Redis to track last run.
     const playwrightResults: SourceRunResult[] = [];
     if (playwrightSources.length > 0) {
-      const REDIS_PLAYWRIGHT_KEY = 'scheduler:playwright:last_index';
-      let lastIndex = 0;
-      try {
-        const stored = await redisGet(REDIS_PLAYWRIGHT_KEY);
-        if (stored) lastIndex = parseInt(stored, 10);
-      } catch { lastIndex = 0; }
-
-      const nextIndex = (lastIndex + 1) % playwrightSources.length;
-      const s = playwrightSources[nextIndex];
-
-      try {
+      let s: (typeof playwrightSources)[number];
+      if (playwrightSources.length === 1) {
+        // Single-source run (e.g. APEC-only scheduler): run it directly,
+        // do NOT touch the shared rotation index — writing it would poison
+        // the slow scheduler's 3-source rotation.
+        s = playwrightSources[0];
+        console.log(`[run] Playwright single source: ${s.name}`);
+      } else {
+        const REDIS_PLAYWRIGHT_KEY = 'scheduler:playwright:last_index';
+        let lastIndex = 0;
+        try {
+          const stored = await redisGet(REDIS_PLAYWRIGHT_KEY);
+          if (stored) lastIndex = parseInt(stored, 10);
+        } catch { lastIndex = 0; }
+        const nextIndex = (lastIndex + 1) % playwrightSources.length;
+        s = playwrightSources[nextIndex];
         await redisSetEx(REDIS_PLAYWRIGHT_KEY, String(nextIndex), 86400 * 7);
         console.log(`[run] Playwright slot ${nextIndex + 1}/${playwrightSources.length}: ${s.name}`);
+      }
+      try {
         const startedAt = Date.now();
         const jobs = await s.fetch(profile.search.queries, profile.search);
         playwrightResults.push({ source: s.name, jobs, durationMs: Date.now() - startedAt, error: null });
@@ -737,7 +744,7 @@ export interface JobDecisionMeta {
 
 export async function runSingleSource(sourceName: 'apec' | 'indeed'): Promise<void> {
   const profile = await loadSearchProfile();
-  const source = sourceName === 'apec' ? new ApecJobsSource() : new IndeedJobsSource();
+  const source = sourceName === 'apec' ? new ApecPlaywrightSource() : new IndeedJobsSource();
   console.log(`[manual] running single source: ${source.name}`);
   try {
     const jobs = await source.fetch(profile.search.queries, profile.search);
