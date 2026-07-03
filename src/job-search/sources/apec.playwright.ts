@@ -19,6 +19,8 @@ const SEARCH_QUERIES = [
   'ingénieur backend nodejs',
 ];
 
+const MAX_DETAILS_PER_QUERY = 15;
+
 export interface ApecPlaywrightStatus {
   lastRun: string | null;
   jobsFound: number;
@@ -82,10 +84,24 @@ export class ApecPlaywrightSource implements JobSource {
         },
       });
 
+      await context.route('**/*', (route) => {
+        const type = route.request().resourceType();
+        if (type === 'image' || type === 'font' || type === 'media' || type === 'stylesheet') {
+          return route.abort();
+        }
+        const reqUrl = route.request().url();
+        if (/realytics|google-analytics|googletagmanager|doubleclick|facebook|hotjar|didomi\.io\/consent/.test(reqUrl)) {
+          return route.abort();
+        }
+        return route.continue();
+      });
+
+      const seenUrls = new Set<string>();
+
       for (const query of SEARCH_QUERIES) {
         try {
           console.log(`[apec-playwright] searching: "${query}"`);
-          const fetched = await fetchSearchPage(browser, context, query, cutoff);
+          const fetched = await fetchSearchPage(context, query, cutoff, seenUrls);
           console.log(`[apec-playwright] found ${fetched.length} jobs for "${query}"`);
           for (const job of fetched) {
             jobs.set(job.canonicalUrl, job);
@@ -123,10 +139,10 @@ export class ApecPlaywrightSource implements JobSource {
 }
 
 async function fetchSearchPage(
-  browser: import('playwright').Browser,
   context: import('playwright').BrowserContext,
   query: string,
   cutoff: number,
+  seenUrls: Set<string>,
 ): Promise<JobPosting[]> {
   const page = await context.newPage();
   const jobs: JobPosting[] = [];
@@ -135,9 +151,12 @@ async function fetchSearchPage(
     const searchUrl = `${SEARCH_URL}?motsCles=${encodeURIComponent(query)}&typesConvention=143684&typesConvention=143685&typesConvention=143686&typesConvention=143687&typesConvention=143706`;
 
     await page.goto(searchUrl, {
-      waitUntil: 'networkidle',
+      waitUntil: 'domcontentloaded',
       timeout: 60_000,
     });
+    try {
+      await page.waitForSelector('a[href*="detail-offre"]', { timeout: 20_000 });
+    } catch { /* proceed — 0-cards diagnostic below will report */ }
 
     // Wait for job cards to render
     await page.waitForTimeout(3000);
@@ -239,7 +258,9 @@ async function fetchSearchPage(
     }
 
     // For each job card, navigate to detail page to get full description
+    let detailsFetched = 0;
     for (const card of cards) {
+      if (detailsFetched >= MAX_DETAILS_PER_QUERY) break;
       try {
         // Check date cutoff if we have a date
         if (card.date) {
@@ -247,8 +268,23 @@ async function fetchSearchPage(
           if (!isNaN(pubMs) && pubMs < cutoff) continue;
         }
 
-        const description = await fetchDetailPage(browser, card.url);
-        await sleep(800);
+        if (seenUrls.has(card.url)) continue;
+        seenUrls.add(card.url);
+        detailsFetched++;
+
+        let description = '';
+        try {
+          description = await fetchDetailPage(context, card.url);
+        } catch {
+          await sleep(1500);
+          try {
+            description = await fetchDetailPage(context, card.url);
+          } catch (retryErr) {
+            const m = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            console.error(`[apec-playwright] detail failed twice for ${card.url}: ${m}`);
+          }
+        }
+        await sleep(500);
 
         const publishedAt = card.date ? new Date(card.date).toISOString() : new Date().toISOString();
         const publishedAtTimestamp = card.date
@@ -301,20 +337,16 @@ async function fetchSearchPage(
 }
 
 async function fetchDetailPage(
-  browser: import('playwright').Browser,
+  context: import('playwright').BrowserContext,
   url: string,
 ): Promise<string> {
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    locale: 'fr-FR',
-  });
   const page = await context.newPage();
   try {
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
       timeout: 45_000,
     });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(1500);
 
     // Accept cookies if banner appears
     try {
@@ -377,7 +409,6 @@ async function fetchDetailPage(
     return '';
   } finally {
     await page.close().catch(() => undefined);
-    await context.close().catch(() => undefined);
   }
 }
 
