@@ -1,3 +1,4 @@
+// NOT REGISTERED: stepstone.* is infrastructure-blocked on Render's IP even via ScraperAPI — do not register without a new proxy approach.
 import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';

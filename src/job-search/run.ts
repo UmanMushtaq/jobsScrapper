@@ -115,6 +115,7 @@ export const FAST_SOURCES = [
   'francetravail.fr',
   'jobicy.com',
   'jobware.de',
+  'justjoin.it',
 ];
 
 export async function runJobSearchOnce(
@@ -230,6 +231,9 @@ export async function runJobSearchOnce(
       new HimalayasSource(),
       new NodeskSource(),
       new ApecPlaywrightSource(),
+      new JustJoinSource(),
+      new JobbSafariSource(),
+      new NoFluffJobsSource(),
     ];
     const sources = onlySources?.length
       ? allSources.filter((s) => onlySources.includes(s.name))
@@ -238,7 +242,7 @@ export async function runJobSearchOnce(
         : allSources;
     // Split sources into Playwright (memory-heavy) and non-Playwright (safe to parallelize)
     const PLAYWRIGHT_SOURCES = new Set([
-      'cadremploi.fr', 'hellowork.com', 'eurobrussels.com', 'apec.fr',
+      'cadremploi.fr', 'hellowork.com', 'eurobrussels.com', 'apec.fr', 'nofluffjobs.com',
     ]);
 
     const playwrightSources = sources.filter((s) => PLAYWRIGHT_SOURCES.has(s.name));
@@ -264,7 +268,7 @@ export async function runJobSearchOnce(
     );
 
     // Run only ONE Playwright source per slow run to stay under 512MB RAM.
-    // Rotate between cadremploi, hellowork, eurobrussels using Redis to track last run.
+    // Rotate between cadremploi, hellowork, eurobrussels, nofluffjobs using Redis to track last run.
     const playwrightResults: SourceRunResult[] = [];
     if (playwrightSources.length > 0) {
       let s: (typeof playwrightSources)[number];

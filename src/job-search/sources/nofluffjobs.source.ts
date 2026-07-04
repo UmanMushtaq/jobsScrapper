@@ -22,8 +22,6 @@ export class NoFluffJobsSource implements JobSource {
   }
 
   private async _fetch(settings: SearchSettings): Promise<JobPosting[]> {
-    console.warn('[nofluffjobs] disabled — SSR site, Playwright selectors need updating');
-    return [];
     const jobs = new Map<string, JobPosting>();
     const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
 
