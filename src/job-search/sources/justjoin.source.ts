@@ -7,7 +7,7 @@ const SOURCE = 'justjoin.it';
 const BASE_URL = 'https://justjoin.it';
 const API_URL = 'https://justjoin.it/api/candidate-api/offers';
 
-const SEARCH_QUERIES = ['nodejs', 'nestjs', 'typescript'];
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'nestjs', 'nest.js', 'typescript', 'typescript backend'];
 
 const RELEVANT_TITLE_KEYWORDS = [
   'node', 'nest', 'typescript', 'javascript', 'backend', 'fullstack',

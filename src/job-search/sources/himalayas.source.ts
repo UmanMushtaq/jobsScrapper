@@ -25,7 +25,7 @@ interface HimalayasResponse {
   totalCount?: number;
 }
 
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'node js', 'nestjs', 'nest.js', 'typescript backend'];
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'node js', 'nestjs', 'nest.js', 'nest js', 'typescript backend', 'typescript'];
 
 // EU/EEA allowlist for Himalayas' locationRestrictions field. If a job lists
 // restrictions and NONE of them match this list, the job is scoped to a

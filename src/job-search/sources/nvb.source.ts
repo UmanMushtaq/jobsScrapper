@@ -10,7 +10,8 @@ const SOURCE = 'nationalevacaturebank.nl';
 const BASE_URL = 'https://www.nationalevacaturebank.nl';
 const API_URL = 'https://api.nationalevacaturebank.nl/api/jobs/v3/sites/nationalevacaturebank.nl/jobs';
 
-const SEARCH_QUERIES = ['nodejs', 'typescript'];
+// ScraperAPI-credit source — capped at 3 highest-yield queries to limit credit burn.
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'typescript'];
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

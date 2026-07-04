@@ -12,8 +12,12 @@ const BASE_URL = 'https://jobsearch.api.jobtechdev.se/search';
 const QUERIES = [
   'nodejs',
   'node.js',
+  'node js',
   'nestjs',
+  'nest.js',
+  'nest js',
   'typescript backend',
+  'typescript',
   'backend developer',
 ];
 

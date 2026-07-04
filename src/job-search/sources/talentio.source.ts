@@ -8,7 +8,7 @@ import { RELOCATION_KEYWORDS } from './shared-scraper';
 const SOURCE = 'eu.talent.io';
 const API_BASE = 'https://api.eu.talent.io/api/backend/search/positions';
 
-const QUERIES = ['Node.js', 'NestJS', 'TypeScript backend'];
+const QUERIES = ['Node.js', 'nodejs', 'NestJS', 'nest.js', 'TypeScript backend', 'TypeScript'];
 
 interface TalentioPosition {
   id: string;

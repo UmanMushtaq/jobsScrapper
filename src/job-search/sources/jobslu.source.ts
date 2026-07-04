@@ -6,7 +6,8 @@ import { RawJob, extractJobsFromHtml, mapRawJob, sleep } from './shared-scraper'
 
 const SOURCE = 'jobs.lu';
 const BASE_URL = 'https://www.jobs.lu';
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'NestJS', 'nestjs', 'typescript'];
+// ScraperAPI-credit source — capped at 3 highest-yield queries to limit credit burn.
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'typescript'];
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',

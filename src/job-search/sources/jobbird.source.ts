@@ -17,7 +17,9 @@ const SEARCH_QUERIES = [
   'Node.js',
   'nestjs',
   'nest.js',
+  'nest js',
   'NestJS',
+  'typescript',
   'backend typescript',
   'backend node',
 ];

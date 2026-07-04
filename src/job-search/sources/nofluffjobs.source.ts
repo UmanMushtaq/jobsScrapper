@@ -7,10 +7,13 @@ import { acquirePlaywrightLock } from './playwright-queue';
 const SOURCE = 'nofluffjobs.com';
 const BASE_URL = 'https://nofluffjobs.com';
 
+// Playwright source — each page is a full browser navigation on a 512MB instance,
+// so this stays capped at current count + 1 new variant.
 const SEARCH_PAGES = [
   '/jobs/backend?criteria=requirement%3Dnode.js',
   '/jobs/backend?criteria=requirement%3Dnestjs',
   '/jobs/backend?criteria=requirement%3Dtypescript',
+  '/jobs/backend?criteria=requirement%3Dexpress',
 ];
 
 export class NoFluffJobsSource implements JobSource {

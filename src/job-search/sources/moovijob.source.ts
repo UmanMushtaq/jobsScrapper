@@ -5,7 +5,7 @@ import { RawJob, extractJobsFromHtml, mapRawJob, sleep } from './shared-scraper'
 
 const SOURCE = 'moovijob.com';
 const BASE_URL = 'https://moovijob.com';
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'NestJS', 'nestjs', 'typescript'];
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'node js', 'NestJS', 'nestjs', 'nest.js', 'nest js', 'typescript', 'typescript backend'];
 
 // Direct fetch with Windows Chrome UA — ScraperAPI returns 200 but renders a JS shell with 0 jobs
 const HEADERS = {

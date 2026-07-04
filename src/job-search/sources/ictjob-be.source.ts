@@ -9,8 +9,8 @@ const SOURCE = 'ictjob.be';
 const BASE_URL = 'https://www.ictjob.be/en/search-it-jobs';
 
 const SEARCH_QUERIES = [
-  'nodejs', 'node.js', 'NodeJS', 'nestjs', 'NestJS',
-  'backend typescript', 'backend node',
+  'nodejs', 'node.js', 'node js', 'NodeJS', 'nestjs', 'nest.js', 'nest js', 'NestJS',
+  'typescript', 'backend typescript', 'backend node',
 ];
 
 const HEADERS = {

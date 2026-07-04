@@ -7,7 +7,9 @@ import { acquirePlaywrightLock } from './playwright-queue';
 
 const SOURCE = 'hellowork.com';
 const BASE_URL = 'https://www.hellowork.com';
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'NestJS', 'typescript backend'];
+// Playwright source — each query is a full browser navigation on a 512MB instance,
+// so this stays capped at current count + 1 new variant.
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'NestJS', 'nest.js', 'typescript backend'];
 
 export class HelloWorkSource implements JobSource {
   name = SOURCE;

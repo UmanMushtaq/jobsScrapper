@@ -33,7 +33,7 @@ interface BaResponse {
   maxErgebnisse?: number;
 }
 
-const QUERIES = ['Node.js', 'TypeScript Backend', 'NestJS', 'Backend Engineer'];
+const QUERIES = ['Node.js', 'NestJS', 'TypeScript Backend', 'Backend Engineer', 'Node.js Entwickler', 'Backend Entwickler'];
 
 export class BundesagenturJobsSource implements JobSource {
   name = SOURCE;

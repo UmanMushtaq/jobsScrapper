@@ -8,7 +8,9 @@ import { acquirePlaywrightLock } from './playwright-queue';
 const SOURCE = 'eurobrussels.com';
 const BASE_URL = 'https://www.eurobrussels.com';
 
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'nestjs', 'typescript backend', 'backend node'];
+// Playwright source — each query is a full browser navigation on a 512MB instance,
+// so this stays capped at current count + 1 new variant.
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'nestjs', 'nest.js', 'typescript backend', 'backend node'];
 
 export class EuroBrusselsSource implements JobSource {
   name = SOURCE;

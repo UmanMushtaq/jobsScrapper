@@ -8,6 +8,9 @@ const SOURCE = 'jobware.de';
 const BASE_URL = 'https://www.jobware.de';
 const API_URL = 'https://www.jobware.de/api/d48b2/xnfwe';
 
+// Deliberately narrower than NODE_QUERY_VARIANTS: jobware.de's jw_jobname param searches
+// German job TITLES only, and 'nestjs'/'nest.js'/'nest js' confirmed return 0 results here
+// (verified previously) since German titles almost never contain "nestjs". Do not add them back.
 const SEARCH_QUERIES = ['nodejs', 'node.js', 'node', 'typescript', 'backend entwickler'];
 
 const HEADERS = {

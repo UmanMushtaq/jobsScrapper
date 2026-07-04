@@ -6,6 +6,16 @@ import { JobPosting } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 
+// Full family of Node/NestJS spellings, lowercase. Sources may need casing or format
+// tweaks per their own API (most search APIs are case-insensitive, but verify per source).
+// Not every source should use the full list — ScraperAPI-credit sources cap at 3 queries,
+// Playwright sources cap at current+1, and sources with confirmed dead variants (e.g.
+// jobware.de returning 0 for "nestjs") should keep their narrower, verified list.
+export const NODE_QUERY_VARIANTS = [
+  'nodejs', 'node.js', 'node js', 'node', 'nestjs', 'nest.js', 'nest js',
+  'typescript backend', 'typescript',
+];
+
 export interface RawJob {
   id?: string | number;
   url?: string;

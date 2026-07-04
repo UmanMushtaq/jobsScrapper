@@ -5,7 +5,7 @@ import { RawJob, extractJobsFromHtml, mapRawJob, sleep } from './shared-scraper'
 
 const SOURCE = 'vacancy.nl';
 const BASE_URL = 'https://www.vacancy.nl';
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'NestJS', 'nestjs', 'typescript'];
+const SEARCH_QUERIES = ['nodejs', 'node.js', 'node js', 'NestJS', 'nestjs', 'nest.js', 'nest js', 'typescript', 'typescript backend'];
 
 // Direct fetch with realistic Windows Chrome headers — no ScraperAPI (returns 500)
 const HEADERS = {

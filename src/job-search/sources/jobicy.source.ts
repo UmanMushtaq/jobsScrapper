@@ -37,6 +37,7 @@ const QUERIES: JobicyQuery[] = [
   { tag: 'node.js' },
   { tag: 'nodejs' },
   { tag: 'nestjs' },
+  { tag: 'nest.js' },
   { tag: 'typescript' },
   { tag: 'backend' },
 ];
