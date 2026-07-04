@@ -150,9 +150,13 @@
       "IE"
     ],
     "priorityBoostCountries": [
+      "DE",
       "PL",
       "SE",
-      "DE"
+      "LU",
+      "FR",
+      "NL",
+      "IT"
     ],
     "acceptRemote": true,
     "acceptHybrid": true,

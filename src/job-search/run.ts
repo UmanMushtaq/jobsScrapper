@@ -50,6 +50,7 @@ import { JobsLuSource } from './sources/jobslu.source';
 import { MoovijobSource } from './sources/moovijob.source';
 import { HimalayasSource } from './sources/himalayas.source';
 import { NodeskSource } from './sources/nodesk.source';
+import { GlassdoorSource } from './sources/glassdoor.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -235,6 +236,7 @@ export async function runJobSearchOnce(
       new JustJoinSource(),
       new JobbSafariSource(),
       new NoFluffJobsSource(),
+      new GlassdoorSource(),
     ];
     const sources = onlySources?.length
       ? allSources.filter((s) => onlySources.includes(s.name))
