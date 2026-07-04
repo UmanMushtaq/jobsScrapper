@@ -109,7 +109,7 @@ export interface PgDecisionRow {
   country: string | null;
 }
 
-export async function getJobDecisionHistory(limit = 20): Promise<{
+export async function getJobDecisionHistory(appliedLimit = 20, dismissedLimit = 50): Promise<{
   applied: PgDecisionRow[];
   dismissed: PgDecisionRow[];
 }> {
@@ -124,7 +124,7 @@ export async function getJobDecisionHistory(limit = 20): Promise<{
          WHERE decision = 'applied'
          ORDER BY decided_at DESC
          LIMIT $1`,
-        [limit],
+        [appliedLimit],
       ),
       p.query<PgDecisionRow>(
         `SELECT job_title, company, matcher_score, ai_score,
@@ -133,7 +133,7 @@ export async function getJobDecisionHistory(limit = 20): Promise<{
          WHERE decision = 'dismissed'
          ORDER BY decided_at DESC
          LIMIT $1`,
-        [limit],
+        [dismissedLimit],
       ),
     ]);
     return { applied: applied.rows, dismissed: dismissed.rows };

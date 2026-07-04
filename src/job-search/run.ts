@@ -338,6 +338,15 @@ export async function runJobSearchOnce(
     const sourceSummary = sourceResults.map((r) => `${r.source}:${r.jobs.length}${r.error ? '(ERR)' : ''}`).join(' ');
     await redisLog('info', 'sources', `${jobs.length} jobs from ${sourceResults.length} sources — ${sourceSummary}`);
 
+    // A company dismissed repeatedly (different roles, same employer) should stop resurfacing
+    // even when the exact role+title has never been seen before.
+    const DISMISSED_COMPANY_THRESHOLD = 2;
+    const dismissedCompanyCounts = new Map<string, number>();
+    for (const roleKey of dismissedRoles) {
+      const companyKey = roleKey.split('::')[0];
+      dismissedCompanyCounts.set(companyKey, (dismissedCompanyCounts.get(companyKey) ?? 0) + 1);
+    }
+
     // Always compare normalized URLs — sources may return raw URLs while Redis stores normalized ones.
     // Also check company+title role keys to catch reposts of the same role with a new URL.
     const baseFilter = (job: { canonicalUrl: string; company: string; title: string }) => {
@@ -345,6 +354,12 @@ export async function runJobSearchOnce(
       if (seenUrls.has(url) || appliedUrls.has(url) || dismissedUrls.has(url)) return false;
       const roleKey = buildRoleKey(job.company, job.title);
       if (appliedRoles.has(roleKey) || dismissedRoles.has(roleKey)) return false;
+      const companyKey = roleKey.split('::')[0];
+      const dismissedCompanyCount = dismissedCompanyCounts.get(companyKey) ?? 0;
+      if (dismissedCompanyCount >= DISMISSED_COMPANY_THRESHOLD) {
+        console.log(`[dismissed-learning] SKIPPED: ${job.company} has ${dismissedCompanyCount} dismissed roles`);
+        return false;
+      }
       return true;
     };
 

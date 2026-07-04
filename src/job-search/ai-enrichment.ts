@@ -568,7 +568,7 @@ async function enrichSingle(
   ].filter(Boolean).join('\n');
 
   // Fetch applied/dismissed history — PostgreSQL primary, Redis fallback
-  const pgHistory = await getJobDecisionHistory(20);
+  const pgHistory = await getJobDecisionHistory(20, 50);
   const usePg = pgHistory.applied.length > 0 || pgHistory.dismissed.length > 0;
 
   let appliedEntries: Array<{ title: string; company: string; country?: string; score: number; stack?: string; roleType?: string; desc?: string }>;
@@ -585,7 +585,7 @@ async function enrichSingle(
   } else {
     const [redisApplied, redisDismissed] = await Promise.all([
       redisGetJobDecisionHistory('applied', 20),
-      redisGetJobDecisionHistory('dismissed', 20),
+      redisGetJobDecisionHistory('dismissed', 50),
     ]);
     appliedEntries = redisApplied.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score }));
     dismissedEntries = redisDismissed.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score }));
@@ -617,6 +617,12 @@ async function enrichSingle(
     lines.push(
       'DECISION HISTORY LEARNING — CRITICAL:',
       'You have access to the candidate\'s full apply/dismiss history with job descriptions. Use it aggressively.',
+      '',
+      'PATTERN INFERENCE (do this before scoring): look across ALL dismissed jobs above and infer the ' +
+        'COMMON PATTERNS they share — e.g. frontend-primary stacks, 6+ year experience requirements, ' +
+        'French-only companies with no English signal, a specific unwanted domain, or a repeat company. ' +
+        'Reject or heavily penalize a NEW job that matches an inferred pattern even if it does not exactly ' +
+        'match any single dismissed job\'s stack. Do not limit yourself to exact stack matches below.',
       '',
       '=== DISMISS PATTERNS (never show these) ===',
       '',
