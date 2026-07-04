@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { AiEnrichment, enrichMatch, clearGeminiOverloadFlag, isGeminiOverloaded } from './ai-enrichment';
 import { scoreLocation } from './sources/location-filter';
+import { isFrontendPrimaryStack } from './stack-filter';
 import { checkFollowups } from './followup';
 import { salaryMeetsMinimum, scoreJob } from './matcher';
 import { buildPreferenceContext, buildPreferenceModel } from './preference';
@@ -406,7 +407,7 @@ export async function runJobSearchOnce(
     const desiredLang = (profile.search.language ?? 'en').toLowerCase();
     const expMin = profile.search.experience.min;
     const expMax = profile.search.experience.max;
-    const diagCounts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, salary: 0, mandatory: 0, score: 0 };
+    const diagCounts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, salary: 0, mandatory: 0, score: 0, frontendPrimary: 0 };
     const diagLocBreak = { usaRemote: 0, euOnsite: 0, euHybrid: 0, other: 0 };
     const mandBreak = { nodeOnly: 0, tsOnly: 0, backendOnly: 0, none: 0 };
     const nearMisses: Array<{ title: string; company: string; source: string; mandatory: number }> = [];
@@ -422,6 +423,13 @@ export async function runJobSearchOnce(
       if (!isLangPrefCountry && /[àâéèêëîïôùûüçœæäöüß]/i.test(job.title) && detectLanguage(job.title) !== desiredLang) { diagCounts.lang++; continue; }
       if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { diagCounts.title++; continue; }
       if (EXCL_ROLES.some((k) => title.includes(k))) { diagCounts.role++; continue; }
+
+      const frontendStack = isFrontendPrimaryStack(job.title, job.description);
+      if (frontendStack.reject) {
+        diagCounts.frontendPrimary++;
+        console.log(`[stack-filter] REJECTED frontend-primary: ${job.company} — ${frontendStack.reason}`);
+        continue;
+      }
 
       const cc = job.countryCode;
       const wm = job.workMode;
@@ -462,7 +470,7 @@ export async function runJobSearchOnce(
 
     if (slicedMatches.length === 0 && freshJobs.length > 0) {
       console.log(`[scorer-diag] ${freshJobs.length} fresh jobs → 0 matched. Breakdown:`);
-      console.log(`  lang=${diagCounts.lang} | titleExcl=${diagCounts.title} | roleExcl=${diagCounts.role}`);
+      console.log(`  lang=${diagCounts.lang} | titleExcl=${diagCounts.title} | roleExcl=${diagCounts.role} | frontendPrimary=${diagCounts.frontendPrimary}`);
       console.log(`  location=${diagCounts.location} (usa-remote=${diagLocBreak.usaRemote} eu-onsite=${diagLocBreak.euOnsite} eu-hybrid=${diagLocBreak.euHybrid} other=${diagLocBreak.other})`);
       console.log(`  exp=${diagCounts.exp} | salary<min=${diagCounts.salary} | mandatory=${diagCounts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
       console.log(`  score<threshold=${diagCounts.score} (adaptive: <120w→54, 120-350w→56, >350w→59)`);
@@ -477,7 +485,7 @@ export async function runJobSearchOnce(
     await redisLog(
       slicedMatches.length === 0 && freshJobs.length > 0 ? 'warn' : 'info',
       'scorer-diag',
-      `lang=${diagCounts.lang} titleExcl=${diagCounts.title} roleExcl=${diagCounts.role} loc=${diagCounts.location}(eu-onsite=${diagLocBreak.euOnsite},eu-hybrid=${diagLocBreak.euHybrid},usa=${diagLocBreak.usaRemote}) exp=${diagCounts.exp} mandatory=${diagCounts.mandatory} score=${diagCounts.score}`,
+      `lang=${diagCounts.lang} titleExcl=${diagCounts.title} roleExcl=${diagCounts.role} frontendPrimary=${diagCounts.frontendPrimary} loc=${diagCounts.location}(eu-onsite=${diagLocBreak.euOnsite},eu-hybrid=${diagLocBreak.euHybrid},usa=${diagLocBreak.usaRemote}) exp=${diagCounts.exp} mandatory=${diagCounts.mandatory} score=${diagCounts.score}`,
     );
 
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
@@ -607,6 +615,7 @@ export async function runJobSearchOnce(
         salary: diagCounts.salary,
         mandatory: diagCounts.mandatory,
         score: diagCounts.score,
+        frontendPrimary: diagCounts.frontendPrimary,
       },
       locationBreak: diagLocBreak,
       geminiRejected: rejectedByAi.length,

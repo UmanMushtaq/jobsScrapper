@@ -190,6 +190,7 @@ export interface ScorerDiagnostic {
     salary: number;
     mandatory: number;
     score: number;
+    frontendPrimary: number;
   };
   locationBreak: { usaRemote: number; euOnsite: number; euHybrid: number; other: number };
   geminiRejected: number;

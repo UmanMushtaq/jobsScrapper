@@ -2,6 +2,7 @@ import { PreferenceModel, scorePreference } from './preference';
 import { resolveWorkAuth } from './profile';
 import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
+import { isFrontendPrimaryStack } from './stack-filter';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
 
 // Multilingual equivalents — all lowercased for use with .includes() on a lowercased text string.
@@ -137,6 +138,14 @@ export function scoreJob(
       if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: roleExcl/desc (matched: "${matchedDescRoleExcl}")`);
       return null;
     }
+  }
+
+  // Hard reject: Angular/Vue as the primary framework with Node.js as a passing mention.
+  const frontendStack = isFrontendPrimaryStack(job.title, job.description);
+  if (frontendStack.reject) {
+    console.log(`[stack-filter] REJECTED frontend-primary: ${job.company} — ${frontendStack.reason}`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: frontendPrimary (${frontendStack.reason})`);
+    return null;
   }
 
   // Hard reject: desktop / Electron app roles — not relevant to backend API profile
