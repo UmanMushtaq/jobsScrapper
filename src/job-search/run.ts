@@ -421,7 +421,7 @@ export async function runJobSearchOnce(
 
       const cc = job.countryCode;
       const wm = job.workMode;
-      const locResult = scoreLocation(cc, job.city, wm, job.offersRelocation, profile.search);
+      const locResult = scoreLocation(cc, job.city, wm, job.offersRelocation, profile.search, job.locationLabel, job.description);
       if (!locResult.isAcceptable) {
         diagCounts.location++;
         const isUsaRemote = wm === 'remote' && cc && profile.search.usaCountryCodes?.includes(cc) && !profile.search.usaJobs;

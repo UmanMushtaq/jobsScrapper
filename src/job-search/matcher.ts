@@ -165,6 +165,7 @@ export function scoreJob(
     job.offersRelocation,
     profile.search,
     job.locationLabel,
+    job.description,
   );
   if (!locationScore.isAcceptable) {
     return null;

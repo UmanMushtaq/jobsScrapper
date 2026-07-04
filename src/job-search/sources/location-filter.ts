@@ -7,6 +7,74 @@ export interface LocationScore {
   reason: string;
 }
 
+export type RemoteScope = 'eu-ok' | 'global' | 'unknown' | 'restricted-non-eu';
+
+// EU country names + hint words already used for country inference below, reused
+// here as the "eu-ok" signal set for remote-scope classification.
+const EU_OK_HINTS = [
+  'emea', 'europe', 'european', 'eu remote', 'remote eu', 'eu only',
+  'cet', 'cest', 'utc+1', 'utc+2', 'worldwide', 'global', 'anywhere',
+  'germany', 'deutschland', 'belgium', 'belgique', 'belgie', 'netherlands', 'nederland',
+  'luxembourg', 'france', 'ireland', 'poland', 'polska', 'spain', 'españa', 'sweden', 'sverige',
+  'italy', 'italia', 'denmark', 'danmark', 'czech', 'austria', 'portugal', 'finland', 'greece',
+  'hungary', 'romania', 'bulgaria', 'croatia', 'slovakia', 'slovenia', 'estonia', 'latvia',
+  'lithuania', 'malta', 'cyprus',
+];
+
+// Whole-word-ish patterns (word-boundary regexes) that signal the job is scoped
+// to a non-EU region and excludes EU-based remote candidates.
+const RESTRICTED_NON_EU_PATTERNS: RegExp[] = [
+  // US
+  /\bus[\s-]?only\b/i, /\busa only\b/i, /\bunited states only\b/i,
+  /\bremote\s*\(us\)/i, /\bremote us\b/i, /\bus remote\b/i, /\bremote in the us\b/i,
+  /\bus[\s-]based\b/i, /\bbased in the us\b/i, /\bus residents?\b/i,
+  /\bmust be located in the us\b/i, /\bmust reside in the us\b/i,
+  /\bus work authorization\b/i, /\bauthorized to work in the us\b/i,
+  /\bus citizens?\b/i, /\bgreen card\b/i, /\bw-?2\b/i,
+  // North America
+  /\bcanada only\b/i, /\bus or canada\b/i, /\bus\/canada\b/i, /\bus & canada\b/i,
+  /\bnorth america only\b/i, /\bna only\b/i, /\bus\/ca\b/i, /\(us\/ca\)/i,
+  // LATAM / other regions
+  /\blatam\b/i, /\blatin america\b/i, /\bargentina only\b/i, /\bbrazil only\b/i,
+  /\bmexico only\b/i, /\bamericas only\b/i, /\bapac\b/i, /\basia-pacific\b/i,
+  /\bindia only\b/i, /\baustralia only\b/i, /\bus or latam\b/i,
+  // US timezone hard requirements
+  /\bpacific hours\b/i, /\bpst hours\b/i, /\best hours\b/i, /\bus pacific\b/i,
+  /\bus eastern\b/i, /\boverlap with us\b/i, /\bus time ?zone\b/i, /\bus timezones\b/i,
+  /\bus business hours\b/i,
+];
+
+// Weaker signals only trustworthy when they ARE the location label itself
+// (e.g. locationLabel === "United States (Remote)") — a bare country name used
+// as the posting's location field means the role is scoped to that country.
+// Too noisy to also scan the full description, where a stray "United States"
+// mention doesn't necessarily restrict an otherwise EU-fine remote role.
+const RESTRICTED_LABEL_ONLY_PATTERNS: RegExp[] = [
+  /\bunited states\b/i,
+];
+
+/**
+ * Classifies a job's remote scope from its location label (strongest signal)
+ * and the first ~1500 chars of its description (weaker, only for the explicit
+ * patterns above — long descriptions bury unrelated "US" mentions that don't
+ * describe the job's own eligibility).
+ */
+export function parseRemoteScope(locationLabel: string, description: string): RemoteScope {
+  const label = (locationLabel ?? '').toLowerCase();
+  const descSample = (description ?? '').slice(0, 1500).toLowerCase();
+
+  if (RESTRICTED_NON_EU_PATTERNS.some((p) => p.test(label))) return 'restricted-non-eu';
+  if (RESTRICTED_LABEL_ONLY_PATTERNS.some((p) => p.test(label))) return 'restricted-non-eu';
+  if (RESTRICTED_NON_EU_PATTERNS.some((p) => p.test(descSample))) return 'restricted-non-eu';
+
+  if (EU_OK_HINTS.some((hint) => label.includes(hint))) return 'eu-ok';
+  if (EU_OK_HINTS.some((hint) => descSample.includes(hint))) return 'eu-ok';
+
+  if (label.includes('fully remote') || descSample.includes('fully remote')) return 'global';
+
+  return 'unknown';
+}
+
 export function scoreLocation(
   countryCode: string | null,
   city: string | null,
@@ -14,11 +82,12 @@ export function scoreLocation(
   offersRelocation: boolean,
   profile: SearchSettings,
   locationLabel?: string,
+  description?: string,
 ): LocationScore {
   let effectiveCountryCode = countryCode;
 
-  // Remote jobs: acceptable regardless of country, BUT respect usaJobs:false.
-  // If the company is USA-based and the profile opts out of USA jobs, reject even for remote.
+  // Remote jobs: acceptable regardless of country, BUT respect usaJobs:false and
+  // any explicit non-EU geo restriction (US-only, US/CA, LATAM, APAC, etc.).
   if (workMode === 'remote') {
     if (!profile.usaJobs && countryCode && profile.usaCountryCodes.includes(countryCode)) {
       return {
@@ -28,11 +97,29 @@ export function scoreLocation(
         reason: 'USA-based company — usaJobs is disabled',
       };
     }
+
+    const scope = parseRemoteScope(locationLabel ?? '', description ?? '');
+    if (scope === 'restricted-non-eu') {
+      return {
+        isAcceptable: false,
+        score: 0,
+        priority: 'rejected',
+        reason: `Remote restricted to non-EU region: ${locationLabel ?? description?.slice(0, 80) ?? 'unspecified'}`,
+      };
+    }
+    if (scope === 'eu-ok' || scope === 'global') {
+      return {
+        isAcceptable: true,
+        score: 95,
+        priority: 'acceptable',
+        reason: 'EU/global remote',
+      };
+    }
     return {
       isAcceptable: true,
-      score: 90,
+      score: 85,
       priority: 'acceptable',
-      reason: 'Remote position - location-independent',
+      reason: 'Remote, location unspecified — acceptable',
     };
   }
 

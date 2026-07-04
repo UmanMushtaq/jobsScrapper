@@ -6,7 +6,7 @@ import { isRelevantJob } from './shared-scraper';
 
 const SOURCE = 'himalayas.app';
 
-interface HimalayasJob {
+export interface HimalayasJob {
   guid?: string;
   title?: string;
   companyName?: string;
@@ -26,6 +26,18 @@ interface HimalayasResponse {
 }
 
 const SEARCH_QUERIES = ['nodejs', 'node.js', 'node js', 'nestjs', 'nest.js', 'typescript backend'];
+
+// EU/EEA allowlist for Himalayas' locationRestrictions field. If a job lists
+// restrictions and NONE of them match this list, the job is scoped to a
+// region we can't take (US, Canada, LATAM, APAC, etc.) and is dropped.
+const EU_EEA_ALLOWLIST = [
+  'austria', 'belgium', 'bulgaria', 'croatia', 'cyprus', 'czech', 'denmark', 'estonia',
+  'finland', 'france', 'germany', 'greece', 'hungary', 'ireland', 'italy', 'latvia',
+  'lithuania', 'luxembourg', 'malta', 'netherlands', 'poland', 'portugal', 'romania',
+  'slovakia', 'slovenia', 'spain', 'sweden',
+  'united kingdom', 'norway', 'switzerland', 'iceland',
+  'europe', 'emea', 'worldwide', 'global', 'anywhere',
+];
 
 export class HimalayasSource implements JobSource {
   name = SOURCE;
@@ -76,7 +88,7 @@ async function fetchQuery(query: string, cutoff: number): Promise<JobPosting[]> 
     .filter((j): j is JobPosting => j !== null);
 }
 
-function mapJob(j: HimalayasJob): JobPosting | null {
+export function mapJob(j: HimalayasJob): JobPosting | null {
   if (!j.guid || !j.title || !j.applicationLink) return null;
 
   const title = j.title;
@@ -84,6 +96,17 @@ function mapJob(j: HimalayasJob): JobPosting | null {
   const description = stripHtml(j.description ?? '');
 
   if (!isRelevantJob(title, description)) return null;
+
+  const restrictions = j.locationRestrictions ?? [];
+  if (restrictions.length > 0) {
+    const allowed = restrictions.some((r) =>
+      EU_EEA_ALLOWLIST.some((a) => r.toLowerCase().includes(a)),
+    );
+    if (!allowed) {
+      console.log(`[himalayas] FILTERED non-EU remote: ${company} — ${restrictions.join(', ')}`);
+      return null;
+    }
+  }
 
   const text = `${title} ${description}`.toLowerCase();
   const publishedAt = j.pubDate ? new Date(j.pubDate * 1000) : new Date();

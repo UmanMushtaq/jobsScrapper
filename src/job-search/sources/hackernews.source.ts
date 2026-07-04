@@ -1,5 +1,6 @@
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
+import { parseRemoteScope } from './location-filter';
 
 const SOURCE = 'news.ycombinator.com';
 const ALGOLIA = 'https://hn.algolia.com/api/v1';
@@ -151,6 +152,17 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
   // Set countryCode even for remote jobs so the location filter can enforce usaJobs:false
   const countryCode = guessCountryCode(locationLabel);
 
+  // HN geo tags ("REMOTE (US-only)", "REMOTE (US or LATAM; must overlap with US
+  // Pacific hours)") can live in any pipe-separated part, not just parts[1].
+  // Scan all parts together so the restriction isn't missed.
+  if (workMode === 'remote') {
+    const allPartsScan = parts.join(' | ');
+    if (parseRemoteScope(allPartsScan, '') === 'restricted-non-eu') {
+      console.log(`[hackernews] FILTERED non-EU remote: ${company} — ${firstLine}`);
+      return null;
+    }
+  }
+
   // Extract apply URL from HTML (first non-HN link). HN encodes slashes as &#x2F; inside href attributes.
   const urlMatches = [...html.matchAll(/href="([^"]+)"/g)];
   const applyUrl =
@@ -260,7 +272,10 @@ function extractExperience(text: string): number | null {
 
 function guessCountryCode(location: string): string | null {
   const l = location.toUpperCase();
-  if (l.includes('USA') || l.includes('UNITED STATES') || l.includes(', CA') || l.includes(', NY') || l.includes(', TX')) return 'US';
+  if (
+    l.includes('USA') || l.includes('UNITED STATES') || l.includes(', CA') || l.includes(', NY') || l.includes(', TX') ||
+    l.includes('US-ONLY') || l.includes('US ONLY') || l.includes('(US)')
+  ) return 'US';
   if (l.includes('UK') || l.includes('UNITED KINGDOM') || l.includes('LONDON')) return 'GB';
   if (l.includes('GERMANY') || l.includes('BERLIN') || l.includes('MUNICH')) return 'DE';
   if (l.includes('FRANCE') || l.includes('PARIS')) return 'FR';
