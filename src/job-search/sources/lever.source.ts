@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'jobs.lever.co';
 
@@ -138,7 +139,7 @@ function mapPosting(posting: LeverPosting, company: string): JobPosting {
     publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
     startupSignals: [],
     applyUrl: posting.applyUrl,
-    offersRelocation: containsAny(fullText, ['relocation', 'visa sponsorship', 'visa sponsor', 'relocation assistance']),
+    offersRelocation: containsAny(fullText, RELOCATION_KEYWORDS),
     isStartup: containsAny(fullText, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
     employeeCount: null,
     companyCreationYear: null,

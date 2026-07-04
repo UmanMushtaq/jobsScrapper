@@ -1,6 +1,7 @@
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { parseRemoteScope } from './location-filter';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'news.ycombinator.com';
 const ALGOLIA = 'https://hn.algolia.com/api/v1';
@@ -251,7 +252,7 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
     publishedAtTimestamp,
     startupSignals: [],
     applyUrl,
-    offersRelocation: lower.includes('relocation') || lower.includes('visa sponsor'),
+    offersRelocation: RELOCATION_KEYWORDS.some((k) => lower.includes(k)),
     isStartup: lower.includes('startup') || lower.includes('seed') || lower.includes('series a') || lower.includes('yc'),
     employeeCount: null,
     companyCreationYear: null,

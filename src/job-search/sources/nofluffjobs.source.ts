@@ -15,7 +15,7 @@ const SEARCH_PAGES = [
 
 export class NoFluffJobsSource implements JobSource {
   name = SOURCE;
-  priority = 5;
+  priority = 3;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     return acquirePlaywrightLock(() => this._fetch(settings));

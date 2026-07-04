@@ -4,6 +4,7 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'nationalevacaturebank.nl';
 const BASE_URL = 'https://www.nationalevacaturebank.nl';
@@ -153,7 +154,7 @@ function mapJob(raw: NvbJob): JobPosting | null {
     publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
     startupSignals: [],
     applyUrl: canonicalUrl,
-    offersRelocation: text.includes('relocation') || text.includes('visa'),
+    offersRelocation: RELOCATION_KEYWORDS.some((k) => text.includes(k)),
     isStartup: text.includes('startup') || text.includes('seed'),
     employeeCount: null,
     companyCreationYear: null,

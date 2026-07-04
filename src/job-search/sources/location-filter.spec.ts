@@ -98,6 +98,36 @@ function buildHimalayasJob(overrides: Partial<HimalayasJob> = {}): HimalayasJob 
   };
 }
 
+describe('scoreLocation — priorityBoostCountries', () => {
+  const noBoostSettings: SearchSettings = {
+    ...baseSettings,
+    europeCountryCodes: ['FR', 'DE', 'PL', 'SE'],
+  };
+  const boostSettings: SearchSettings = {
+    ...noBoostSettings,
+    priorityBoostCountries: ['PL', 'SE', 'DE'],
+  };
+
+  it('adds +10 and an "[priority country]" tag for an acceptable hybrid job in Poland', () => {
+    const withoutBoost = scoreLocation('PL', 'Warsaw', 'hybrid', false, noBoostSettings, 'Warsaw, Poland');
+    const withBoost = scoreLocation('PL', 'Warsaw', 'hybrid', false, boostSettings, 'Warsaw, Poland');
+    expect(withBoost.isAcceptable).toBe(true);
+    expect(withBoost.score).toBe(Math.min(100, withoutBoost.score + 10));
+    expect(withBoost.reason).toContain('[priority country]');
+  });
+
+  it('does not boost a rejected job', () => {
+    const result = scoreLocation('RO', null, 'on-site', false, boostSettings, 'Bucharest, Romania');
+    expect(result.isAcceptable).toBe(false);
+    expect(result.reason).not.toContain('[priority country]');
+  });
+
+  it('does not boost a country outside priorityBoostCountries', () => {
+    const result = scoreLocation('FR', 'Paris', 'hybrid', false, boostSettings, 'Paris, France');
+    expect(result.reason).not.toContain('[priority country]');
+  });
+});
+
 describe('himalayas mapJob — locationRestrictions', () => {
   it('drops a job restricted to Argentina', () => {
     const job = mapHimalayasJob(buildHimalayasJob({ locationRestrictions: ['Argentina'] }));

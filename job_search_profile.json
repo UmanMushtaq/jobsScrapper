@@ -149,6 +149,11 @@
       "NL",
       "IE"
     ],
+    "priorityBoostCountries": [
+      "PL",
+      "SE",
+      "DE"
+    ],
     "acceptRemote": true,
     "acceptHybrid": true,
     "acceptOnSite": true,

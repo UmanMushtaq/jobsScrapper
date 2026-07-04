@@ -4,6 +4,7 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'theprotocol.it';
 const BASE_URL = 'https://theprotocol.it/filtry/';
@@ -225,7 +226,7 @@ function mapJob(raw: RawJob): JobPosting | null {
     publishedAtTimestamp,
     startupSignals: [],
     applyUrl: canonicalUrl,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsor', 'visa support', 'work permit', 'sponsorship']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage']),
     employeeCount: null,
     companyCreationYear: null,

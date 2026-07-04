@@ -4,6 +4,7 @@ import type { AnyNode } from 'domhandler';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'berlinstartupjobs.com';
 const PAGE_URL = 'https://berlinstartupjobs.com/engineering/';
@@ -136,7 +137,7 @@ function extractJob($: ReturnType<typeof cheerioLoad>, el: AnyNode): JobPosting 
     publishedAtTimestamp: Math.floor(Date.now() / 1000),
     startupSignals: ['startup'],
     applyUrl: jobUrl,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsorship', 'visa sponsor', 'work permit']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: true,
     employeeCount: null,
     companyCreationYear: null,

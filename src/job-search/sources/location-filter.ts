@@ -75,7 +75,63 @@ export function parseRemoteScope(locationLabel: string, description: string): Re
   return 'unknown';
 }
 
+// Country name hints used to infer a country code from a free-text location
+// label when no structured countryCode is available. Shared by the core
+// scorer (below) and the priority-boost wrapper (scoreLocation), so both
+// agree on which country a label-only job resolves to.
+const COUNTRY_NAME_HINTS: Record<string, string> = {
+  'germany': 'DE', 'deutschland': 'DE', 'berlin': 'DE', 'munich': 'DE', 'münchen': 'DE',
+  'hamburg': 'DE', 'frankfurt': 'DE', 'cologne': 'DE', 'köln': 'DE',
+  'belgium': 'BE', 'belgique': 'BE', 'belgie': 'BE', 'brussels': 'BE', 'bruxelles': 'BE',
+  'netherlands': 'NL', 'amsterdam': 'NL', 'rotterdam': 'NL', 'nederland': 'NL',
+  'luxembourg': 'LU', 'france': 'FR', 'paris': 'FR',
+  'ireland': 'IE', 'dublin': 'IE',
+  'poland': 'PL', 'polska': 'PL', 'warsaw': 'PL', 'warszawa': 'PL', 'krakow': 'PL', 'wroclaw': 'PL',
+  'spain': 'ES', 'españa': 'ES', 'madrid': 'ES', 'barcelona': 'ES',
+  'sweden': 'SE', 'sverige': 'SE', 'stockholm': 'SE',
+  'italy': 'IT', 'italia': 'IT', 'milan': 'IT', 'rome': 'IT',
+  'denmark': 'DK', 'danmark': 'DK', 'copenhagen': 'DK',
+  'czech': 'CZ', 'prague': 'CZ', 'praha': 'CZ',
+};
+
+function inferCountryFromLabel(locationLabel: string): string | null {
+  const labelLower = (locationLabel ?? '').toLowerCase();
+  for (const [hint, code] of Object.entries(COUNTRY_NAME_HINTS)) {
+    if (labelLower.includes(hint)) return code;
+  }
+  return null;
+}
+
+/**
+ * Scores a job's location/work-mode fit against the profile, then applies a
+ * ranking boost (not a filter — never changes isAcceptable) for countries in
+ * profile.priorityBoostCountries, e.g. Poland/Sweden/Germany for English-language roles.
+ */
 export function scoreLocation(
+  countryCode: string | null,
+  city: string | null,
+  workMode: 'remote' | 'hybrid' | 'on-site',
+  offersRelocation: boolean,
+  profile: SearchSettings,
+  locationLabel?: string,
+  description?: string,
+): LocationScore {
+  const result = scoreLocationCore(countryCode, city, workMode, offersRelocation, profile, locationLabel, description);
+  if (!result.isAcceptable) return result;
+
+  const effectiveCountryCode = countryCode ?? inferCountryFromLabel(locationLabel ?? '');
+  const boostCountries = profile.priorityBoostCountries ?? [];
+  if (effectiveCountryCode && boostCountries.includes(effectiveCountryCode)) {
+    return {
+      ...result,
+      score: Math.min(100, result.score + 10),
+      reason: `${result.reason} [priority country]`,
+    };
+  }
+  return result;
+}
+
+function scoreLocationCore(
   countryCode: string | null,
   city: string | null,
   workMode: 'remote' | 'hybrid' | 'on-site',
@@ -125,31 +181,7 @@ export function scoreLocation(
 
   // If no country code provided, try to infer from locationLabel
   if (!countryCode) {
-    const labelLower = (locationLabel ?? '').toLowerCase();
-
-    // Check if locationLabel contains a preferred/target country name
-    const COUNTRY_HINTS: Record<string, string> = {
-      'germany': 'DE', 'deutschland': 'DE', 'berlin': 'DE', 'munich': 'DE', 'münchen': 'DE',
-      'hamburg': 'DE', 'frankfurt': 'DE', 'cologne': 'DE', 'köln': 'DE',
-      'belgium': 'BE', 'belgique': 'BE', 'belgie': 'BE', 'brussels': 'BE', 'bruxelles': 'BE',
-      'netherlands': 'NL', 'amsterdam': 'NL', 'rotterdam': 'NL', 'nederland': 'NL',
-      'luxembourg': 'LU', 'france': 'FR', 'paris': 'FR',
-      'ireland': 'IE', 'dublin': 'IE',
-      'poland': 'PL', 'polska': 'PL', 'warsaw': 'PL', 'warszawa': 'PL', 'krakow': 'PL', 'wroclaw': 'PL',
-      'spain': 'ES', 'españa': 'ES', 'madrid': 'ES', 'barcelona': 'ES',
-      'sweden': 'SE', 'sverige': 'SE', 'stockholm': 'SE',
-      'italy': 'IT', 'italia': 'IT', 'milan': 'IT', 'rome': 'IT',
-      'denmark': 'DK', 'danmark': 'DK', 'copenhagen': 'DK',
-      'czech': 'CZ', 'prague': 'CZ', 'praha': 'CZ',
-    };
-
-    let inferredCode: string | null = null;
-    for (const [hint, code] of Object.entries(COUNTRY_HINTS)) {
-      if (labelLower.includes(hint)) {
-        inferredCode = code;
-        break;
-      }
-    }
+    const inferredCode = inferCountryFromLabel(locationLabel ?? '');
 
     if (inferredCode) {
       // Re-run with inferred country code by falling through to the checks below

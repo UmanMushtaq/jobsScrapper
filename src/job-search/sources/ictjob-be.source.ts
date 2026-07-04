@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'ictjob.be';
 const BASE_URL = 'https://www.ictjob.be/en/search-it-jobs';
@@ -161,7 +162,7 @@ function mapLdJob(item: Record<string, unknown>): JobPosting | null {
     publishedAt: publishedAt.toISOString(),
     publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
     startupSignals: [], applyUrl: canonicalUrl,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsor', 'work permit']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a']),
     employeeCount: null, companyCreationYear: null,
   };

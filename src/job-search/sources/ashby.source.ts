@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'jobs.ashbyhq.com';
 const API_BASE = 'https://api.ashbyhq.com/posting-api/job-board';
@@ -142,7 +143,7 @@ function mapJob(job: AshbyJobPosting, companySlug: string): JobPosting {
     publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
     startupSignals: [],
     applyUrl,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsor', 'visa support', 'work permit', 'sponsorship']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
     employeeCount: null,
     companyCreationYear: null,

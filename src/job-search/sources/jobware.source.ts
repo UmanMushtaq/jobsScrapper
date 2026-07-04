@@ -2,6 +2,7 @@ import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'jobware.de';
 const BASE_URL = 'https://www.jobware.de';
@@ -129,7 +130,7 @@ function mapJob(raw: JobwareJob): JobPosting | null {
     publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
     startupSignals: [],
     applyUrl,
-    offersRelocation: text.includes('relocation') || text.includes('visa'),
+    offersRelocation: RELOCATION_KEYWORDS.some((k) => text.includes(k)),
     isStartup: text.includes('startup') || text.includes('seed'),
     employeeCount: null,
     companyCreationYear: null,

@@ -1,6 +1,7 @@
 import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'arbeitnow.com';
 
@@ -27,7 +28,7 @@ const RELEVANT_TAGS = ['node', 'nodejs', 'node.js', 'typescript', 'javascript', 
 
 export class ArbeitnowJobsSource implements JobSource {
   name = SOURCE;
-  priority = 6;
+  priority = 3;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
@@ -103,7 +104,7 @@ function mapJob(job: ArbeitnowJob): JobPosting {
     publishedAtTimestamp: job.created_at,
     startupSignals: [],
     applyUrl: job.url,
-    offersRelocation: job.visa_sponsorship || containsAny(text, ['relocation', 'visa sponsorship']),
+    offersRelocation: job.visa_sponsorship || containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
     employeeCount: null,
     companyCreationYear: null,

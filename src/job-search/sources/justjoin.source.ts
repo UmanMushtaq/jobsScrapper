@@ -44,7 +44,7 @@ interface JustJoinResponse {
 
 export class JustJoinSource implements JobSource {
   name = SOURCE;
-  priority = 5;
+  priority = 3;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const seen = new Set<string>();

@@ -28,6 +28,15 @@ export interface RawJob {
 const EXCLUDE_PRIMARY = ['angular', 'vue.js', 'vue ', 'react ', 'react.js', 'python', ' java ', 'java,', 'php', '.net ', 'c# ', 'golang', ' go ', 'rust ', 'ruby'];
 const INCLUDE_TECH = ['node', 'nest', 'typescript', 'backend', 'back-end', 'back end', 'api ', 'microservice', 'express'];
 
+// Single canonical keyword list for detecting relocation/visa-sponsorship support in job
+// text. Every source that computes offersRelocation from a text scan should import this
+// instead of maintaining its own local list.
+export const RELOCATION_KEYWORDS = [
+  'relocation', 'relocation assistance', 'relocation package', 'relocation support',
+  'visa sponsorship', 'visa sponsor', 'visa support', 'visa assistance',
+  'work permit', 'sponsorship',
+];
+
 export function isRelevantJob(title: string, description: string): boolean {
   const t = title.toLowerCase();
   const d = (description ?? '').toLowerCase();
@@ -206,7 +215,7 @@ export function mapRawJob(
     publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
     startupSignals: [],
     applyUrl: canonicalUrl,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsor', 'visa support', 'work permit', 'sponsorship']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage']),
     employeeCount: null,
     companyCreationYear: null,

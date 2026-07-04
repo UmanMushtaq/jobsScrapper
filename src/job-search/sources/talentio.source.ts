@@ -3,6 +3,7 @@ import { proxyFetch } from '../proxy-fetch';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'eu.talent.io';
 const API_BASE = 'https://api.eu.talent.io/api/backend/search/positions';
@@ -153,7 +154,7 @@ function mapPosition(pos: TalentioPosition): JobPosting | null {
     publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
     startupSignals: [],
     applyUrl: canonicalUrl,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsor', 'visa support', 'work permit', 'sponsorship']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
     employeeCount: null,
     companyCreationYear: null,

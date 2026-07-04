@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'stepstone.de';
 const BASE_URL = 'https://www.stepstone.de/jobs/';
@@ -247,7 +248,7 @@ function mapJob(raw: RawJob): JobPosting | null {
     publishedAtTimestamp,
     startupSignals: [],
     applyUrl: canonicalUrl,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsor', 'visa support', 'work permit', 'sponsorship', 'umzug']),
+    offersRelocation: containsAny(text, [...RELOCATION_KEYWORDS, 'umzug']),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage']),
     employeeCount: null,
     companyCreationYear: null,

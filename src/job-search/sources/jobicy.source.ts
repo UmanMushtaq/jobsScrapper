@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'jobicy.com';
 
@@ -151,7 +152,7 @@ function mapJob(job: JobicyJob): JobPosting | null {
     publishedAtTimestamp,
     startupSignals: [],
     applyUrl: job.url,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsorship', 'visa sponsor']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
     employeeCount: null,
     companyCreationYear: null,

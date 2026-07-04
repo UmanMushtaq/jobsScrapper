@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const SOURCE = 'weworkremotely.com';
 
@@ -163,7 +164,7 @@ function mapItem(item: RssItem): JobPosting | null {
     publishedAtTimestamp: Math.floor(item.pubDate / 1000),
     startupSignals: [],
     applyUrl: item.link,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsorship']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
     employeeCount: null,
     companyCreationYear: null,

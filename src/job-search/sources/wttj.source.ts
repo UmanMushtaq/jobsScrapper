@@ -1,5 +1,6 @@
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 interface WttjHit {
   name: string;
@@ -176,7 +177,7 @@ function mapHit(hit: WttjHit): JobPosting {
     applyUrl: canonicalUrl,
     offersRelocation: containsAny(
       `${hit.summary ?? ''} ${stripMarkup(hit.profile)} ${hit.organization.summary ?? ''}`.toLowerCase(),
-      ['relocation', 'visa sponsorship', 'visa sponsor', 'sponsorship'],
+      RELOCATION_KEYWORDS,
     ),
     isStartup: isLikelyStartup(hit),
     employeeCount: hit.organization.nb_employees ?? null,

@@ -1,6 +1,7 @@
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { RELOCATION_KEYWORDS } from './shared-scraper';
 
 const ADZUNA_BASE_URL = 'https://api.adzuna.com/v1/api/jobs';
 const SOURCE = 'adzuna.com';
@@ -139,7 +140,7 @@ function mapResult(result: AdzunaResult, country: string): JobPosting {
     publishedAtTimestamp: Math.floor(new Date(result.created).getTime() / 1000),
     startupSignals: [],
     applyUrl: result.redirect_url,
-    offersRelocation: containsAny(text, ['relocation', 'visa sponsorship', 'visa sponsor', 'relocation assistance']),
+    offersRelocation: containsAny(text, RELOCATION_KEYWORDS),
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
     employeeCount: null,
     companyCreationYear: null,
