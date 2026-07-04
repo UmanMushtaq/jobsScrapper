@@ -1,3 +1,5 @@
+// NOT REGISTERED: HTTP/axios variant is 403-blocked on Render's cloud IP — superseded by
+// ApecPlaywrightSource (apec.playwright.ts), which is the one actually registered/run.
 import axios from 'axios';
 import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';

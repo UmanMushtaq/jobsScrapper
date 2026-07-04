@@ -1,3 +1,5 @@
+// NOT REGISTERED: duplicate implementation of the same site (jobat.be) — superseded by
+// jobat.source.ts (JobatSource), which is the one actually registered/run.
 import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
