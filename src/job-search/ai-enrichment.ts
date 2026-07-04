@@ -445,6 +445,7 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `    - Primary backend language is NOT Node.js: C#/.NET, Java, Go, PHP, Python, Ruby as the main stack with no Node.js\n` +
   `    - Angular or Vue.js is the PRIMARY frontend framework and the role is fullstack requiring heavy Angular/Vue work\n` +
   `    - Role is primarily frontend (React, Angular, Vue) with backend as secondary\n` +
+  `    - Job requires MORE than 5 years of experience (6+ years, "senior" implying 6+, or similar) — this must score below the pass threshold regardless of stack fit, domain, or any other factor. No exceptions.\n` +
   `\n` +
   `    MEDIUM PENALTIES (reduce score by 20-30 points):\n` +
   `    - Fullstack role where frontend is more than 50% of the work\n` +

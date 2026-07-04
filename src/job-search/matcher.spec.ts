@@ -91,4 +91,38 @@ describe('scoreJob', () => {
 
     expect(result).toBeNull();
   });
+
+  it('rejects a job requiring 6 years (above the 5-year hard cap)', () => {
+    const result = scoreJob(
+      buildJob({ experienceLevelMinimum: 6 }),
+      profile,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it('accepts a job requiring exactly 5 years (at the hard cap)', () => {
+    const result = scoreJob(
+      buildJob({ experienceLevelMinimum: 5 }),
+      profile,
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it('rejects a job with no structured experienceLevelMinimum but "6 ans d\'expérience minimum" in the description', () => {
+    // experienceLevelMinimum is null so the numeric pre-filter can't catch this — only the
+    // text-scan hard reject in detectExperiencePenalty can. This is the exact bypass that
+    // used to only apply a soft -10 penalty instead of a hard reject.
+    const result = scoreJob(
+      buildJob({
+        experienceLevelMinimum: null,
+        description:
+          'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS. 6 ans d\'expérience minimum requis.',
+      }),
+      profile,
+    );
+
+    expect(result).toBeNull();
+  });
 });

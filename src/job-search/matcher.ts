@@ -231,8 +231,8 @@ export function scoreJob(
   // Experience year text scan — penalty/reject for high-year requirements in required section
   const { penalty: expPenalty, hardReject: expHardReject } = detectExperiencePenalty(text);
   if (expHardReject) {
-    console.log(`[scorer] FILTERED: ${job.company}, 8+ years required — too senior for mid-level profile`);
-    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: exp>max (8+ years required)`);
+    console.log(`[scorer] FILTERED: ${job.company}, 6+ years required — exceeds the 5-year experience cap`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: exp>max (6+ years required)`);
     return null;
   }
 
@@ -419,37 +419,19 @@ function detectExperiencePenalty(text: string): { penalty: number; hardReject: b
   const niceIdx = text.search(/(?:nice[- ]to[- ]have|bonus|preferred|would be a plus|optionnel|bon à avoir)/i);
   const required = niceIdx > 0 ? text.slice(0, niceIdx) : text;
 
-  // Hard reject: 8+ years (English and French)
+  // Hard reject: 6+ years explicitly required (English and French). Owner's rule caps
+  // experience requirements at 5 years — anything above must never surface, regardless
+  // of stack fit or other scoring, so this can't be compensated by a soft penalty.
   if (
-    /\b(?:8|9|10|1\d)\+\s*(?:years?|ans?)\b/i.test(required) ||
-    /\b(?:minimum|at least|au moins|minimum de)\s+(?:8|9|10|1\d)\s+(?:years?|ans?)\b/i.test(required) ||
-    /\b(?:8|9|10|1\d)\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
-    /\bminimum\s+(?:8|9|10|1\d)\s+years?\b/i.test(required)
+    /\b(?:6|7|8|9|10|1\d)\+\s*(?:years?|ans?)\b/i.test(required) ||
+    /\b(?:minimum|at least|au moins|minimum de)\s+(?:6|7|8|9|10|1\d)\s+(?:years?|ans?)\b/i.test(required) ||
+    /\b(?:6|7|8|9|10|1\d)\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
+    /\bminimum\s+(?:6|7|8|9|10|1\d)\s+years?\b/i.test(required)
   ) {
     return { penalty: 0, hardReject: true };
   }
 
-  // -10 penalty: 6 years required (stack match compensates; interviews happen at 4yr with strong fit)
-  if (
-    /\b6\+\s*(?:years?|ans?)\b/i.test(required) ||
-    /\b(?:minimum|at least|au moins)\s+6\s+(?:years?|ans?)\b/i.test(required) ||
-    /\b6\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
-    /\bminimum\s+6\s+years?\b/i.test(required)
-  ) {
-    return { penalty: 10, hardReject: false };
-  }
-
-  // -25 penalty: 7 years required
-  if (
-    /\b7\+\s*(?:years?|ans?)\b/i.test(required) ||
-    /\b(?:minimum|at least|au moins)\s+7\s+(?:years?|ans?)\b/i.test(required) ||
-    /\b7\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
-    /\bminimum\s+7\s+years?\b/i.test(required)
-  ) {
-    return { penalty: 25, hardReject: false };
-  }
-
-  // 5 years required — no penalty (4 years experience is close enough)
+  // 5 years required — no penalty (matches the 5-year cap exactly; 4 years experience is close enough)
   if (
     /\b5\+\s*(?:years?|ans?)\b/i.test(required) ||
     /\b(?:minimum|at least|au moins)\s+5\s+(?:years?|ans?)\b/i.test(required) ||
