@@ -149,15 +149,11 @@
       "NL",
       "IE"
     ],
-    "priorityBoostCountries": [
-      "DE",
-      "PL",
-      "SE",
-      "LU",
-      "FR",
-      "NL",
-      "IT"
-    ],
+    "countryTiers": {
+      "tier1": ["FR"],
+      "tier2": ["PL", "NL", "LU"],
+      "tier3": ["DE", "SE", "IT", "BE", "IE", "DK", "CZ", "HU", "ES", "FI"]
+    },
     "acceptRemote": true,
     "acceptHybrid": true,
     "acceptOnSite": true,

@@ -104,8 +104,10 @@ function inferCountryFromLabel(locationLabel: string): string | null {
 
 /**
  * Scores a job's location/work-mode fit against the profile, then applies a
- * ranking boost (not a filter — never changes isAcceptable) for countries in
- * profile.priorityBoostCountries, e.g. Poland/Sweden/Germany for English-language roles.
+ * ranking boost (not a filter — never changes isAcceptable) based on which
+ * country tier the job falls into: tier1 (+15, primary market — currently
+ * France), tier2 (+10, secondary English-first markets), tier3 (+5, everything
+ * else worth ranking above non-tier countries).
  */
 export function scoreLocation(
   countryCode: string | null,
@@ -120,13 +122,27 @@ export function scoreLocation(
   if (!result.isAcceptable) return result;
 
   const effectiveCountryCode = countryCode ?? inferCountryFromLabel(locationLabel ?? '');
-  const boostCountries = profile.priorityBoostCountries ?? [];
-  if (effectiveCountryCode && boostCountries.includes(effectiveCountryCode)) {
-    return {
-      ...result,
-      score: Math.min(100, result.score + 10),
-      reason: `${result.reason} [priority country]`,
-    };
+  const tiers = profile.countryTiers ?? { tier1: [], tier2: [], tier3: [] };
+  if (effectiveCountryCode) {
+    let boost = 0;
+    let tierLabel = '';
+    if (tiers.tier1.includes(effectiveCountryCode)) {
+      boost = 15;
+      tierLabel = 'tier1';
+    } else if (tiers.tier2.includes(effectiveCountryCode)) {
+      boost = 10;
+      tierLabel = 'tier2';
+    } else if (tiers.tier3.includes(effectiveCountryCode)) {
+      boost = 5;
+      tierLabel = 'tier3';
+    }
+    if (boost > 0) {
+      return {
+        ...result,
+        score: Math.min(100, result.score + boost),
+        reason: `${result.reason} [${tierLabel} country]`,
+      };
+    }
   }
   return result;
 }

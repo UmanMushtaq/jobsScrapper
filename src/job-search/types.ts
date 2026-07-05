@@ -57,9 +57,9 @@ export interface SearchSettings {
   usaCountryCodes: string[];
   relocationKeywords: string[];
   excludedTitleKeywords: string[];
-  // Countries that should rank first for English-language roles (scoring boost only —
-  // does not bypass the language filter the way preferredCountries does).
-  priorityBoostCountries?: string[];
+  // 3-tier scoring boost by country (never a filter — does not bypass the language
+  // filter the way preferredCountries does). tier1 > tier2 > tier3 in boost size.
+  countryTiers?: { tier1: string[]; tier2: string[]; tier3: string[] };
 }
 
 export interface JobPosting {

@@ -98,33 +98,49 @@ function buildHimalayasJob(overrides: Partial<HimalayasJob> = {}): HimalayasJob 
   };
 }
 
-describe('scoreLocation — priorityBoostCountries', () => {
-  const noBoostSettings: SearchSettings = {
+describe('scoreLocation — countryTiers', () => {
+  // preferredCountries cleared so FR lands on the "Europe hybrid" scoring path
+  // instead of the flat 100 "preferred country" path — otherwise the +15 boost
+  // would be invisible under the 100-point cap in this test.
+  const tierSettings: SearchSettings = {
     ...baseSettings,
-    europeCountryCodes: ['FR', 'DE', 'PL', 'SE'],
-  };
-  const boostSettings: SearchSettings = {
-    ...noBoostSettings,
-    priorityBoostCountries: ['PL', 'SE', 'DE'],
+    preferredCountries: [],
+    europeCountryCodes: ['FR', 'PL', 'NL', 'LU', 'DE', 'SE', 'IT', 'BE'],
+    countryTiers: { tier1: ['FR'], tier2: ['PL', 'NL', 'LU'], tier3: ['DE', 'SE', 'IT'] },
   };
 
-  it('adds +10 and an "[priority country]" tag for an acceptable hybrid job in Poland', () => {
-    const withoutBoost = scoreLocation('PL', 'Warsaw', 'hybrid', false, noBoostSettings, 'Warsaw, Poland');
-    const withBoost = scoreLocation('PL', 'Warsaw', 'hybrid', false, boostSettings, 'Warsaw, Poland');
-    expect(withBoost.isAcceptable).toBe(true);
-    expect(withBoost.score).toBe(Math.min(100, withoutBoost.score + 10));
-    expect(withBoost.reason).toContain('[priority country]');
+  it('adds +15 and "[tier1 country]" for France', () => {
+    const result = scoreLocation('FR', 'Paris', 'hybrid', true, tierSettings, 'Paris, France');
+    expect(result.isAcceptable).toBe(true);
+    expect(result.score).toBe(95); // 80 (Europe hybrid + relocation) + 15
+    expect(result.reason).toContain('[tier1 country]');
+  });
+
+  it('adds +10 and "[tier2 country]" for Poland', () => {
+    const result = scoreLocation('PL', 'Warsaw', 'hybrid', false, tierSettings, 'Warsaw, Poland');
+    expect(result.isAcceptable).toBe(true);
+    expect(result.score).toBe(80); // 70 (target country hybrid) + 10
+    expect(result.reason).toContain('[tier2 country]');
+  });
+
+  it('adds +5 and "[tier3 country]" for Sweden', () => {
+    const result = scoreLocation('SE', 'Stockholm', 'hybrid', false, tierSettings, 'Stockholm, Sweden');
+    expect(result.isAcceptable).toBe(true);
+    expect(result.score).toBe(75); // 70 (target country hybrid) + 5
+    expect(result.reason).toContain('[tier3 country]');
+  });
+
+  it('does not boost an acceptable country outside any tier', () => {
+    const result = scoreLocation('BE', 'Brussels', 'hybrid', true, tierSettings, 'Brussels, Belgium');
+    expect(result.isAcceptable).toBe(true);
+    expect(result.score).toBe(80); // Europe hybrid + relocation, no tier match
+    expect(result.reason).not.toMatch(/\[tier\d country\]/);
   });
 
   it('does not boost a rejected job', () => {
-    const result = scoreLocation('RO', null, 'on-site', false, boostSettings, 'Bucharest, Romania');
+    const result = scoreLocation('RO', null, 'on-site', false, tierSettings, 'Bucharest, Romania');
     expect(result.isAcceptable).toBe(false);
-    expect(result.reason).not.toContain('[priority country]');
-  });
-
-  it('does not boost a country outside priorityBoostCountries', () => {
-    const result = scoreLocation('FR', 'Paris', 'hybrid', false, boostSettings, 'Paris, France');
-    expect(result.reason).not.toContain('[priority country]');
+    expect(result.reason).not.toMatch(/\[tier\d country\]/);
   });
 });
 
