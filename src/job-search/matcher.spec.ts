@@ -125,4 +125,34 @@ describe('scoreJob', () => {
 
     expect(result).toBeNull();
   });
+
+  it('adds a +5 fintech-domain boost for a payments-platform JD', () => {
+    const result = scoreJob(
+      buildJob({
+        description:
+          'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS in a product startup. ' +
+          'You will build our payments platform, including wallet balances and KYC checks for onboarding.',
+      }),
+      profile,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.scoreBreakdown?.fintech).toBe(5);
+    expect(result?.reasons).toContain('[fintech domain]');
+  });
+
+  it('does not add a fintech-domain boost for an unrelated e-commerce JD', () => {
+    const result = scoreJob(
+      buildJob({
+        description:
+          'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS in a product startup. ' +
+          'You will build our e-commerce storefront, shopping cart, and inventory management system.',
+      }),
+      profile,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.scoreBreakdown?.fintech).toBeUndefined();
+    expect(result?.reasons).not.toContain('[fintech domain]');
+  });
 });

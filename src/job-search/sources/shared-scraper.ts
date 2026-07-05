@@ -47,6 +47,15 @@ export const RELOCATION_KEYWORDS = [
   'work permit', 'sponsorship',
 ];
 
+// Fintech-domain signal words — payments, wallets, KYC/AML, trading. Used as a scoring
+// boost only (matcher.ts), never a filter: a job missing all of these is still fully
+// eligible, it just doesn't get the positioning-alignment bump.
+export const FINTECH_KEYWORDS = [
+  'fintech', 'payment', 'payments', 'banking', 'wallet', 'kyc', 'aml', 'trading',
+  'brokerage', 'insurtech', 'neobank', 'psp', 'acquiring', 'open banking', 'psd2',
+  'financial services',
+];
+
 export function isRelevantJob(title: string, description: string): boolean {
   const t = title.toLowerCase();
   const d = (description ?? '').toLowerCase();

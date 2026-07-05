@@ -101,6 +101,7 @@ export interface ScoreBreakdown {
   startup: number;
   sponsor?: number;
   tier2?: number;
+  fintech?: number;
   preference?: number;
   expPenalty?: number;
   tier1Penalty?: number;

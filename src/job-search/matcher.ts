@@ -3,7 +3,11 @@ import { resolveWorkAuth } from './profile';
 import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
 import { isFrontendPrimaryStack } from './stack-filter';
+import { FINTECH_KEYWORDS } from './sources/shared-scraper';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
+
+// Precompiled once — word-boundary matching for the fintech-domain scoring boost.
+const FINTECH_PATTERNS = FINTECH_KEYWORDS.map((k) => new RegExp(`\\b${k}\\b`, 'i'));
 
 // Multilingual equivalents — all lowercased for use with .includes() on a lowercased text string.
 // Node.js variants (EN / FR / DE / NL)
@@ -292,6 +296,12 @@ export function scoreJob(
   const hasSponsorSignal = job.offersRelocation || SPONSOR_SIGNALS.some((s) => text.includes(s));
   const sponsorScore = hasSponsorSignal ? 6 : 0;
 
+  // Fintech-domain positioning boost (payments, wallets, KYC/AML, trading). Word-boundary
+  // matching avoids false hits from short terms like "aml"/"psp" inside unrelated words.
+  // Boost only — never a filter, no job is rejected for lacking these keywords.
+  const hasFintechSignal = FINTECH_PATTERNS.some((p) => p.test(text));
+  const fintechScore = hasFintechSignal ? 5 : 0;
+
   const kwScore = Math.min(requiredKeywordMatches * 3, 18);
   const locScore = Math.round(locationScore.score / 10);
   const keywordsTotal = kwScore + preferredGroupScore + titleScore;
@@ -303,7 +313,7 @@ export function scoreJob(
     0,
     Math.min(
       100,
-      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + tier2Score + preference.delta - expPenalty - tier1Penalty,
+      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + tier2Score + fintechScore + preference.delta - expPenalty - tier1Penalty,
     ),
   );
 
@@ -340,6 +350,7 @@ export function scoreJob(
     startup: startupScore,
     sponsor: sponsorScore,
     tier2: tier2Score || undefined,
+    fintech: fintechScore || undefined,
     preference: preference.delta,
     expPenalty: expPenalty || undefined,
     tier1Penalty: tier1Penalty || undefined,
@@ -350,6 +361,7 @@ export function scoreJob(
     ...matchedReasons,
     ...preference.reasons,
     ...(hasSponsorSignal ? ['Visa/relocation support mentioned in posting'] : []),
+    ...(hasFintechSignal ? ['[fintech domain]'] : []),
     `Location fit: ${locationScore.reason}`,
     ...buildPreferredReasons(text, profile),
   ].slice(0, 5);
