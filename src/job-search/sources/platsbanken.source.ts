@@ -78,6 +78,18 @@ export class PlatsbankenSource implements JobSource {
   priority = 3;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+    // Verification attempted 2026-07-06: tried curling https://jobsearch.api.jobtechdev.se/search
+    // without a key from this environment to check whether the JobSearch endpoint is really
+    // open (keys are documented as mandatory only for some other JobTech APIs). The attempt
+    // was inconclusive — this environment's own egress proxy rejects the CONNECT to
+    // jobsearch.api.jobtechdev.se before any request reaches JobTech's servers (same
+    // policy-denial pattern seen for glassdoor.com, justjoin.it, duunitori.fi in earlier
+    // sessions), so no real 200/401/403 was ever observed. Do NOT read this as confirmation
+    // either way. Re-run the curl below from an environment with real internet access
+    // (e.g. locally, or Render's own shell) before changing the hard-skip below:
+    //   curl -s "https://jobsearch.api.jobtechdev.se/search?q=nodejs&limit=2"
+    // If it returns JSON hits with no key, remove the hard-skip and make the api-key header
+    // conditional. If it returns 401/403, leave this exactly as is.
     const apiKey = process.env.ARBETSFORMEDLINGEN_API_KEY;
     if (!apiKey) {
       console.warn('[platsbanken] ARBETSFORMEDLINGEN_API_KEY not set — skipping');
@@ -120,6 +132,7 @@ async function fetchJobs(
       'Accept': 'application/json',
       'api-key': apiKey,
     },
+    signal: AbortSignal.timeout(20_000),
   });
 
   if (response.status === 401 || response.status === 403) {
