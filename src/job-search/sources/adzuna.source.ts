@@ -47,7 +47,7 @@ export class AdzunaJobsSource implements JobSource {
       return [];
     }
 
-    const countries = (process.env.ADZUNA_COUNTRIES ?? 'fr,gb,de,nl,be,lu,ie,at,pl')
+    const countries = (process.env.ADZUNA_COUNTRIES ?? 'fr,gb,de,nl,be,lu,ie,at,pl,it,es,se')
       .split(',')
       .map((c) => c.trim().toLowerCase());
     const maxPages = Number(process.env.ADZUNA_MAX_PAGES ?? 2);
