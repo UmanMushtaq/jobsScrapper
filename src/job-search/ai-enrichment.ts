@@ -53,6 +53,34 @@ function pacificDay(d: Date = new Date()): string {
 
 export let lastGeminiError = '';
 
+export interface GeminiClientOptions {
+  apiKey: string;
+  httpOptions?: { baseUrl?: string; headers?: Record<string, string> };
+}
+
+// Optional relay mode: if GEMINI_RELAY_URL is set, route Gemini calls through that URL
+// (e.g. a Cloudflare Worker passthrough — see gemini-relay/) instead of Google directly.
+// This exists to route around an outbound-IP-level block on the deploy host, independent
+// of which of the 7 keys is used. When unset (the default), behavior is unchanged: calls
+// go straight to https://generativelanguage.googleapis.com exactly as before this existed.
+// httpOptions.baseUrl replaces only the origin — the SDK still appends the same
+// /v1beta/models/{model}:generateContent path, and the x-goog-api-key auth header is
+// still attached by the SDK separately, so the relay receives an unmodified request.
+export function buildGoogleGenAIOptions(apiKey: string): GeminiClientOptions {
+  const relayUrl = process.env.GEMINI_RELAY_URL?.trim();
+  if (!relayUrl) {
+    return { apiKey };
+  }
+  const relaySecret = process.env.GEMINI_RELAY_SECRET?.trim() ?? '';
+  return {
+    apiKey,
+    httpOptions: {
+      baseUrl: relayUrl,
+      headers: { 'x-relay-secret': relaySecret },
+    },
+  };
+}
+
 function getApiKeyEntries(): ApiKeyEntry[] {
   if (_cachedKeyEntries) return _cachedKeyEntries;
   const entries: ApiKeyEntry[] = [];
@@ -157,7 +185,7 @@ async function callWithRotation<T>(
         continue;
       }
 
-      const ai = new GoogleGenAI({ apiKey: keys[idx] });
+      const ai = new GoogleGenAI(buildGoogleGenAIOptions(keys[idx]));
       try {
         const result = await fn(ai, model);
         _currentKeyIndex = idx;
