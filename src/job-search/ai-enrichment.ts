@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { redisGetJobDecisionHistory, redisIncrGeminiDailyCalls } from './redis-store';
 import { getJobDecisionHistory } from '../database/database.service';
 import { resolveWorkAuth } from './profile';
+import { evaluateLanguageRequirement } from './language-requirement-filter';
 import { JobPosting, MatchResult, SearchProfile } from './types';
 
 // Free tier: 15 RPM, 1500 req/day per key. One combined call per job.
@@ -299,6 +300,7 @@ export interface AiEnrichment {
   relevanceIssues: string[];
   visaFriendly: boolean | null;
   visaNote: string | null;
+  languageRequirement: string | null;
   // Null when salary is above the threshold or unknown.
   // Non-null when estimated salary is below the €39,582/yr (€3,299/mo) Talent permit floor.
   visaRisk: string | null;
@@ -501,6 +503,7 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  relevanceIssues: array of up to 3 short strings explaining deductions.\n` +
   `  visaFriendly: true/false/null — assess using visa rules above.\n` +
   `  visaNote: one short sentence, or null.\n` +
+  `  languageRequirement: one short string naming any non-English language requirement found in the posting (e.g. "French B1 required for client calls"), using the "Language requirement signal" line above plus your own reading of the description. Null if English-only or no requirement stated.\n` +
   `  fraudScore: integer 0-100 (0=clean). Signals: vague description, no company info, grammar errors, no tech stack for tech role.\n` +
   `  fraudReasons: array of up to 3 short strings.\n` +
   `  companyQualityScore: integer 0-100. Red flags: rockstar/ninja, "wear many hats", no salary, unlimited PTO only perk.\n` +
@@ -717,6 +720,9 @@ async function enrichSingle(
     `Location: ${job.locationLabel} (${job.workMode})\n` +
     `Salary listed: ${job.salaryMinimum ? `${job.salaryMinimum}–${job.salaryMaximum ?? '?'} ${job.salaryCurrency ?? ''}` : 'not listed'}\n` +
     `Relocation/visa sponsorship offered: ${job.offersRelocation ? 'yes' : 'not mentioned'}\n` +
+    `Language requirement signal (deterministic filter, already passed): ${
+      evaluateLanguageRequirement(job.requiredLanguages, job.description).note ?? 'none detected'
+    }\n` +
     `Why code filter matched: ${matchReasons.slice(0, 3).join('; ')}\n` +
     `Full description:\n${job.description.slice(0, 1800)}`;
 
@@ -746,6 +752,7 @@ async function enrichSingle(
     relevanceIssues?: string[];
     visaFriendly?: boolean | null;
     visaNote?: string | null;
+    languageRequirement?: string | null;
     fraudScore?: number;
     companyQualityScore?: number;
     fraudReasons?: string[];
@@ -816,6 +823,7 @@ async function enrichSingle(
     relevanceIssues: (raw.relevanceIssues ?? []).slice(0, 3),
     visaFriendly: raw.visaFriendly ?? null,
     visaNote: raw.visaNote?.trim() || null,
+    languageRequirement: raw.languageRequirement?.trim() || null,
     visaRisk,
     fraudScore,
     fraudReasons: (raw.fraudReasons ?? []).slice(0, 3),

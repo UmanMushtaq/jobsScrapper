@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { EuresSource, EuresJv, mapJob } from './eures.source';
+import { EuresSource, EuresJv, mapJob, extractRequiredLanguages } from './eures.source';
+import { evaluateLanguageRequirement } from '../language-requirement-filter';
 import { SearchSettings } from '../types';
 
 jest.mock('axios');
@@ -53,6 +54,40 @@ describe('eures mapJob', () => {
     const job = mapJob(buildJv({ lastModificationDate: 1783369560676, creationDate: undefined }), FAR_FUTURE_CUTOFF);
     expect(job?.publishedAt).toBe(new Date(1783369560676).toISOString());
     expect(job?.publishedAtTimestamp).toBe(1783369560676);
+  });
+});
+
+describe('eures requiredLanguages extraction', () => {
+  it('extracts a Dutch B1 requirement from the `requiredLanguages` field shape onto the JobPosting', () => {
+    const raw = buildJv({ requiredLanguages: [{ isoCode: 'nl', level: 'B1' }] });
+    expect(extractRequiredLanguages(raw)).toEqual([{ code: 'nl', level: 'B1', required: undefined }]);
+    // mapJob only extracts/attaches the field — the actual accept/reject decision is made
+    // centrally in matcher.ts (evaluateLanguageRequirement), the same layer as the other
+    // deterministic filters, so every source's jobs go through one rejection point.
+    const job = mapJob(raw, FAR_FUTURE_CUTOFF);
+    expect(job).not.toBeNull();
+    expect(job?.requiredLanguages).toEqual([{ code: 'nl', level: 'B1', required: undefined }]);
+    expect(evaluateLanguageRequirement(job?.requiredLanguages, job?.description ?? '').reject).toBe(true);
+  });
+
+  it('extracts languages from the `jvRequirements.languages` field shape', () => {
+    const raw = buildJv({ jvRequirements: { languages: [{ code: 'de', level: 'B2', mandatory: true }] } });
+    expect(extractRequiredLanguages(raw)).toEqual([{ code: 'de', level: 'B2', required: true }]);
+  });
+
+  it('accepts an English-only requirement', () => {
+    const raw = buildJv({ requiredLanguages: [{ isoCode: 'en', level: 'B2' }] });
+    const job = mapJob(raw, FAR_FUTURE_CUTOFF);
+    expect(job).not.toBeNull();
+    expect(job?.requiredLanguages).toEqual([{ code: 'en', level: 'B2', required: undefined }]);
+  });
+
+  it('accepts a record with no language field at all', () => {
+    const raw = buildJv();
+    expect(extractRequiredLanguages(raw)).toEqual([]);
+    const job = mapJob(raw, FAR_FUTURE_CUTOFF);
+    expect(job).not.toBeNull();
+    expect(job?.requiredLanguages).toBeNull();
   });
 });
 

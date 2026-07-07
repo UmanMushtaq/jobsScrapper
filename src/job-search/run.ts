@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { AiEnrichment, enrichMatch, clearGeminiOverloadFlag, isGeminiOverloaded } from './ai-enrichment';
 import { scoreLocation } from './sources/location-filter';
 import { isFrontendPrimaryStack } from './stack-filter';
+import { evaluateLanguageRequirement } from './language-requirement-filter';
 import { checkFollowups } from './followup';
 import { salaryMeetsMinimum, scoreJob } from './matcher';
 import { buildPreferenceContext, buildPreferenceModel } from './preference';
@@ -428,7 +429,7 @@ export async function runJobSearchOnce(
     const desiredLang = (profile.search.language ?? 'en').toLowerCase();
     const expMin = profile.search.experience.min;
     const expMax = profile.search.experience.max;
-    const diagCounts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, salary: 0, mandatory: 0, score: 0, frontendPrimary: 0 };
+    const diagCounts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, salary: 0, mandatory: 0, score: 0, frontendPrimary: 0, languageRequirement: 0 };
     const diagLocBreak = { usaRemote: 0, euOnsite: 0, euHybrid: 0, other: 0 };
     const mandBreak = { nodeOnly: 0, tsOnly: 0, backendOnly: 0, none: 0 };
     const nearMisses: Array<{ title: string; company: string; source: string; mandatory: number }> = [];
@@ -449,6 +450,13 @@ export async function runJobSearchOnce(
       if (frontendStack.reject) {
         diagCounts.frontendPrimary++;
         console.log(`[stack-filter] REJECTED frontend-primary: ${job.company} — ${frontendStack.reason}`);
+        continue;
+      }
+
+      const languageRequirement = evaluateLanguageRequirement(job.requiredLanguages, job.description);
+      if (languageRequirement.reject) {
+        diagCounts.languageRequirement++;
+        console.log(`[language-filter] REJECTED: ${job.company} — ${languageRequirement.reason}`);
         continue;
       }
 
@@ -491,7 +499,7 @@ export async function runJobSearchOnce(
 
     if (slicedMatches.length === 0 && freshJobs.length > 0) {
       console.log(`[scorer-diag] ${freshJobs.length} fresh jobs → 0 matched. Breakdown:`);
-      console.log(`  lang=${diagCounts.lang} | titleExcl=${diagCounts.title} | roleExcl=${diagCounts.role} | frontendPrimary=${diagCounts.frontendPrimary}`);
+      console.log(`  lang=${diagCounts.lang} | titleExcl=${diagCounts.title} | roleExcl=${diagCounts.role} | frontendPrimary=${diagCounts.frontendPrimary} | languageRequirement=${diagCounts.languageRequirement}`);
       console.log(`  location=${diagCounts.location} (usa-remote=${diagLocBreak.usaRemote} eu-onsite=${diagLocBreak.euOnsite} eu-hybrid=${diagLocBreak.euHybrid} other=${diagLocBreak.other})`);
       console.log(`  exp=${diagCounts.exp} | salary<min=${diagCounts.salary} | mandatory=${diagCounts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
       console.log(`  score<threshold=${diagCounts.score} (adaptive: <120w→54, 120-350w→56, >350w→59)`);
@@ -598,6 +606,7 @@ export async function runJobSearchOnce(
               relevanceScore: ai.relevanceScore,
               visaFriendly: ai.visaFriendly,
               visaNote: ai.visaNote,
+              languageRequirementNote: ai.languageRequirement ?? match.languageRequirementNote,
               visaRisk: ai.visaRisk,
               atsMissingKeywords: ai.atsMissingKeywords,
               atsPlacementSuggestions: ai.atsPlacementSuggestions,
@@ -637,6 +646,7 @@ export async function runJobSearchOnce(
         mandatory: diagCounts.mandatory,
         score: diagCounts.score,
         frontendPrimary: diagCounts.frontendPrimary,
+        languageRequirement: diagCounts.languageRequirement,
       },
       locationBreak: diagLocBreak,
       geminiRejected: rejectedByAi.length,
@@ -946,6 +956,10 @@ async function buildTelegramPayload(
 
     if (match.visaRisk) {
       lines.push(`Permit risk: ${match.visaRisk}`);
+    }
+
+    if (match.languageRequirementNote) {
+      lines.push(`Language requirement: ${match.languageRequirementNote}`);
     }
 
     if (match.fraudScore !== undefined) {

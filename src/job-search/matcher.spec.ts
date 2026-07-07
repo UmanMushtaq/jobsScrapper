@@ -156,3 +156,49 @@ describe('scoreJob', () => {
     expect(result?.reasons).not.toContain('[fintech domain]');
   });
 });
+
+describe('scoreJob — language requirement filter', () => {
+  it('rejects a job requiring Dutch at B1', () => {
+    const result = scoreJob(
+      buildJob({ requiredLanguages: [{ code: 'nl', level: 'B1' }] }),
+      profile,
+    );
+    expect(result).toBeNull();
+  });
+
+  it('accepts a job requiring only English at B2', () => {
+    const result = scoreJob(
+      buildJob({ requiredLanguages: [{ code: 'en', level: 'B2' }] }),
+      profile,
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it('accepts a job with no requiredLanguages field at all', () => {
+    const result = scoreJob(buildJob({ requiredLanguages: undefined }), profile);
+    expect(result).not.toBeNull();
+  });
+
+  it('accepts a French-language JD with no stated French requirement', () => {
+    const result = scoreJob(
+      buildJob({
+        description:
+          'Nous recherchons un développeur backend Node.js et TypeScript avec NestJS, PostgreSQL, Docker et AWS. ' +
+          'Équipe internationale travaillant en anglais.',
+      }),
+      profile,
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it('rejects a job whose description states French is required', () => {
+    const result = scoreJob(
+      buildJob({
+        description:
+          'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS. French required for client calls.',
+      }),
+      profile,
+    );
+    expect(result).toBeNull();
+  });
+});

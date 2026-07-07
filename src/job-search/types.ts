@@ -92,6 +92,10 @@ export interface JobPosting {
   employeeCount?: number | null;
   companyCreationYear?: number | null;
   commentId?: string | null;
+  // Structured "Job requirements > Languages" data, when the source exposes it (currently
+  // EURES only). Consumed by language-requirement-filter.ts alongside the free-text
+  // requirement-phrase heuristic, which applies to every source's description.
+  requiredLanguages?: { code: string; level?: string; required?: boolean }[] | null;
 }
 
 export interface ScoreBreakdown {
@@ -131,6 +135,7 @@ export interface MatchResult {
   hiringEmail?: string | null;
   emailSubject?: string | null;
   emailBody?: string | null;
+  languageRequirementNote?: string | null;
 }
 
 export interface RunSummary {
@@ -192,6 +197,7 @@ export interface ScorerDiagnostic {
     mandatory: number;
     score: number;
     frontendPrimary: number;
+    languageRequirement: number;
   };
   locationBreak: { usaRemote: number; euOnsite: number; euHybrid: number; other: number };
   geminiRejected: number;

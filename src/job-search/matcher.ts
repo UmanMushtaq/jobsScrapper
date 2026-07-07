@@ -3,6 +3,7 @@ import { resolveWorkAuth } from './profile';
 import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
 import { isFrontendPrimaryStack } from './stack-filter';
+import { evaluateLanguageRequirement } from './language-requirement-filter';
 import { FINTECH_KEYWORDS } from './sources/shared-scraper';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
 
@@ -149,6 +150,17 @@ export function scoreJob(
   if (frontendStack.reject) {
     console.log(`[stack-filter] REJECTED frontend-primary: ${job.company} — ${frontendStack.reason}`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: frontendPrimary (${frontendStack.reason})`);
+    return null;
+  }
+
+  // Hard reject: a stated language-proficiency requirement (structured field, when the
+  // source provides one, plus a free-text requirement-phrase heuristic for every source)
+  // that the candidate does not meet — English fluent, French A1 only. Distinct from
+  // isLanguageFit() above, which only judges what language the posting is WRITTEN in.
+  const languageRequirement = evaluateLanguageRequirement(job.requiredLanguages, job.description);
+  if (languageRequirement.reject) {
+    console.log(`[language-filter] REJECTED: ${job.company} — ${languageRequirement.reason}`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: languageRequirement (${languageRequirement.reason})`);
     return null;
   }
 
@@ -378,6 +390,7 @@ export function scoreJob(
     salaryLabel,
     coverLetter: buildCoverLetter(job, profile, reasons),
     shortAnswers: buildShortAnswers(job, reasons),
+    languageRequirementNote: languageRequirement.note,
   };
 }
 

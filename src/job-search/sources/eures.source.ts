@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RequiredLanguage } from '../language-requirement-filter';
 
 const SOURCE = 'eures.europa.eu';
 const API_URL = 'https://europa.eu/eures/api/jv-searchengine/public/jv-search/search';
@@ -34,6 +35,18 @@ export interface EuresJv {
   locationMap?: Record<string, string[]>;
   employer?: { name?: string };
   availableLanguages?: string[];
+  // "Job requirements > Languages" — field name UNVERIFIED. This sandbox's outbound
+  // network blocks europa.eu entirely (403 at the proxy CONNECT, same restriction that
+  // blocked the base search/detail endpoints during initial development — see
+  // eures.source.ts.blocked.md in git history), so the real shape of this field could
+  // not be curl-verified here. extractRequiredLanguages() below defensively probes
+  // several plausible shapes and returns [] if none match, so a wrong guess just means
+  // "no structured signal" rather than a crash — the free-text requirement-phrase
+  // heuristic (language-requirement-filter.ts) still catches explicit language
+  // requirements from the description regardless. Re-verify from a machine with real
+  // network access and tighten this to the confirmed field/shape.
+  requiredLanguages?: unknown;
+  jvRequirements?: { languages?: unknown };
 }
 
 interface EuresResponse {
@@ -116,6 +129,44 @@ async function fetchQuery(query: string, cutoff: number, sessionId: string): Pro
   return out;
 }
 
+function normalizeLanguageEntry(entry: unknown): RequiredLanguage | null {
+  if (!entry) return null;
+  if (typeof entry === 'string') {
+    return { code: entry.toLowerCase() };
+  }
+  if (typeof entry !== 'object') return null;
+  const e = entry as Record<string, unknown>;
+  const code = e.isoCode ?? e.code ?? e.languageCode ?? e.iso2Code ?? e.language;
+  if (!code || typeof code !== 'string') return null;
+  const level = e.level ?? e.languageLevel ?? e.proficiencyLevel;
+  const type = e.type ?? e.requirementType;
+  const required = typeof e.mandatory === 'boolean'
+    ? e.mandatory
+    : typeof e.required === 'boolean'
+      ? e.required
+      : typeof type === 'string'
+        ? !/desirable|optional|asset|nice.to.have/i.test(type)
+        : undefined;
+  return {
+    code: code.toLowerCase(),
+    level: typeof level === 'string' ? level : undefined,
+    required,
+  };
+}
+
+// See the `requiredLanguages`/`jvRequirements` comment on EuresJv above — unverified
+// field name, defensive multi-shape probe, degrades to [] rather than throwing.
+export function extractRequiredLanguages(raw: EuresJv): RequiredLanguage[] {
+  const candidates =
+    raw.requiredLanguages ??
+    raw.jvRequirements?.languages ??
+    [];
+  if (!Array.isArray(candidates)) return [];
+  return candidates
+    .map(normalizeLanguageEntry)
+    .filter((l): l is RequiredLanguage => l !== null);
+}
+
 export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
   if (!raw.id || !raw.title) return null;
 
@@ -138,6 +189,7 @@ export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
   const publishedAt = new Date(publishedAtTimestamp);
   const company = raw.employer?.name ?? 'Unknown';
   const language = raw.availableLanguages?.[0] ?? detectLanguage(`${title} ${description.slice(0, 400)}`);
+  const requiredLanguages = extractRequiredLanguages(raw);
 
   return {
     source: SOURCE,
@@ -168,6 +220,7 @@ export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
     isStartup: false,
     employeeCount: null,
     companyCreationYear: null,
+    requiredLanguages: requiredLanguages.length ? requiredLanguages : null,
   };
 }
 
