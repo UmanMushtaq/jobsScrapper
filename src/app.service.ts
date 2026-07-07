@@ -1784,6 +1784,7 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'jobs.lever.co': 'INTL',
     'jobs.ashbyhq.com': 'INTL',
     'eu.talent.io': 'INTL',
+    'eures.europa.eu': 'INTL',
     'jobicy.com': 'REMOTE',
     'weworkremotely.com': 'REMOTE',
     'remotive.com': 'REMOTE',

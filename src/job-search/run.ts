@@ -52,6 +52,7 @@ import { HimalayasSource } from './sources/himalayas.source';
 import { NodeskSource } from './sources/nodesk.source';
 import { GlassdoorSource } from './sources/glassdoor.source';
 import { DuunitoriSource } from './sources/duunitori.source';
+import { EuresSource } from './sources/eures.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -239,6 +240,7 @@ export async function runJobSearchOnce(
       new NoFluffJobsSource(),
       new GlassdoorSource(),
       new DuunitoriSource(),
+      new EuresSource(),
     ];
     const sources = onlySources?.length
       ? allSources.filter((s) => onlySources.includes(s.name))
