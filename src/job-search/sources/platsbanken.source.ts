@@ -5,7 +5,8 @@ import { JobSource } from './registry';
 const SOURCE = 'arbetsformedlingen.se';
 
 // Sweden's Public Employment Service (Arbetsförmedlingen) — Platsbanken API
-// Free public API, requires a free API key from https://apirequest.jobtechdev.se
+// Free public API. The JobSearch endpoint works without a key (verified July 7, 2026);
+// ARBETSFORMEDLINGEN_API_KEY from https://apirequest.jobtechdev.se is optional.
 // No Playwright, no ScraperAPI needed — pure JSON REST API
 const BASE_URL = 'https://jobsearch.api.jobtechdev.se/search';
 
@@ -78,22 +79,16 @@ export class PlatsbankenSource implements JobSource {
   priority = 3;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
-    // Verification attempted 2026-07-06: tried curling https://jobsearch.api.jobtechdev.se/search
-    // without a key from this environment to check whether the JobSearch endpoint is really
-    // open (keys are documented as mandatory only for some other JobTech APIs). The attempt
-    // was inconclusive — this environment's own egress proxy rejects the CONNECT to
-    // jobsearch.api.jobtechdev.se before any request reaches JobTech's servers (same
-    // policy-denial pattern seen for glassdoor.com, justjoin.it, duunitori.fi in earlier
-    // sessions), so no real 200/401/403 was ever observed. Do NOT read this as confirmation
-    // either way. Re-run the curl below from an environment with real internet access
-    // (e.g. locally, or Render's own shell) before changing the hard-skip below:
+    // Verified 2026-07-07: the owner ran
     //   curl -s "https://jobsearch.api.jobtechdev.se/search?q=nodejs&limit=2"
-    // If it returns JSON hits with no key, remove the hard-skip and make the api-key header
-    // conditional. If it returns 401/403, leave this exactly as is.
-    const apiKey = process.env.ARBETSFORMEDLINGEN_API_KEY;
+    // from his own machine (real internet access, unlike the sandbox that first tried
+    // this) and got a full valid JSON response with no API key — 93 total hits for
+    // "nodejs", shape matching PlatsbankenHit exactly (hits[] with id, headline,
+    // webpage_url, employer, etc.). The JobSearch endpoint is confirmed open; the
+    // api-key header below is now optional and only sent when the env var is set.
+    const apiKey = process.env.ARBETSFORMEDLINGEN_API_KEY ?? null;
     if (!apiKey) {
-      console.warn('[platsbanken] ARBETSFORMEDLINGEN_API_KEY not set — skipping');
-      return [];
+      console.log('[platsbanken] no API key set — using keyless access (verified working July 7, 2026)');
     }
 
     const jobs = new Map<string, JobPosting>();
@@ -118,7 +113,7 @@ export class PlatsbankenSource implements JobSource {
 
 async function fetchJobs(
   query: string,
-  apiKey: string,
+  apiKey: string | null,
   settings: SearchSettings,
 ): Promise<JobPosting[]> {
   const params = new URLSearchParams({
@@ -130,13 +125,17 @@ async function fetchJobs(
   const response = await fetch(`${BASE_URL}?${params.toString()}`, {
     headers: {
       'Accept': 'application/json',
-      'api-key': apiKey,
+      ...(apiKey ? { 'api-key': apiKey } : {}),
     },
     signal: AbortSignal.timeout(20_000),
   });
 
+  // Fallback in case keyless access is ever restricted later.
   if (response.status === 401 || response.status === 403) {
-    console.warn(`[platsbanken] API key rejected (${response.status}) — check ARBETSFORMEDLINGEN_API_KEY`);
+    console.warn(
+      `[platsbanken] request rejected (${response.status}) — keyless access may have been restricted; ` +
+      'a key from https://apirequest.jobtechdev.se would be needed',
+    );
     return [];
   }
   if (!response.ok) {
