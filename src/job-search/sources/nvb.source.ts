@@ -4,7 +4,7 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 
 const SOURCE = 'nationalevacaturebank.nl';
 const BASE_URL = 'https://www.nationalevacaturebank.nl';
@@ -118,7 +118,7 @@ function mapJob(raw: NvbJob): JobPosting | null {
 
   const applyUrl = raw.apply?.url;
   if (!applyUrl) return null;
-  const canonicalUrl = applyUrl.startsWith('http') ? applyUrl : `${BASE_URL}${applyUrl}`;
+  const canonicalUrl = resolveUrl(BASE_URL, applyUrl);
 
   const company = raw.company?.name ?? 'Unknown';
   const city = raw.workingPlace?.city ?? raw.workingPlace?.name ?? '';

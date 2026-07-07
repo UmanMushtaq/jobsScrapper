@@ -3,7 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
-import { RawJob, extractJobsFromHtml, stripHtml, isRelevantJob } from './shared-scraper';
+import { RawJob, extractJobsFromHtml, stripHtml, isRelevantJob, resolveUrl } from './shared-scraper';
 
 const SOURCE = 'nodesk.co';
 const BASE_URL = 'https://nodesk.co';
@@ -63,7 +63,7 @@ async function fetchPage(_cutoff: number): Promise<JobPosting[]> {
     const url = raw.url ?? raw.link;
     if (!title || !url) continue;
 
-    const canonicalUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
+    const canonicalUrl = resolveUrl(BASE_URL, url);
     if (seen.has(canonicalUrl)) continue;
     seen.add(canonicalUrl);
 

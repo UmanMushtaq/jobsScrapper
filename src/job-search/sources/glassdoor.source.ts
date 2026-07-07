@@ -9,7 +9,7 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 
 const SOURCE = 'glassdoor.com';
 const BASE_URL = 'https://www.glassdoor.com/Job/jobs.htm';
@@ -132,7 +132,7 @@ function extractJobs(html: string): RawJob[] {
     const title = titleMatch?.[1]?.trim();
     const rawUrl = linkMatch?.[1];
     if (!title || !rawUrl) continue;
-    const url = rawUrl.startsWith('http') ? rawUrl : `https://www.glassdoor.com${rawUrl}`;
+    const url = resolveUrl('https://www.glassdoor.com', rawUrl);
 
     jobs.push({
       title,

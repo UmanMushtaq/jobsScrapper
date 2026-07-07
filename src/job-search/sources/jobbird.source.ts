@@ -3,10 +3,14 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 
 const SOURCE = 'jobbird.nl';
 const BASE_URL = 'https://www.jobbird.com/nl/vacature';
+// Trailing slash required: the AJAX job endpoint's `url` field is sometimes just a bare
+// "{id}-slug" with no leading slash, so it must be resolved as a child of this path, not
+// as a sibling of "vacature" (see jobbird.source.spec.ts for the regression this guards).
+const JOB_URL_BASE = `${BASE_URL}/`;
 const AJAX_URL = 'https://www.jobbird.com/nl/ajax/job';
 
 const SEARCH_QUERIES = [
@@ -59,7 +63,7 @@ export class JobbirdNlSource implements JobSource {
   }
 }
 
-interface AjaxJob {
+export interface AjaxJob {
   id?: string | number;
   title?: string;
   url?: string;
@@ -119,7 +123,7 @@ async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
   return results;
 }
 
-function mapAjaxJob(raw: AjaxJob, id: string): JobPosting | null {
+export function mapAjaxJob(raw: AjaxJob, id: string): JobPosting | null {
   const title = raw.title;
   if (!title) return null;
 
@@ -135,9 +139,7 @@ function mapAjaxJob(raw: AjaxJob, id: string): JobPosting | null {
   const isTechJob = TECH_TITLE_KEYWORDS.some(kw => titleLower.includes(kw));
   if (!isTechJob) return null;
 
-  const canonicalUrl = raw.url
-    ? (raw.url.startsWith('http') ? raw.url : `https://www.jobbird.com${raw.url}`)
-    : `https://www.jobbird.com/nl/vacature/${id}`;
+  const canonicalUrl = resolveUrl(JOB_URL_BASE, raw.url ?? id);
 
   const companyRaw = raw.company;
   const company = typeof companyRaw === 'string' ? companyRaw : companyRaw?.name ?? 'Unknown';

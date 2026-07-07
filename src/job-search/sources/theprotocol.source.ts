@@ -4,7 +4,7 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 
 const SOURCE = 'theprotocol.it';
 const BASE_URL = 'https://theprotocol.it/filtry/';
@@ -146,7 +146,7 @@ function extractJobs(data: unknown): RawJob[] {
         ?? block.match(/href="(\/[^"]+)"/i);
       const title = titleMatch ? titleMatch[1].trim() : null;
       const rawUrl = linkMatch ? linkMatch[1] : null;
-      const url = rawUrl ? (rawUrl.startsWith('http') ? rawUrl : `https://theprotocol.it${rawUrl}`) : null;
+      const url = rawUrl ? resolveUrl('https://theprotocol.it', rawUrl) : null;
       if (title && url) jobs.push({ title, url });
     }
     return jobs;
@@ -163,7 +163,7 @@ function mapJob(raw: RawJob): JobPosting | null {
   if (!url && raw.slug) url = `https://theprotocol.it/oferty/${raw.slug}`;
   if (!url) return null;
 
-  const canonicalUrl = url.startsWith('http') ? url : `https://theprotocol.it${url}`;
+  const canonicalUrl = resolveUrl('https://theprotocol.it', url);
 
   const companyRaw = raw.company;
   const company = typeof companyRaw === 'string'

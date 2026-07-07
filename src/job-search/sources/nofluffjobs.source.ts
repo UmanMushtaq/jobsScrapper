@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
 import { acquirePlaywrightLock } from './playwright-queue';
+import { resolveUrl } from './shared-scraper';
 
 const SOURCE = 'nofluffjobs.com';
 const BASE_URL = 'https://nofluffjobs.com';
@@ -121,7 +122,7 @@ async function fetchSearchPage(
 
       for (const link of links) {
         const href = link.getAttribute('href') ?? '';
-        const url = href.startsWith('http') ? href : `https://nofluffjobs.com${href}`;
+        const url = resolveUrl(BASE_URL, href);
         if (seen.has(url)) continue;
         seen.add(url);
 

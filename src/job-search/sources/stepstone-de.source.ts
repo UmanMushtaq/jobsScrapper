@@ -3,7 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 
 const SOURCE = 'stepstone.de';
 const BASE_URL = 'https://www.stepstone.de/jobs/';
@@ -184,9 +184,7 @@ function parseJobCardsFromHtml(html: string): RawJob[] {
     const linkMatch = block.match(/href="([^"]*\/jobs?\/[^"]+)"/i) ?? block.match(/href="([^"]+)"/i);
 
     const title = titleMatch ? titleMatch[1].trim() : null;
-    const url = linkMatch
-      ? (linkMatch[1].startsWith('http') ? linkMatch[1] : `https://www.stepstone.de${linkMatch[1]}`)
-      : null;
+    const url = linkMatch ? resolveUrl('https://www.stepstone.de', linkMatch[1]) : null;
 
     if (title && url) {
       jobs.push({ id, title, url, company: companyMatch?.[1].trim(), location: locationMatch?.[1].trim() });
@@ -203,7 +201,7 @@ function mapJob(raw: RawJob): JobPosting | null {
   const url = raw.url ?? raw.jobUrl;
   if (!url) return null;
 
-  const canonicalUrl = url.startsWith('http') ? url : `https://www.stepstone.de${url}`;
+  const canonicalUrl = resolveUrl('https://www.stepstone.de', url);
 
   const companyRaw = raw.company;
   const company = typeof companyRaw === 'string'

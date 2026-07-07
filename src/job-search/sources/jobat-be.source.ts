@@ -5,7 +5,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 
 const SOURCE = 'jobat.be';
 const BASE_URL = 'https://www.jobat.be/en/jobs';
@@ -190,9 +190,7 @@ function parseJobCardsFromHtml(html: string): RawJob[] {
 
     const title = titleMatch ? titleMatch[1].trim() : null;
     const rawUrl = linkMatch ? linkMatch[1] : null;
-    const url = rawUrl
-      ? (rawUrl.startsWith('http') ? rawUrl : `https://www.jobat.be${rawUrl}`)
-      : null;
+    const url = rawUrl ? resolveUrl('https://www.jobat.be', rawUrl) : null;
 
     if (title && url) {
       jobs.push({
@@ -214,7 +212,7 @@ function mapJob(raw: RawJob): JobPosting | null {
   const url = raw.url ?? raw.link;
   if (!url) return null;
 
-  const canonicalUrl = url.startsWith('http') ? url : `https://www.jobat.be${url}`;
+  const canonicalUrl = resolveUrl('https://www.jobat.be', url);
 
   const companyRaw = raw.company;
   const company = typeof companyRaw === 'string'

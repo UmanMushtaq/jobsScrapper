@@ -56,6 +56,20 @@ export const FINTECH_KEYWORDS = [
   'financial services',
 ];
 
+// Safe URL join — handles absolute hrefs, root-relative hrefs, and bare relative
+// hrefs/slugs alike. Naive `baseUrl + relativePath` string concatenation breaks
+// whenever the relative value lacks a leading slash (e.g. a bare "id-slug" from a
+// JSON API), producing URLs like "https://example.com123-slug". Pass a base with a
+// trailing slash when the relative value may be a bare slug that belongs under a
+// sub-path (e.g. "https://site.com/jobs/"), otherwise a bare origin is fine.
+export function resolveUrl(base: string, relative: string): string {
+  try {
+    return new URL(relative, base).toString();
+  } catch {
+    return relative;
+  }
+}
+
 export function isRelevantJob(title: string, description: string): boolean {
   const t = title.toLowerCase();
   const d = (description ?? '').toLowerCase();
@@ -156,7 +170,7 @@ function parseCards(html: string, baseUrl: string): RawJob[] {
     const rawUrl = linkMatch?.[1];
     if (!title || !rawUrl) continue;
 
-    const url = rawUrl.startsWith('http') ? rawUrl : `${baseUrl}${rawUrl}`;
+    const url = resolveUrl(baseUrl, rawUrl);
     jobs.push({
       title,
       url,
@@ -181,7 +195,7 @@ export function mapRawJob(
 
   const url = raw.url ?? raw.link ?? raw.jobUrl;
   if (!url) return null;
-  const canonicalUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+  const canonicalUrl = resolveUrl(baseUrl, url);
 
   const companyRaw = raw.company;
   const company = typeof companyRaw === 'string'

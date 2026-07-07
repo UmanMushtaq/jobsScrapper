@@ -3,7 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 
 const SOURCE = 'ictjob.be';
 const BASE_URL = 'https://www.ictjob.be/en/search-it-jobs';
@@ -105,7 +105,7 @@ function parseJobs(html: string, cutoff: number): JobPosting[] {
       if (!isNaN(d.getTime()) && d.getTime() < cutoff) continue;
     }
 
-    const canonicalUrl = rawUrl.startsWith('http') ? rawUrl : `https://www.ictjob.be${rawUrl}`;
+    const canonicalUrl = resolveUrl('https://www.ictjob.be', rawUrl);
     const company = companyMatch?.[1].trim() ?? 'Unknown';
     const locationStr = locationMatch?.[1].trim() ?? 'Belgium';
     const locationLabel = locationStr.toLowerCase().includes('belgi') ? locationStr : `${locationStr}, Belgium`;
@@ -137,7 +137,7 @@ function mapLdJob(item: Record<string, unknown>): JobPosting | null {
   const url = item.url as string | undefined;
   if (!title || !url) return null;
 
-  const canonicalUrl = url.startsWith('http') ? url : `https://www.ictjob.be${url}`;
+  const canonicalUrl = resolveUrl('https://www.ictjob.be', url);
   const hiringOrg = item.hiringOrganization as Record<string, unknown> | undefined;
   const company = (hiringOrg?.name as string | undefined) ?? 'Unknown';
   const jobLocation = item.jobLocation as Record<string, unknown> | undefined;
