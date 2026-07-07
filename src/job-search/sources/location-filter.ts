@@ -7,7 +7,7 @@ export interface LocationScore {
   reason: string;
 }
 
-export type RemoteScope = 'eu-ok' | 'global' | 'unknown' | 'restricted-non-eu';
+export type RemoteScope = 'eu-ok' | 'global' | 'unknown' | 'restricted-non-eu' | 'restricted-single-country';
 
 // EU country names + hint words already used for country inference below, reused
 // here as the "eu-ok" signal set for remote-scope classification.
@@ -44,6 +44,70 @@ const RESTRICTED_NON_EU_PATTERNS: RegExp[] = [
   /\bus business hours\b/i,
 ];
 
+// Country-residency requirement patterns for REMOTE jobs only — "must be based in the
+// Netherlands", "Poland residents only", etc. Applies to any EU/EEA country the
+// candidate is NOT based in. France is deliberately excluded from this list (the
+// candidate lives in France, so a France-residency requirement is not a restriction for
+// him). Onsite/hybrid roles never consult this — see scoreLocationCore, which only calls
+// parseRemoteScope from the workMode === 'remote' branch, so a residency requirement on
+// an onsite job in a target country is never treated as a rejection.
+const RESIDENCY_COUNTRIES: Record<string, string[]> = {
+  NL: ['netherlands', 'the netherlands'],
+  BE: ['belgium'],
+  DE: ['germany'],
+  PL: ['poland'],
+  IT: ['italy'],
+  ES: ['spain'],
+  SE: ['sweden'],
+  DK: ['denmark'],
+  AT: ['austria'],
+  PT: ['portugal'],
+  IE: ['ireland'],
+  LU: ['luxembourg'],
+  FI: ['finland'],
+  GR: ['greece'],
+  HU: ['hungary'],
+  RO: ['romania'],
+  BG: ['bulgaria'],
+  HR: ['croatia'],
+  SK: ['slovakia'],
+  SI: ['slovenia'],
+  EE: ['estonia'],
+  LV: ['latvia'],
+  LT: ['lithuania'],
+  MT: ['malta'],
+  CY: ['cyprus'],
+  NO: ['norway'],
+  CH: ['switzerland'],
+  GB: ['united kingdom', 'the uk', 'great britain'],
+  CZ: ['czech republic', 'czechia'],
+};
+
+function buildResidencyPatterns(): RegExp[] {
+  const templates = [
+    (c: string) => `must be based in (?:the )?${c}\\b`,
+    (c: string) => `must be located in (?:the )?${c}\\b`,
+    (c: string) => `${c} residents? only\\b`,
+    (c: string) => `residents? of (?:the )?${c} only\\b`,
+    (c: string) => `must reside in (?:the )?${c}\\b`,
+    (c: string) => `candidates? must reside in (?:the )?${c}\\b`,
+    (c: string) => `only candidates? (?:currently )?living in (?:the )?${c}\\b`,
+    (c: string) => `${c.replace(/ /g, '[- ]')}[- ]based candidates? only\\b`,
+    (c: string) => `open only to ${c} residents\\b`,
+  ];
+  const patterns: RegExp[] = [];
+  for (const names of Object.values(RESIDENCY_COUNTRIES)) {
+    for (const name of names) {
+      for (const template of templates) {
+        patterns.push(new RegExp(template(name), 'i'));
+      }
+    }
+  }
+  return patterns;
+}
+
+const RESTRICTED_RESIDENCY_PATTERNS = buildResidencyPatterns();
+
 // Weaker signals only trustworthy when they ARE the location label itself
 // (e.g. locationLabel === "United States (Remote)") — a bare country name used
 // as the posting's location field means the role is scoped to that country.
@@ -66,6 +130,12 @@ export function parseRemoteScope(locationLabel: string, description: string): Re
   if (RESTRICTED_NON_EU_PATTERNS.some((p) => p.test(label))) return 'restricted-non-eu';
   if (RESTRICTED_LABEL_ONLY_PATTERNS.some((p) => p.test(label))) return 'restricted-non-eu';
   if (RESTRICTED_NON_EU_PATTERNS.some((p) => p.test(descSample))) return 'restricted-non-eu';
+
+  // Checked before EU_OK_HINTS: a bare country name (e.g. "Netherlands") also appears in
+  // EU_OK_HINTS, so a residency requirement for that country must be caught first or it
+  // would be misread as an EU-wide-acceptable signal.
+  if (RESTRICTED_RESIDENCY_PATTERNS.some((p) => p.test(label))) return 'restricted-single-country';
+  if (RESTRICTED_RESIDENCY_PATTERNS.some((p) => p.test(descSample))) return 'restricted-single-country';
 
   if (EU_OK_HINTS.some((hint) => label.includes(hint))) return 'eu-ok';
   if (EU_OK_HINTS.some((hint) => descSample.includes(hint))) return 'eu-ok';
@@ -177,6 +247,14 @@ function scoreLocationCore(
         score: 0,
         priority: 'rejected',
         reason: `Remote restricted to non-EU region: ${locationLabel ?? description?.slice(0, 80) ?? 'unspecified'}`,
+      };
+    }
+    if (scope === 'restricted-single-country') {
+      return {
+        isAcceptable: false,
+        score: 0,
+        priority: 'rejected',
+        reason: `Remote restricted to residents of a specific non-France country: ${locationLabel ?? description?.slice(0, 80) ?? 'unspecified'}`,
       };
     }
     if (scope === 'eu-ok' || scope === 'global') {

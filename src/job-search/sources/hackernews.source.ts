@@ -158,8 +158,9 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
   // Scan all parts together so the restriction isn't missed.
   if (workMode === 'remote') {
     const allPartsScan = parts.join(' | ');
-    if (parseRemoteScope(allPartsScan, '') === 'restricted-non-eu') {
-      console.log(`[hackernews] FILTERED non-EU remote: ${company} — ${firstLine}`);
+    const scope = parseRemoteScope(allPartsScan, '');
+    if (scope === 'restricted-non-eu' || scope === 'restricted-single-country') {
+      console.log(`[hackernews] FILTERED restricted remote (${scope}): ${company} — ${firstLine}`);
       return null;
     }
   }

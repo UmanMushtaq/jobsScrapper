@@ -52,6 +52,26 @@ describe('parseRemoteScope', () => {
   it('treats bare "Remote" with nothing else as unknown (acceptable)', () => {
     expect(parseRemoteScope('Remote', '')).toBe('unknown');
   });
+
+  it('rejects a remote job requiring residency in the Netherlands', () => {
+    expect(parseRemoteScope('Remote', 'You must be based in the Netherlands for this role.')).toBe('restricted-single-country');
+  });
+
+  it('rejects "Poland residents only"', () => {
+    expect(parseRemoteScope('Remote', 'Poland residents only, fully distributed team.')).toBe('restricted-single-country');
+  });
+
+  it('rejects "you must be located in Italy"', () => {
+    expect(parseRemoteScope('Remote', 'You must be located in Italy to apply.')).toBe('restricted-single-country');
+  });
+
+  it('rejects "candidates must reside in Germany"', () => {
+    expect(parseRemoteScope('Remote', 'Candidates must reside in Germany.')).toBe('restricted-single-country');
+  });
+
+  it('accepts "anywhere in the EU"', () => {
+    expect(parseRemoteScope('Remote', 'Open to candidates anywhere in the EU.')).toBe('eu-ok');
+  });
 });
 
 describe('scoreLocation — remote branch', () => {
@@ -83,6 +103,41 @@ describe('scoreLocation — remote branch', () => {
     const result = scoreLocation(null, null, 'remote', false, baseSettings, 'Remote');
     expect(result.isAcceptable).toBe(true);
     expect(result.score).toBe(85);
+  });
+});
+
+describe('scoreLocation — country-residency restriction applies to remote only', () => {
+  const settingsWithNlIt: SearchSettings = {
+    ...baseSettings,
+    europeCountryCodes: ['FR', 'DE', 'NL', 'IT'],
+  };
+
+  it('rejects a remote job requiring residency in the Netherlands', () => {
+    const result = scoreLocation(null, null, 'remote', false, settingsWithNlIt, 'Remote', 'You must be based in the Netherlands.');
+    expect(result.isAcceptable).toBe(false);
+  });
+
+  it('accepts a remote job open to anywhere in the EU', () => {
+    const result = scoreLocation(null, null, 'remote', false, settingsWithNlIt, 'Remote', 'Open to candidates anywhere in the EU.');
+    expect(result.isAcceptable).toBe(true);
+  });
+
+  it('accepts a remote job with no location restriction stated', () => {
+    const result = scoreLocation(null, null, 'remote', false, settingsWithNlIt, 'Remote', 'Join our backend team.');
+    expect(result.isAcceptable).toBe(true);
+  });
+
+  it('accepts an on-site Amsterdam job even though it requires residency in the Netherlands', () => {
+    // offersRelocation:true because NL is not in the hardcoded TARGET_RELOCATION_COUNTRIES
+    // list — this isolates the assertion to "the residency-requirement text does not
+    // itself cause rejection for on-site roles", independent of that unrelated rule.
+    const result = scoreLocation('NL', 'Amsterdam', 'on-site', true, settingsWithNlIt, 'Amsterdam, Netherlands', 'You must be based in the Netherlands.');
+    expect(result.isAcceptable).toBe(true);
+  });
+
+  it('accepts a hybrid Milan job even though it states "Italy residents preferred"', () => {
+    const result = scoreLocation('IT', 'Milan', 'hybrid', false, settingsWithNlIt, 'Milan, Italy', 'Italy residents preferred.');
+    expect(result.isAcceptable).toBe(true);
   });
 });
 
