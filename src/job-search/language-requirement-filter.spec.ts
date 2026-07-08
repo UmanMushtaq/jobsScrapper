@@ -73,3 +73,48 @@ describe('evaluateLanguageRequirement — free-text requirement-phrase heuristic
     expect(detectRequiredLanguagePhrase('We are hiring a backend engineer with Node.js experience.')).toBeNull();
   });
 });
+
+describe('evaluateLanguageRequirement — July 8 2026 pattern additions', () => {
+  it('rejects "verhandlungssichere Deutschkenntnisse"', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend Entwickler. Verhandlungssichere Deutschkenntnisse.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('rejects "Deutschkenntnisse in Wort und Schrift"', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend role. Deutschkenntnisse in Wort und Schrift erforderlich.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('rejects "Deutsch C1"', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend Entwickler gesucht. Deutsch C1 erwartet.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('rejects "fließendes Deutsch"', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend role. Fließendes Deutsch wird vorausgesetzt.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('rejects "French C1 required"', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend role. French C1 required for this position.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('rejects "parfaitement francophone"', () => {
+    const result = evaluateLanguageRequirement(null, 'Poste backend. Vous devez être parfaitement francophone.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('rejects "je spreekt Nederlands"', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend developer. Je spreekt Nederlands vloeiend.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('does NOT reject a French-language JD without any of the new requirement phrases', () => {
+    const description =
+      'Poste de développeur backend Node.js et TypeScript, au sein d\'une équipe internationale ' +
+      'travaillant principalement en anglais. Stack : NestJS, PostgreSQL, Docker.';
+    const result = evaluateLanguageRequirement(null, description);
+    expect(result.reject).toBe(false);
+  });
+});

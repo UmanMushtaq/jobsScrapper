@@ -21,6 +21,18 @@ const EU_OK_HINTS = [
   'lithuania', 'malta', 'cyprus',
 ];
 
+// Additional US-timezone-overlap phrasings (remote jobs only) — extends the existing
+// "US timezone hard requirements" bucket below (e.g. "Pacific hours"). Exported
+// separately (in addition to being folded into RESTRICTED_NON_EU_PATTERNS) so
+// retroactive-purge tooling can tag a rejection from these specific patterns as
+// 'remote-us-timezone' rather than the generic 'restricted-non-eu'.
+export const US_TIMEZONE_OVERLAP_PATTERNS: RegExp[] = [
+  /\bstrong overlap w(?:ith)?\/? ?(?:us )?eastern(?: us)? time ?zone\b/i,
+  /\best overlap\b/i,
+  /\bus east coast hours\b/i,
+  /\bamericas time ?zone\b/i,
+];
+
 // Whole-word-ish patterns (word-boundary regexes) that signal the job is scoped
 // to a non-EU region and excludes EU-based remote candidates.
 const RESTRICTED_NON_EU_PATTERNS: RegExp[] = [
@@ -42,6 +54,7 @@ const RESTRICTED_NON_EU_PATTERNS: RegExp[] = [
   /\bpacific hours\b/i, /\bpst hours\b/i, /\best hours\b/i, /\bus pacific\b/i,
   /\bus eastern\b/i, /\boverlap with us\b/i, /\bus time ?zone\b/i, /\bus timezones\b/i,
   /\bus business hours\b/i,
+  ...US_TIMEZONE_OVERLAP_PATTERNS,
 ];
 
 // Country-residency requirement patterns for REMOTE jobs only — "must be based in the
@@ -299,6 +312,24 @@ function scoreLocationCore(
         reason: 'Hybrid/Unknown location - need clarification',
       };
     }
+  }
+
+  // Onsite/hybrid roles outside the target-country list are rejected — deliberately a
+  // separate, explicit field (profile.targetCountryCodes) rather than reusing
+  // countryTiers, which is documented as "never a filter" (a ranking boost only) and
+  // must stay that way. Without this gate, a country present in europeCountryCodes or
+  // the TARGET_RELOCATION_COUNTRIES list below but not actually a target (e.g. Portugal)
+  // could still be accepted — the real bug this rule was written for (Air Apps, fully
+  // onsite Lisbon). Skipped entirely when targetCountryCodes isn't configured. Remote
+  // jobs never reach this branch (see the early return in the workMode==='remote' block
+  // above), so this never affects remote-scope handling.
+  if (profile.targetCountryCodes && profile.targetCountryCodes.length > 0 && !profile.targetCountryCodes.includes(effectiveCountryCode!)) {
+    return {
+      isAcceptable: false,
+      score: 0,
+      priority: 'rejected',
+      reason: `Onsite/hybrid outside target countries: ${effectiveCountryCode}`,
+    };
   }
 
   // Blacklisted countries

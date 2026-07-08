@@ -2,8 +2,10 @@ import { PreferenceModel, scorePreference } from './preference';
 import { resolveWorkAuth } from './profile';
 import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
-import { isFrontendPrimaryStack } from './stack-filter';
+import { isFrontendPrimaryStack, isMarketingEngineeringRole } from './stack-filter';
 import { evaluateLanguageRequirement } from './language-requirement-filter';
+import { isRejectedCompany } from './rejected-companies';
+import { hasNoAiApplicationPolicy } from './no-ai-policy-filter';
 import { FINTECH_KEYWORDS } from './sources/shared-scraper';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
 
@@ -88,6 +90,15 @@ export function scoreJob(
 
   const isApec = job.source === 'apec.fr';
 
+  // Hard reject, checked first: an explicit blocklist of companies that have already
+  // rejected Uman (confirmed, not inferred from repeated dismissals — see the separate
+  // dismissed-company threshold in run.ts). Triggers on the first match.
+  if (isRejectedCompany(job.company)) {
+    console.log(`[rejected-companies] REJECTED: ${job.company}`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: rejected-company`);
+    return null;
+  }
+
   if (!isLanguageFit(job, profile, text)) {
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: langFilter (detected: ${job.language ?? 'unknown'})`);
     return null;
@@ -153,6 +164,16 @@ export function scoreJob(
     return null;
   }
 
+  // Hard reject: GTM/growth/marketing-engineering role-type mismatch — backend roles are
+  // the target profile, growth/attribution/MarTech hybrid roles are not, even when
+  // Node.js appears somewhere in the stack.
+  const marketingRole = isMarketingEngineeringRole(job.title, job.description);
+  if (marketingRole.reject) {
+    console.log(`[stack-filter] REJECTED marketing-engineering: ${job.company} — ${marketingRole.reason}`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: role-type-marketing-engineering (${marketingRole.reason})`);
+    return null;
+  }
+
   // Hard reject: a stated language-proficiency requirement (structured field, when the
   // source provides one, plus a free-text requirement-phrase heuristic for every source)
   // that the candidate does not meet — English fluent, French A1 only. Distinct from
@@ -161,6 +182,17 @@ export function scoreJob(
   if (languageRequirement.reject) {
     console.log(`[language-filter] REJECTED: ${job.company} — ${languageRequirement.reason}`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: languageRequirement (${languageRequirement.reason})`);
+    return null;
+  }
+
+  // Hard reject: the posting disqualifies AI-assisted applications — Uman's application
+  // workflow (cover letters, short answers) is AI-assisted end to end, so this role is
+  // unusable regardless of fit. Scoped to the application process itself, not a JD that
+  // merely discusses AI as part of the job's own tech stack.
+  const noAiPolicy = hasNoAiApplicationPolicy(job.description);
+  if (noAiPolicy.reject) {
+    console.log(`[no-ai-policy] REJECTED: ${job.company} — ${noAiPolicy.reason}`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: no-ai-application-policy (${noAiPolicy.reason})`);
     return null;
   }
 
@@ -448,31 +480,53 @@ function inferExperienceFromText(text: string): number | null {
 
 
 
+// EN/FR/DE year-unit + experience-keyword vocabulary, shared by every extraction strategy below.
+const YEAR_UNIT = String.raw`(?:years?|yrs?|ann[ée]es?|ans|jahre?)`;
+const EXPERIENCE_KEYWORD = String.raw`(?:experience|exp[ée]rience|berufserfahrung)`;
+
+// Extracts the MINIMUM required years of experience stated in text, in English, French,
+// or German. For a range ("5 à 10 ans", "5 to 10 years", "5 bis 10 Jahre") the LOWER
+// bound is what's actually required — the upper bound is just a nice-to-have ceiling —
+// so that's what's returned. Returns null when no requirement is found in text.
+export function extractRequiredMinimumYears(text: string): number | null {
+  // "5 to 10 years" / "5-10 ans" / "5 à 10 ans" / "5 bis 10 Jahre"
+  const range = text.match(new RegExp(String.raw`(\d{1,2})\s*(?:to|-|–|à|bis)\s*\d{1,2}\s*${YEAR_UNIT}`, 'i'));
+  if (range) return parseInt(range[1], 10);
+
+  // "6+ years" / "7+ ans" / "8+ Jahre"
+  const plus = text.match(new RegExp(String.raw`(\d{1,2})\+\s*${YEAR_UNIT}`, 'i'));
+  if (plus) return parseInt(plus[1], 10);
+
+  // "minimum 6 years" / "at least 6 years" / "au moins 6 ans" / "mindestens 6 Jahre"
+  const minPhrase = text.match(new RegExp(
+    String.raw`(?:minimum|at\s+least|au\s+moins|minimum\s+de|mindestens)\s+(\d{1,2})\s*${YEAR_UNIT}`, 'i',
+  ));
+  if (minPhrase) return parseInt(minPhrase[1], 10);
+
+  // General "X years/ans/Jahre" near an experience keyword, either order — catches
+  // "6 years of experience", "7 Jahre Berufserfahrung", "6 ans d'expérience minimum requis".
+  const near = text.match(new RegExp(
+    String.raw`(\d{1,2})\s*${YEAR_UNIT}[^.]{0,40}?${EXPERIENCE_KEYWORD}|${EXPERIENCE_KEYWORD}[^.]{0,40}?(\d{1,2})\s*${YEAR_UNIT}`,
+    'i',
+  ));
+  if (near) return parseInt(near[1] ?? near[2], 10);
+
+  return null;
+}
+
 function detectExperiencePenalty(text: string): { penalty: number; hardReject: boolean } {
   // Only scan required section — ignore nice-to-have context
   const niceIdx = text.search(/(?:nice[- ]to[- ]have|bonus|preferred|would be a plus|optionnel|bon à avoir)/i);
   const required = niceIdx > 0 ? text.slice(0, niceIdx) : text;
 
-  // Hard reject: 6+ years explicitly required (English and French). Owner's rule caps
-  // experience requirements at 5 years — anything above must never surface, regardless
-  // of stack fit or other scoring, so this can't be compensated by a soft penalty.
-  if (
-    /\b(?:6|7|8|9|10|1\d)\+\s*(?:years?|ans?)\b/i.test(required) ||
-    /\b(?:minimum|at least|au moins|minimum de)\s+(?:6|7|8|9|10|1\d)\s+(?:years?|ans?)\b/i.test(required) ||
-    /\b(?:6|7|8|9|10|1\d)\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
-    /\bminimum\s+(?:6|7|8|9|10|1\d)\s+years?\b/i.test(required)
-  ) {
+  // Hard reject: 6+ years explicitly required, in English, French, or German. Owner's
+  // rule caps experience requirements at 5 years — anything above must never surface,
+  // regardless of stack fit or other scoring, so this can't be compensated by a soft
+  // penalty. A stated range's lower bound is used (see extractRequiredMinimumYears), so
+  // "5 to 10 years" / "5 à 10 ans" is NOT rejected (lower bound 5, at the cap).
+  const minYears = extractRequiredMinimumYears(required);
+  if (minYears !== null && minYears >= 6) {
     return { penalty: 0, hardReject: true };
-  }
-
-  // 5 years required — no penalty (matches the 5-year cap exactly; 4 years experience is close enough)
-  if (
-    /\b5\+\s*(?:years?|ans?)\b/i.test(required) ||
-    /\b(?:minimum|at least|au moins)\s+5\s+(?:years?|ans?)\b/i.test(required) ||
-    /\b5\s+ans?\s+(?:minimum|d['']expérience)\b/i.test(required) ||
-    /\bminimum\s+5\s+years?\b/i.test(required)
-  ) {
-    return { penalty: 0, hardReject: false };
   }
 
   return { penalty: 0, hardReject: false };

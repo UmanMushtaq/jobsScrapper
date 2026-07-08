@@ -154,6 +154,7 @@
       "tier2": ["PL", "NL", "LU"],
       "tier3": ["DE", "SE", "IT", "BE", "IE", "DK", "CZ", "HU", "ES", "FI"]
     },
+    "targetCountryCodes": ["FR", "DE", "BE", "NL", "LU", "IT", "ES", "SE", "DK", "CZ", "IE", "HU", "PL", "FI"],
     "acceptRemote": true,
     "acceptHybrid": true,
     "acceptOnSite": true,

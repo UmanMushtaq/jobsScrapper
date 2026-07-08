@@ -60,6 +60,10 @@ export interface SearchSettings {
   // 3-tier scoring boost by country (never a filter — does not bypass the language
   // filter the way preferredCountries does). tier1 > tier2 > tier3 in boost size.
   countryTiers?: { tier1: string[]; tier2: string[]; tier3: string[] };
+  // Explicit target-country allowlist for onsite/hybrid roles (location-filter.ts's
+  // scoreLocationCore). Unlike countryTiers this IS a filter — deliberately kept as its
+  // own field so it never entangles with the tier boost's "never a filter" invariant.
+  targetCountryCodes?: string[];
 }
 
 export interface JobPosting {

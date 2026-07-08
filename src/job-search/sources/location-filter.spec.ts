@@ -199,6 +199,66 @@ describe('scoreLocation — countryTiers', () => {
   });
 });
 
+describe('scoreLocation — targetCountryCodes gate (onsite/hybrid outside target countries)', () => {
+  const TARGET_COUNTRIES = ['FR', 'DE', 'BE', 'NL', 'LU', 'IT', 'ES', 'SE', 'DK', 'CZ', 'IE', 'HU', 'PL', 'FI'];
+  const targetSettings: SearchSettings = {
+    ...baseSettings,
+    europeCountryCodes: ['FR', 'DE', 'BE', 'NL', 'LU', 'IT', 'ES', 'SE', 'DK', 'CZ', 'IE', 'HU', 'PL', 'FI', 'PT'],
+    targetCountryCodes: TARGET_COUNTRIES,
+  };
+
+  it('rejects an onsite job in Lisbon, Portugal — not a target country', () => {
+    const result = scoreLocation('PT', 'Lisbon', 'on-site', false, targetSettings, 'Lisbon, Portugal');
+    expect(result.isAcceptable).toBe(false);
+    expect(result.reason).toContain('outside target countries');
+  });
+
+  it('accepts an onsite job in Amsterdam, Netherlands — a target country', () => {
+    // offersRelocation:true because NL is not in the unrelated, pre-existing
+    // TARGET_RELOCATION_COUNTRIES list — this isolates the assertion to Rule 4's own
+    // targetCountryCodes gate rather than that separate relocation-support rule.
+    const result = scoreLocation('NL', 'Amsterdam', 'on-site', true, targetSettings, 'Amsterdam, Netherlands');
+    expect(result.isAcceptable).toBe(true);
+  });
+
+  it('accepts a hybrid job in Prague, Czech Republic — a target country', () => {
+    const result = scoreLocation('CZ', 'Prague', 'hybrid', false, targetSettings, 'Prague, Czech Republic');
+    expect(result.isAcceptable).toBe(true);
+  });
+
+  it('accepts a remote job with no location — targetCountryCodes never applies to remote', () => {
+    const result = scoreLocation(null, null, 'remote', false, targetSettings, 'Remote');
+    expect(result.isAcceptable).toBe(true);
+  });
+
+  it('is skipped entirely when targetCountryCodes is not configured (no regression)', () => {
+    const result = scoreLocation('PT', 'Lisbon', 'on-site', true, baseSettings, 'Lisbon, Portugal');
+    // baseSettings has no targetCountryCodes — falls through to existing europeCountryCodes
+    // logic untouched. europeCountryCodes here is only ['FR', 'DE'], so PT is rejected for
+    // the pre-existing "not in acceptable regions" reason, not the new target-country reason.
+    expect(result.isAcceptable).toBe(false);
+    expect(result.reason).not.toContain('outside target countries');
+  });
+});
+
+describe('parseRemoteScope — US timezone overlap (remote only)', () => {
+  it('rejects "strong overlap with Eastern time zone"', () => {
+    expect(parseRemoteScope('Remote', 'Requires strong overlap with Eastern time zone.')).toBe('restricted-non-eu');
+  });
+
+  it('rejects "EST overlap"', () => {
+    expect(parseRemoteScope('Remote', 'Some EST overlap is required for daily standups.')).toBe('restricted-non-eu');
+  });
+
+  it('rejects "US East Coast hours"', () => {
+    expect(parseRemoteScope('Remote', 'Must be available during US East Coast hours.')).toBe('restricted-non-eu');
+  });
+
+  it('rejects "Americas time zone"', () => {
+    expect(parseRemoteScope('Remote', 'Open to candidates in an Americas time zone.')).toBe('restricted-non-eu');
+  });
+});
+
 describe('himalayas mapJob — locationRestrictions', () => {
   it('drops a job restricted to Argentina', () => {
     const job = mapHimalayasJob(buildHimalayasJob({ locationRestrictions: ['Argentina'] }));

@@ -3,6 +3,11 @@ export interface FrontendStackResult {
   reason: string;
 }
 
+export interface RoleTypeResult {
+  reject: boolean;
+  reason: string;
+}
+
 const ANGULAR_TERMS = ['angularjs', 'angular', 'ngrx', 'rxjs'];
 const VUE_TERMS = ['vuejs', 'vue.js', 'nuxt', 'vue'];
 const NODE_TERMS = ['node.js', 'nodejs', 'node js', 'nestjs', 'nest.js', 'express'];
@@ -76,6 +81,63 @@ export function isFrontendPrimaryStack(title: string, description: string): Fron
     return {
       reject: true,
       reason: `Angular/Vue mentioned ${frontendCount}x vs Node ${nodeCount}x — frontend-dominant`,
+    };
+  }
+
+  return { reject: false, reason: '' };
+}
+
+// GTM/growth/marketing-engineering role-type mismatch. Backend engineering is the
+// target profile; growth/attribution/MarTech hybrid roles are not, even when Node.js
+// appears somewhere in the stack (these roles integrate marketing tools, not build
+// backend services). Title match is a direct hard reject; the description-dominance
+// check is deliberately conservative — a genuine backend role that merely lists one
+// marketing-tool integration (e.g. "HubSpot") must still pass.
+const MARKETING_TITLE_PATTERNS: RegExp[] = [
+  /\bgtm\b/i,
+  /martech/i,
+  /growth engineer/i,
+  /marketing engineer/i,
+  /attribution/i,
+];
+
+const MARKETING_TOOLING_PATTERNS: RegExp[] = [
+  /google tag manager|\bgtm\b/i,
+  /meta capi|meta pixel/i,
+  /hubspot/i,
+  /attribution/i,
+  /\broas\b/i,
+  /funnels?/i,
+  /ad platforms?/i,
+  /zapier|n8n/i,
+];
+
+const BACKEND_CORE_PATTERNS: RegExp[] = [
+  /node\.?js/i,
+  /nestjs|nest\.js/i,
+  /typescript backend/i,
+  /microservices?/i,
+  /api design/i,
+];
+
+export function isMarketingEngineeringRole(title: string, description: string): RoleTypeResult {
+  const titleText = title ?? '';
+  const titleMatch = MARKETING_TITLE_PATTERNS.find((p) => p.test(titleText));
+  if (titleMatch) {
+    return {
+      reject: true,
+      reason: `title matches growth/MarTech-engineering pattern (${titleMatch})`,
+    };
+  }
+
+  const fullText = `${titleText} ${description ?? ''}`;
+  const marketingHits = MARKETING_TOOLING_PATTERNS.filter((p) => p.test(fullText)).length;
+  const backendHits = BACKEND_CORE_PATTERNS.filter((p) => p.test(fullText)).length;
+
+  if (marketingHits >= 3 && backendHits <= 1) {
+    return {
+      reject: true,
+      reason: `marketing-tooling keywords dominate (${marketingHits} distinct hits) with minimal backend core (${backendHits})`,
     };
   }
 

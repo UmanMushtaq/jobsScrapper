@@ -50,6 +50,8 @@ const REQUIREMENT_PHRASE_PATTERNS: Array<{ language: string; patterns: RegExp[] 
       /french(?: language)? proficiency required/i,
       /fluent(?:ly)? in french/i,
       /must speak french/i,
+      /french (?:fluent|native|c1|c2|b2) required/i,
+      /parfaitement francophone/i,
     ],
   },
   {
@@ -61,6 +63,7 @@ const REQUIREMENT_PHRASE_PATTERNS: Array<{ language: string; patterns: RegExp[] 
       /dutch required/i,
       /fluent(?:ly)? in dutch/i,
       /must speak dutch/i,
+      /je spreekt nederlands/i,
     ],
   },
   {
@@ -72,6 +75,10 @@ const REQUIREMENT_PHRASE_PATTERNS: Array<{ language: string; patterns: RegExp[] 
       /german required/i,
       /fluent(?:ly)? in german/i,
       /must speak german/i,
+      /verhandlungssichere? deutschkenntnisse/i,
+      /deutschkenntnisse in wort und schrift/i,
+      /deutsch (?:c1|c2|b2)\b/i,
+      /flie[ßs]end(?:es)? deutsch/i,
     ],
   },
   {
