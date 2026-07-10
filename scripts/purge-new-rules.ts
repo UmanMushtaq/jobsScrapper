@@ -22,7 +22,7 @@ import { markJobDecision } from '../src/job-search/run';
 import { loadSearchProfile } from '../src/job-search/profile';
 import { isRejectedCompany } from '../src/job-search/rejected-companies';
 import { evaluateLanguageRequirement } from '../src/job-search/language-requirement-filter';
-import { extractRequiredMinimumYears } from '../src/job-search/matcher';
+import { extractRequiredMinimumYears } from '../src/job-search/experience-parser';
 import { hasNoAiApplicationPolicy } from '../src/job-search/no-ai-policy-filter';
 import { isMarketingEngineeringRole } from '../src/job-search/stack-filter';
 import { US_TIMEZONE_OVERLAP_PATTERNS } from '../src/job-search/sources/location-filter';
@@ -33,7 +33,7 @@ interface RuleHit {
   detail: string;
 }
 
-function evaluateNewRules(job: JobPosting, targetCountryCodes: string[]): RuleHit | null {
+function evaluateNewRules(job: JobPosting, targetCountryCodes: string[], experienceMaxYears: number): RuleHit | null {
   if (isRejectedCompany(job.company)) {
     return { rule: 'rejected-company', detail: job.company };
   }
@@ -44,7 +44,7 @@ function evaluateNewRules(job: JobPosting, targetCountryCodes: string[]): RuleHi
   }
 
   const minYears = extractRequiredMinimumYears(job.description ?? '');
-  if (minYears !== null && minYears >= 6) {
+  if (minYears !== null && minYears > experienceMaxYears) {
     return { rule: 'experience-over-cap', detail: `${minYears}+ years required` };
   }
 
@@ -97,7 +97,7 @@ async function main() {
     const job = m?.job;
     if (!job) continue;
 
-    const hit = evaluateNewRules(job, targetCountryCodes);
+    const hit = evaluateNewRules(job, targetCountryCodes, profile.search.experience.max);
     if (!hit) continue;
 
     console.log(`[purge-new-rules] DISMISS "${job.title}" @ ${job.company} — ${hit.rule} (${hit.detail})`);

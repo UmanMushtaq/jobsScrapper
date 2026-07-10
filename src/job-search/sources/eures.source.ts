@@ -4,6 +4,7 @@ import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
 import { RequiredLanguage } from '../language-requirement-filter';
+import { extractRequiredMinimumYears } from '../experience-parser';
 
 const SOURCE = 'eures.europa.eu';
 const API_URL = 'https://europa.eu/eures/api/jv-searchengine/public/jv-search/search';
@@ -46,7 +47,14 @@ export interface EuresJv {
   // requirements from the description regardless. Re-verify from a machine with real
   // network access and tighten this to the confirmed field/shape.
   requiredLanguages?: unknown;
-  jvRequirements?: { languages?: unknown };
+  jvRequirements?: { languages?: unknown; experience?: unknown };
+  // "Job requirements > Experience" — field name equally UNVERIFIED, same network
+  // restriction as requiredLanguages above. Probes a few plausible numeric shapes and
+  // falls back to extractRequiredMinimumYears() on the description (verified-safe,
+  // EN/FR/German-aware) when none match, so this degrades to "use the text parser"
+  // rather than silently guessing wrong.
+  requiredExperienceYears?: unknown;
+  experienceYears?: unknown;
 }
 
 interface EuresResponse {
@@ -154,6 +162,29 @@ function normalizeLanguageEntry(entry: unknown): RequiredLanguage | null {
   };
 }
 
+function coerceYears(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = parseInt(value, 10);
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
+}
+
+// See the `requiredExperienceYears`/`experienceYears` comment on EuresJv above —
+// unverified structured field, defensive multi-shape probe. Falls back to text-parsing
+// the description when no structured field resolves, so this always has a real signal
+// regardless of whether the guessed field name is ever correct.
+export function extractExperienceMinimum(raw: EuresJv, description: string): number | null {
+  const anyRaw = raw as unknown as Record<string, unknown>;
+  const structured =
+    coerceYears(anyRaw.requiredExperienceYears) ??
+    coerceYears(anyRaw.experienceYears) ??
+    coerceYears((anyRaw.jvRequirements as Record<string, unknown> | undefined)?.experience);
+  if (structured !== null) return structured;
+  return extractRequiredMinimumYears(description);
+}
+
 // See the `requiredLanguages`/`jvRequirements` comment on EuresJv above — unverified
 // field name, defensive multi-shape probe, degrades to [] rather than throwing.
 export function extractRequiredLanguages(raw: EuresJv): RequiredLanguage[] {
@@ -190,6 +221,7 @@ export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
   const company = raw.employer?.name ?? 'Unknown';
   const language = raw.availableLanguages?.[0] ?? detectLanguage(`${title} ${description.slice(0, 400)}`);
   const requiredLanguages = extractRequiredLanguages(raw);
+  const experienceLevelMinimum = extractExperienceMinimum(raw, description);
 
   return {
     source: SOURCE,
@@ -206,7 +238,7 @@ export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
     language,
     description,
     keyMissions: [],
-    experienceLevelMinimum: null,
+    experienceLevelMinimum,
     salaryCurrency: null,
     salaryPeriod: null,
     salaryMinimum: null,

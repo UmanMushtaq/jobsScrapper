@@ -6,6 +6,7 @@ import { isFrontendPrimaryStack, isMarketingEngineeringRole } from './stack-filt
 import { evaluateLanguageRequirement } from './language-requirement-filter';
 import { isRejectedCompany } from './rejected-companies';
 import { hasNoAiApplicationPolicy } from './no-ai-policy-filter';
+import { extractRequiredMinimumYears } from './experience-parser';
 import { FINTECH_KEYWORDS } from './sources/shared-scraper';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
 
@@ -286,10 +287,10 @@ export function scoreJob(
   }
 
   // Experience year text scan — penalty/reject for high-year requirements in required section
-  const { penalty: expPenalty, hardReject: expHardReject } = detectExperiencePenalty(text);
+  const { penalty: expPenalty, hardReject: expHardReject } = detectExperiencePenalty(text, profile.search.experience.max);
   if (expHardReject) {
-    console.log(`[scorer] FILTERED: ${job.company}, 6+ years required — exceeds the 5-year experience cap`);
-    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: exp>max (6+ years required)`);
+    console.log(`[scorer] FILTERED: ${job.company}, ${profile.search.experience.max + 1}+ years required — exceeds the ${profile.search.experience.max}-year experience cap`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: exp>max (${profile.search.experience.max + 1}+ years required)`);
     return null;
   }
 
@@ -479,53 +480,19 @@ function inferExperienceFromText(text: string): number | null {
 }
 
 
-
-// EN/FR/DE year-unit + experience-keyword vocabulary, shared by every extraction strategy below.
-const YEAR_UNIT = String.raw`(?:years?|yrs?|ann[ée]es?|ans|jahre?)`;
-const EXPERIENCE_KEYWORD = String.raw`(?:experience|exp[ée]rience|berufserfahrung)`;
-
-// Extracts the MINIMUM required years of experience stated in text, in English, French,
-// or German. For a range ("5 à 10 ans", "5 to 10 years", "5 bis 10 Jahre") the LOWER
-// bound is what's actually required — the upper bound is just a nice-to-have ceiling —
-// so that's what's returned. Returns null when no requirement is found in text.
-export function extractRequiredMinimumYears(text: string): number | null {
-  // "5 to 10 years" / "5-10 ans" / "5 à 10 ans" / "5 bis 10 Jahre"
-  const range = text.match(new RegExp(String.raw`(\d{1,2})\s*(?:to|-|–|à|bis)\s*\d{1,2}\s*${YEAR_UNIT}`, 'i'));
-  if (range) return parseInt(range[1], 10);
-
-  // "6+ years" / "7+ ans" / "8+ Jahre"
-  const plus = text.match(new RegExp(String.raw`(\d{1,2})\+\s*${YEAR_UNIT}`, 'i'));
-  if (plus) return parseInt(plus[1], 10);
-
-  // "minimum 6 years" / "at least 6 years" / "au moins 6 ans" / "mindestens 6 Jahre"
-  const minPhrase = text.match(new RegExp(
-    String.raw`(?:minimum|at\s+least|au\s+moins|minimum\s+de|mindestens)\s+(\d{1,2})\s*${YEAR_UNIT}`, 'i',
-  ));
-  if (minPhrase) return parseInt(minPhrase[1], 10);
-
-  // General "X years/ans/Jahre" near an experience keyword, either order — catches
-  // "6 years of experience", "7 Jahre Berufserfahrung", "6 ans d'expérience minimum requis".
-  const near = text.match(new RegExp(
-    String.raw`(\d{1,2})\s*${YEAR_UNIT}[^.]{0,40}?${EXPERIENCE_KEYWORD}|${EXPERIENCE_KEYWORD}[^.]{0,40}?(\d{1,2})\s*${YEAR_UNIT}`,
-    'i',
-  ));
-  if (near) return parseInt(near[1] ?? near[2], 10);
-
-  return null;
-}
-
-function detectExperiencePenalty(text: string): { penalty: number; hardReject: boolean } {
+function detectExperiencePenalty(text: string, maxYears: number): { penalty: number; hardReject: boolean } {
   // Only scan required section — ignore nice-to-have context
   const niceIdx = text.search(/(?:nice[- ]to[- ]have|bonus|preferred|would be a plus|optionnel|bon à avoir)/i);
   const required = niceIdx > 0 ? text.slice(0, niceIdx) : text;
 
-  // Hard reject: 6+ years explicitly required, in English, French, or German. Owner's
-  // rule caps experience requirements at 5 years — anything above must never surface,
-  // regardless of stack fit or other scoring, so this can't be compensated by a soft
-  // penalty. A stated range's lower bound is used (see extractRequiredMinimumYears), so
-  // "5 to 10 years" / "5 à 10 ans" is NOT rejected (lower bound 5, at the cap).
+  // Hard reject: more than `maxYears` explicitly required, in English, French, or German
+  // (driven by profile.search.experience.max — see the comment on that field in
+  // types.ts). Anything above must never surface, regardless of stack fit or other
+  // scoring, so this can't be compensated by a soft penalty. A stated range's lower bound
+  // is used (see extractRequiredMinimumYears), so "5 to 10 years" / "5 à 10 ans" is NOT
+  // rejected when maxYears is 5 (lower bound 5, at the cap, not over it).
   const minYears = extractRequiredMinimumYears(required);
-  if (minYears !== null && minYears >= 6) {
+  if (minYears !== null && minYears > maxYears) {
     return { penalty: 0, hardReject: true };
   }
 

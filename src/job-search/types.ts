@@ -34,6 +34,14 @@ export interface SearchSettings {
   queries: string[];
   requiredKeywords: string[];
   preferredKeywordGroups: string[][];
+  // JSON can't hold comments, so the rule lives here: jobs stating a MINIMUM experience
+  // requirement of MORE than `max` are rejected outright — enforced in matcher.ts as
+  // `effectiveExperience > profile.search.experience.max` (structured field) and
+  // detectExperiencePenalty()'s `minYears > maxYears` (free-text, EN/FR/DE via
+  // experience-parser.ts). A requirement of exactly `max`, or phrased as the lower bound
+  // of an open-ended/ranged requirement (e.g. "5+ years", "5-10 years"), is NOT rejected.
+  // Current value: max 5 — Uman has 4 years and is a reasonable stretch candidate at the
+  // 5-year floor, but 6+ is a hard skip regardless of stack fit or other scoring.
   experience: {
     min: number;
     max: number;

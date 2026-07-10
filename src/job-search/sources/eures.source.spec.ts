@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { EuresSource, EuresJv, mapJob, extractRequiredLanguages } from './eures.source';
+import { EuresSource, EuresJv, mapJob, extractRequiredLanguages, extractExperienceMinimum } from './eures.source';
 import { evaluateLanguageRequirement } from '../language-requirement-filter';
 import { SearchSettings } from '../types';
 
@@ -88,6 +88,38 @@ describe('eures requiredLanguages extraction', () => {
     const job = mapJob(raw, FAR_FUTURE_CUTOFF);
     expect(job).not.toBeNull();
     expect(job?.requiredLanguages).toBeNull();
+  });
+});
+
+describe('eures experienceLevelMinimum extraction (>5-year cap, Task 2)', () => {
+  it('extracts 6 from a plausible structured experienceYears field — over the cap', () => {
+    const raw = buildJv({ experienceYears: 6 });
+    expect(extractExperienceMinimum(raw, raw.description ?? '')).toBe(6);
+    const job = mapJob(raw, FAR_FUTURE_CUTOFF);
+    expect(job?.experienceLevelMinimum).toBe(6);
+    // matcher.ts's effectiveExperience check (experienceLevelMinimum > profile.search.experience.max)
+    // is what actually rejects this — verified directly in matcher.spec.ts's experience-cap suite.
+    expect((job?.experienceLevelMinimum ?? 0) > 5).toBe(true);
+  });
+
+  it('extracts 5 from a plausible structured experienceYears field — at the cap, not over it', () => {
+    const raw = buildJv({ experienceYears: 5 });
+    expect(extractExperienceMinimum(raw, raw.description ?? '')).toBe(5);
+    const job = mapJob(raw, FAR_FUTURE_CUTOFF);
+    expect(job?.experienceLevelMinimum).toBe(5);
+    expect((job?.experienceLevelMinimum ?? 0) > 5).toBe(false);
+  });
+
+  it('falls back to text-parsing the description when no structured field is present', () => {
+    const raw = buildJv({ description: 'Backend role. 7 Jahre Berufserfahrung erforderlich.' });
+    const job = mapJob(raw, FAR_FUTURE_CUTOFF);
+    expect(job?.experienceLevelMinimum).toBe(7);
+  });
+
+  it('leaves experienceLevelMinimum null when neither a structured field nor description wording is present (unaffected)', () => {
+    const raw = buildJv();
+    const job = mapJob(raw, FAR_FUTURE_CUTOFF);
+    expect(job?.experienceLevelMinimum).toBeNull();
   });
 });
 

@@ -265,6 +265,58 @@ describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
     );
     expect(result).toBeNull();
   });
+
+  it('accepts "5+ years professional software engineering experience" (Avenga example)', () => {
+    const result = scoreJob(
+      buildJob({
+        experienceLevelMinimum: null,
+        description:
+          'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS. ' +
+          '5+ years professional software engineering experience.',
+      }),
+      profile,
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it('accepts "Deep Backend Expertise: 5+ years of commercial web development experience" (LionHires example)', () => {
+    const result = scoreJob(
+      buildJob({
+        experienceLevelMinimum: null,
+        description:
+          'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS. ' +
+          'Deep Backend Expertise: 5+ years of commercial web development experience.',
+      }),
+      profile,
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it('accepts "solide expérience de 5 ans minimum" (Dougs example, French, minimum after the number)', () => {
+    const result = scoreJob(
+      buildJob({
+        experienceLevelMinimum: null,
+        description:
+          'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS. ' +
+          'Vous justifiez d\'une solide expérience de 5 ans minimum.',
+      }),
+      profile,
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it('rejects "minimum of 6 years experience required" (filler word between minimum and the number)', () => {
+    const result = scoreJob(
+      buildJob({
+        experienceLevelMinimum: null,
+        description:
+          'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS. ' +
+          'Minimum of 6 years experience required.',
+      }),
+      profile,
+    );
+    expect(result).toBeNull();
+  });
 });
 
 describe('scoreJob — no-AI-in-applications policy (Rule 5)', () => {
