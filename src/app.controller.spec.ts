@@ -2,117 +2,96 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
 function buildMockResponse() {
-  const res: { status: jest.Mock; json: jest.Mock } = {
+  const res: { status: jest.Mock; json: jest.Mock; redirect: jest.Mock } = {
     status: jest.fn(),
     json: jest.fn(),
+    redirect: jest.fn(),
   };
   res.status.mockReturnValue(res);
   res.json.mockReturnValue(res);
-  return res as unknown as import('express').Response & { status: jest.Mock; json: jest.Mock };
+  return res as unknown as import('express').Response & { status: jest.Mock; json: jest.Mock; redirect: jest.Mock };
 }
 
-const CORRECT_PASSWORD = 'correct-horse-battery-staple';
-
-describe('AppController — dashboard status-change password gate', () => {
-  let appService: {
-    dashboardJobApplied: jest.Mock;
-    dashboardJobDismiss: jest.Mock;
-    revertJobStatus: jest.Mock;
-  };
+describe('AppController — main dashboard actions have zero gate (Apply/Dismiss)', () => {
+  let appService: { dashboardJobApplied: jest.Mock; dashboardJobDismiss: jest.Mock };
   let controller: AppController;
-  const ORIGINAL_ENV = process.env.DASHBOARD_STATUS_PASSWORD;
 
   beforeEach(() => {
     appService = {
       dashboardJobApplied: jest.fn().mockResolvedValue(undefined),
       dashboardJobDismiss: jest.fn().mockResolvedValue(undefined),
-      revertJobStatus: jest.fn().mockResolvedValue({ ok: true, previousStatus: 'applied' }),
     };
     controller = new AppController(appService as unknown as AppService);
-    process.env.DASHBOARD_STATUS_PASSWORD = CORRECT_PASSWORD;
   });
 
-  afterEach(() => {
-    process.env.DASHBOARD_STATUS_PASSWORD = ORIGINAL_ENV;
-    jest.clearAllMocks();
-  });
-
-  it('rejects Applied with no password (401) and does not change status', async () => {
+  it('Applied fires immediately with no password/confirmation and redirects to history', async () => {
     const res = buildMockResponse();
-    await controller.dashboardJobApplied('job1', 't', 'c', '80', 'src', undefined as unknown as string, res);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(appService.dashboardJobApplied).not.toHaveBeenCalled();
-  });
-
-  it('rejects Applied with the wrong password (401) and does not change status', async () => {
-    const res = buildMockResponse();
-    await controller.dashboardJobApplied('job1', 't', 'c', '80', 'src', 'wrong-password', res);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(appService.dashboardJobApplied).not.toHaveBeenCalled();
-  });
-
-  it('accepts Applied with the correct password, changes status, returns 200', async () => {
-    const res = buildMockResponse();
-    await controller.dashboardJobApplied('job1', 't', 'c', '80', 'src', CORRECT_PASSWORD, res);
-    expect(res.status).toHaveBeenCalledWith(200);
+    await controller.dashboardJobApplied('job1', 't', 'c', '80', 'src', res);
     expect(appService.dashboardJobApplied).toHaveBeenCalledWith('job1', {
       title: 't', company: 'c', score: 80, source: 'src',
     });
+    expect(res.redirect).toHaveBeenCalledWith('/history?tab=applied');
+    expect(res.status).not.toHaveBeenCalled();
   });
 
-  it('rejects Dismiss with no password and does not change status', async () => {
+  it('Dismiss fires immediately with no password/confirmation and redirects home', async () => {
     const res = buildMockResponse();
-    await controller.dashboardJobDismiss('job1', undefined as unknown as string, res);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(appService.dashboardJobDismiss).not.toHaveBeenCalled();
-  });
-
-  it('rejects Dismiss with the wrong password and does not change status', async () => {
-    const res = buildMockResponse();
-    await controller.dashboardJobDismiss('job1', 'wrong-password', res);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(appService.dashboardJobDismiss).not.toHaveBeenCalled();
-  });
-
-  it('accepts Dismiss with the correct password, changes status, returns 200', async () => {
-    const res = buildMockResponse();
-    await controller.dashboardJobDismiss('job1', CORRECT_PASSWORD, res);
-    expect(res.status).toHaveBeenCalledWith(200);
+    await controller.dashboardJobDismiss('job1', res);
     expect(appService.dashboardJobDismiss).toHaveBeenCalledWith('job1');
-  });
-
-  it('Revert follows the same gate: rejects with no password', async () => {
-    const res = buildMockResponse();
-    await controller.revertJobStatus('https://example.com/job', undefined as unknown as string, res);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(appService.revertJobStatus).not.toHaveBeenCalled();
-  });
-
-  it('Revert follows the same gate: rejects with the wrong password', async () => {
-    const res = buildMockResponse();
-    await controller.revertJobStatus('https://example.com/job', 'wrong-password', res);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(appService.revertJobStatus).not.toHaveBeenCalled();
-  });
-
-  it('Revert follows the same gate: accepts with the correct password', async () => {
-    const res = buildMockResponse();
-    await controller.revertJobStatus('https://example.com/job', CORRECT_PASSWORD, res);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(appService.revertJobStatus).toHaveBeenCalledWith('https://example.com/job');
-  });
-
-  it('fails closed when DASHBOARD_STATUS_PASSWORD is not configured at all', async () => {
-    delete process.env.DASHBOARD_STATUS_PASSWORD;
-    const res = buildMockResponse();
-    await controller.dashboardJobApplied('job1', 't', 'c', '80', 'src', 'anything', res);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(appService.dashboardJobApplied).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith('/');
+    expect(res.status).not.toHaveBeenCalled();
   });
 });
 
-describe('AppController — read-only endpoints are unaffected by the password gate', () => {
-  it('home() renders without requiring a password', async () => {
+describe('AppController — History page Revert requires a destination choice, not a password', () => {
+  let appService: { revertJobStatus: jest.Mock };
+  let controller: AppController;
+
+  beforeEach(() => {
+    appService = {
+      revertJobStatus: jest.fn().mockResolvedValue({ ok: true, previousStatus: 'dismissed', newStatus: 'listing' }),
+    };
+    controller = new AppController(appService as unknown as AppService);
+  });
+
+  it('rejects an invalid destination (400) and does not change status', async () => {
+    const res = buildMockResponse();
+    await controller.revertJobStatus('https://example.com/job', 'somewhere-else', res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(appService.revertJobStatus).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing destination (400) and does not change status', async () => {
+    const res = buildMockResponse();
+    await controller.revertJobStatus('https://example.com/job', undefined as unknown as string, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(appService.revertJobStatus).not.toHaveBeenCalled();
+  });
+
+  it('destination "listing" calls the service with "listing" and returns 200', async () => {
+    const res = buildMockResponse();
+    await controller.revertJobStatus('https://example.com/job', 'listing', res);
+    expect(appService.revertJobStatus).toHaveBeenCalledWith('https://example.com/job', 'listing');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('destination "dismissed" calls the service with "dismissed" and returns 200', async () => {
+    const res = buildMockResponse();
+    await controller.revertJobStatus('https://example.com/job', 'dismissed', res);
+    expect(appService.revertJobStatus).toHaveBeenCalledWith('https://example.com/job', 'dismissed');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('destination "applied" calls the service with "applied" and returns 200', async () => {
+    const res = buildMockResponse();
+    await controller.revertJobStatus('https://example.com/job', 'applied', res);
+    expect(appService.revertJobStatus).toHaveBeenCalledWith('https://example.com/job', 'applied');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('AppController — read-only endpoints are unaffected', () => {
+  it('home() renders with no gate', async () => {
     const appService = { renderDashboard: jest.fn().mockResolvedValue('<html></html>') };
     const controller = new AppController(appService as unknown as AppService);
     const html = await controller.home();
@@ -120,7 +99,7 @@ describe('AppController — read-only endpoints are unaffected by the password g
     expect(appService.renderDashboard).toHaveBeenCalledWith();
   });
 
-  it('appliedJobsApi() returns data without requiring a password', async () => {
+  it('appliedJobsApi() returns data with no gate', async () => {
     const appService = { getAppliedJobs: jest.fn().mockResolvedValue([{ jobId: '1' }]) };
     const controller = new AppController(appService as unknown as AppService);
     const result = await controller.appliedJobsApi();

@@ -802,6 +802,10 @@ export async function markJobDecision(
   decision: 'applied' | 'dismissed',
   rawUrl: string,
   fallback?: JobDecisionMeta,
+  // Only set when this call is part of a revert-to-a-different-destination (see
+  // revertJobDecision below) — lets the audit entry show the TRUE prior status instead
+  // of falling back to the "was it in today's live matches" guess below.
+  oldStatusOverride?: string,
 ): Promise<void> {
   const normalizedUrl = rawUrl.trim();
   const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? DEFAULT_APPLIED_FILE;
@@ -891,20 +895,34 @@ export async function markJobDecision(
     jobUrl: match?.job.canonicalUrl ?? normalizedUrl,
     title: historyTitle,
     company: historyCompany,
-    oldStatus: match ? 'open' : 'unknown',
+    oldStatus: oldStatusOverride ?? (match ? 'open' : 'unknown'),
     newStatus: decision,
     timestamp: new Date().toISOString(),
   });
 }
 
-// Reverts a previous Applied/Dismissed decision back to the open/listing state:
-// removes the URL from whichever exclusion store it was in (so the bot can resurface it
-// on the next scan), removes its role-key dedupe entry, and removes its History-page
-// entry. Does NOT reconstruct the original dashboard card immediately — the job
-// reappears the next time it's fetched from its source, since it's no longer excluded.
-export async function revertJobDecision(rawUrl: string): Promise<{ ok: boolean; previousStatus: 'applied' | 'dismissed' | null }> {
+export type RevertDestination = 'listing' | 'dismissed' | 'applied';
+
+// Reverts a previous Applied/Dismissed decision to a chosen destination — the History
+// page's Revert action, which asks Uman where the job should go instead of guessing:
+//   - 'listing': clears the applied/dismissed exclusion (job resurfaces on the next
+//     scan — no password, no confirmation beyond the destination choice itself).
+//   - 'dismissed' / 'applied': clears the old exclusion, then re-marks it via
+//     markJobDecision so the new decision gets its own history entry, role key, and
+//     Postgres record exactly like a fresh Applied/Dismiss click would.
+// Always removes the URL from whichever exclusion store it was in first, its role-key
+// dedupe entry, and its History-page entry, regardless of destination — for 'listing'
+// that's the whole job; for 'dismissed'/'applied' it's the "clear the old state" half
+// before re-marking. Does NOT reconstruct the original dashboard card immediately for
+// 'listing' — the job reappears the next time it's fetched from its source, since it's
+// no longer excluded (JobHistoryEntry doesn't retain the full JobPosting needed to
+// rebuild a dashboard card on the spot).
+export async function revertJobDecision(
+  rawUrl: string,
+  destination: RevertDestination,
+): Promise<{ ok: boolean; previousStatus: 'applied' | 'dismissed' | null; newStatus: RevertDestination }> {
   const normalizedUrl = rawUrl.trim();
-  if (!normalizedUrl) return { ok: false, previousStatus: null };
+  if (!normalizedUrl) return { ok: false, previousStatus: null, newStatus: destination };
 
   const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? DEFAULT_APPLIED_FILE;
   const dismissedFile = process.env.JOB_SEARCH_DISMISSED_FILE ?? DEFAULT_DISMISSED_FILE;
@@ -926,6 +944,16 @@ export async function revertJobDecision(rawUrl: string): Promise<{ ok: boolean; 
     await redisDeleteAppliedJob(jobId);
   }
 
+  if (destination === 'dismissed' || destination === 'applied') {
+    await markJobDecision(
+      destination,
+      normalizedUrl,
+      { title: removedEntry?.title, company: removedEntry?.company },
+      previousStatus ?? 'unknown',
+    );
+    return { ok: true, previousStatus, newStatus: destination };
+  }
+
   await logStatusChange({
     jobId,
     jobUrl: normalizedUrl,
@@ -936,7 +964,7 @@ export async function revertJobDecision(rawUrl: string): Promise<{ ok: boolean; 
     timestamp: new Date().toISOString(),
   });
 
-  return { ok: true, previousStatus };
+  return { ok: true, previousStatus, newStatus: 'listing' };
 }
 
 export async function readJobSearchState(): Promise<JobSearchState> {

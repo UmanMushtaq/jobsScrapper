@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { AppService } from './app.service';
-import { verifyDashboardStatusPassword } from './dashboard-auth';
+import { RevertDestination } from './job-search/run';
 
 @Controller()
 export class AppController {
@@ -100,6 +100,9 @@ export class AppController {
     response.redirect('/');
   }
 
+  // Main dashboard actions — no gate of any kind, fire immediately on click, exactly as
+  // before the password-gate experiment (which was reverted after Uman clarified the
+  // actual requirement was a destination picker on the History page's Revert only).
   @Post('jobs/:jobId/applied')
   async dashboardJobApplied(
     @Param('jobId') jobId: string,
@@ -107,43 +110,35 @@ export class AppController {
     @Body('company') company: string,
     @Body('score') score: string,
     @Body('source') source: string,
-    @Body('password') password: string,
     @Res() response: Response,
   ): Promise<void> {
-    if (!verifyDashboardStatusPassword(password)) {
-      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
-      return;
-    }
     await this.appService.dashboardJobApplied(jobId, { title, company, score: Number(score) || 0, source });
-    response.status(200).json({ ok: true });
+    response.redirect('/history?tab=applied');
   }
 
   @Post('jobs/:jobId/dismiss')
   async dashboardJobDismiss(
     @Param('jobId') jobId: string,
-    @Body('password') password: string,
     @Res() response: Response,
   ): Promise<void> {
-    if (!verifyDashboardStatusPassword(password)) {
-      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
-      return;
-    }
     await this.appService.dashboardJobDismiss(jobId);
-    response.status(200).json({ ok: true });
+    response.redirect('/');
   }
 
+  // History page's Revert — the only gated-by-choice (not password) action: Uman picks
+  // where the job should go (listing / dismissed / applied) before anything is written.
   @Post('jobs/revert')
   async revertJobStatus(
     @Body('url') url: string,
-    @Body('password') password: string,
+    @Body('destination') destination: string,
     @Res() response: Response,
   ): Promise<void> {
-    if (!verifyDashboardStatusPassword(password)) {
-      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
+    if (destination !== 'listing' && destination !== 'dismissed' && destination !== 'applied') {
+      response.status(400).json({ ok: false, error: 'destination must be "listing", "dismissed", or "applied".' });
       return;
     }
-    const result = await this.appService.revertJobStatus(url);
-    response.status(200).json({ ok: true, previousStatus: result.previousStatus });
+    const result = await this.appService.revertJobStatus(url, destination as RevertDestination);
+    response.status(200).json({ ok: true, previousStatus: result.previousStatus, newStatus: result.newStatus });
   }
 
   @Post('jobs/applied')
@@ -153,15 +148,10 @@ export class AppController {
     @Body('company') company: string,
     @Body('score') score: string,
     @Body('source') source: string,
-    @Body('password') password: string,
     @Res() response: Response,
   ): Promise<void> {
-    if (!verifyDashboardStatusPassword(password)) {
-      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
-      return;
-    }
     await this.appService.markApplied(url, { title, company, score: Number(score) || 0, source });
-    response.status(200).json({ ok: true });
+    response.redirect('/history?tab=applied');
   }
 
   @Post('jobs/dismissed')
@@ -171,15 +161,10 @@ export class AppController {
     @Body('company') company: string,
     @Body('score') score: string,
     @Body('source') source: string,
-    @Body('password') password: string,
     @Res() response: Response,
   ): Promise<void> {
-    if (!verifyDashboardStatusPassword(password)) {
-      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
-      return;
-    }
     await this.appService.markDismissed(url, { title, company, score: Number(score) || 0, source });
-    response.status(200).json({ ok: true });
+    response.redirect('/history?tab=dismissed');
   }
 
   @Post('telegram/webhook')

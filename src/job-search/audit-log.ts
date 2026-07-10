@@ -1,8 +1,7 @@
-// Append-only audit trail for every job status change (Applied / Dismissed / Revert),
-// independent of the DASHBOARD_STATUS_PASSWORD gate — this exists so a mistake is
-// traceable after the fact even if the password step is ever bypassed or misconfigured.
-// Deliberately a plain log file (not Redis/Postgres) so it keeps working regardless of
-// which of those is configured in a given environment.
+// Append-only audit trail for every job status change (Applied / Dismissed / Revert) —
+// so any mistake (including an accidental Revert to the wrong destination) is traceable
+// after the fact. Deliberately a plain log file (not Redis/Postgres) so it keeps working
+// regardless of which of those is configured in a given environment.
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 

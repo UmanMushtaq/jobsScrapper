@@ -16,6 +16,7 @@ import {
   markJobDecision,
   readJobSearchState,
   revertJobDecision,
+  RevertDestination,
   runJobSearchOnce,
   runSingleSource,
 } from './job-search/run';
@@ -319,12 +320,15 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     _dashboardCache = null; // invalidate so next load reflects the removal
   }
 
-  // Reverts a previously Applied/Dismissed job back to the open/listing state. The job
-  // is no longer excluded from future scans (its URL/role-key are cleared), but it does
-  // not reappear on the dashboard instantly — see revertJobDecision in run.ts.
-  async revertJobStatus(url: string): Promise<{ ok: boolean; previousStatus: 'applied' | 'dismissed' | null }> {
-    if (!url) return { ok: false, previousStatus: null };
-    const result = await revertJobDecision(url);
+  // Reverts a previously Applied/Dismissed job to the destination Uman picked on the
+  // History page (listing / dismissed / applied). 'listing' clears the exclusion so the
+  // job resurfaces on the next scan rather than instantly (see revertJobDecision).
+  async revertJobStatus(
+    url: string,
+    destination: RevertDestination,
+  ): Promise<{ ok: boolean; previousStatus: 'applied' | 'dismissed' | null; newStatus: RevertDestination }> {
+    if (!url) return { ok: false, previousStatus: null, newStatus: destination };
+    const result = await revertJobDecision(url, destination);
     _dashboardCache = null;
     return result;
   }
@@ -1138,111 +1142,6 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-// Shared password-confirmation modal for the dashboard's status-changing actions
-// (Applied / Dismissed / Revert) — used by both the main dashboard and history pages.
-// Markup only; behaviour lives in statusActionScript() below.
-function statusActionModalHtml(): string {
-  return `
-    <div id="pw-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:9999;align-items:center;justify-content:center;">
-      <div style="background:white;border-radius:12px;padding:22px;width:320px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,0.25);">
-        <div style="font-weight:700;font-size:15px;margin-bottom:12px;color:#111827;">Confirm action</div>
-        <input id="pw-modal-input" type="password" placeholder="Password" autocomplete="off"
-          style="width:100%;padding:9px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-bottom:6px;box-sizing:border-box;" />
-        <div id="pw-modal-error" style="color:#dc2626;font-size:12px;min-height:16px;margin-bottom:10px;"></div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;">
-          <button id="pw-modal-cancel" type="button" style="padding:7px 14px;border-radius:6px;border:1px solid #d1d5db;background:white;color:#374151;cursor:pointer;font-size:13px;">Cancel</button>
-          <button id="pw-modal-confirm" type="button" style="padding:7px 14px;border-radius:6px;border:0;background:#2563eb;color:white;cursor:pointer;font-size:13px;font-weight:600;">Confirm</button>
-        </div>
-      </div>
-    </div>`;
-}
-
-// Shared JS for the password-gated status-change actions (Applied / Dismissed / Revert).
-// The password is cached ONLY in an in-memory JS variable for the life of the page —
-// never written to localStorage/cookies, so it's gone on reload/close. The visible UI is
-// never updated until the server confirms the write (onSuccess only fires on HTTP 200);
-// a wrong password shows an inline error in the modal and leaves everything unchanged.
-function statusActionScript(): string {
-  return `
-      var __dashboardPw = null;
-
-      function __promptPassword(errorMsg) {
-        return new Promise(function(resolve) {
-          var overlay = document.getElementById('pw-modal-overlay');
-          var input = document.getElementById('pw-modal-input');
-          var errorEl = document.getElementById('pw-modal-error');
-          var confirmBtn = document.getElementById('pw-modal-confirm');
-          var cancelBtn = document.getElementById('pw-modal-cancel');
-          errorEl.textContent = errorMsg || '';
-          input.value = '';
-          overlay.style.display = 'flex';
-          setTimeout(function() { input.focus(); }, 0);
-
-          function cleanup(result) {
-            overlay.style.display = 'none';
-            confirmBtn.onclick = null;
-            cancelBtn.onclick = null;
-            input.onkeydown = null;
-            resolve(result);
-          }
-          confirmBtn.onclick = function() { cleanup(input.value); };
-          cancelBtn.onclick = function() { cleanup(null); };
-          input.onkeydown = function(e) {
-            if (e.key === 'Enter') confirmBtn.onclick();
-            if (e.key === 'Escape') cancelBtn.onclick();
-          };
-        });
-      }
-
-      // Posts a status-changing action with the password. Tries the in-memory cached
-      // password first (if any); on a 401 it clears the cache and shows the modal with
-      // the server's error message. onSuccess only runs after a confirmed 200 response.
-      function sendStatusAction(endpoint, fields, onSuccess) {
-        function trySend(password) {
-          return fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.assign({}, fields, { password: password })),
-          }).then(function(res) {
-            return res.json().catch(function() { return {}; }).then(function(data) {
-              return { status: res.status, data: data };
-            });
-          });
-        }
-
-        function attempt(password, errorMsg) {
-          if (password === null) {
-            __promptPassword(errorMsg).then(function(entered) {
-              if (entered === null) return; // user cancelled — nothing changes
-              trySend(entered).then(function(result) {
-                if (result.status === 200) {
-                  __dashboardPw = entered;
-                  onSuccess(result.data);
-                } else {
-                  attempt(null, (result.data && result.data.error) || 'Incorrect password.');
-                }
-              }).catch(function() {
-                attempt(null, 'Network error — please try again.');
-              });
-            });
-            return;
-          }
-          trySend(password).then(function(result) {
-            if (result.status === 200) {
-              onSuccess(result.data);
-            } else {
-              __dashboardPw = null; // cached password no longer valid — clear and re-prompt
-              attempt(null, (result.data && result.data.error) || 'Incorrect password.');
-            }
-          }).catch(function() {
-            attempt(null, 'Network error — please try again.');
-          });
-        }
-
-        attempt(__dashboardPw, null);
-      }`;
-}
-
 function scoreColor(score: number): string {
   if (score >= 80) return '#15803d';
   if (score >= 65) return '#b45309';
@@ -1312,8 +1211,20 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
                style="font-size:12px;color:#2563eb;text-decoration:none;">View →</a>
           </td>
           <td style="padding:10px 14px;">
-            <button type="button" class="btn-revert-action" data-url="${escapeHtml(e.url)}"
-              style="padding:5px 12px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Revert</button>
+            <div class="revert-container" data-url="${escapeHtml(e.url)}">
+              <button type="button" class="btn-revert-toggle"
+                style="padding:5px 12px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Revert</button>
+              <div class="revert-choices" style="display:none;flex-direction:column;gap:4px;margin-top:6px;min-width:110px;">
+                <button type="button" class="btn-revert-choice" data-destination="listing"
+                  style="padding:4px 10px;font-size:11px;border-radius:5px;border:1px solid #d1d5db;background:white;color:#374151;cursor:pointer;text-align:left;">→ Job Listing</button>
+                <button type="button" class="btn-revert-choice" data-destination="dismissed"
+                  style="padding:4px 10px;font-size:11px;border-radius:5px;border:1px solid #d1d5db;background:white;color:#374151;cursor:pointer;text-align:left;">→ Dismissed</button>
+                <button type="button" class="btn-revert-choice" data-destination="applied"
+                  style="padding:4px 10px;font-size:11px;border-radius:5px;border:1px solid #d1d5db;background:white;color:#374151;cursor:pointer;text-align:left;">→ Applied</button>
+                <button type="button" class="btn-revert-cancel"
+                  style="padding:2px 6px;font-size:11px;border:0;background:transparent;color:#9ca3af;cursor:pointer;text-align:left;">Cancel</button>
+              </div>
+            </div>
           </td>
         </tr>`;
     }).join('');
@@ -1353,7 +1264,6 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
     </style>
   </head>
   <body>
-    ${statusActionModalHtml()}
     <div class="page">
       <div class="nav"><a href="/">← Back to Dashboard</a></div>
       <h1>Application History</h1>
@@ -1398,15 +1308,44 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
       var initialTab = new URLSearchParams(window.location.search).get("tab");
       switchTab(initialTab === "dismissed" ? "dismissed" : "applied");
 
-      ${statusActionScript()}
-
+      // Revert destination picker — no password, just "where should this job go?".
+      // Nothing is written until one of the three destination buttons is clicked.
       document.addEventListener('click', function(e) {
-        var revertBtn = e.target.closest('.btn-revert-action');
-        if (!revertBtn) return;
-        var url = revertBtn.getAttribute('data-url');
-        sendStatusAction('/jobs/revert', { url: url }, function() {
-          window.location.reload();
-        });
+        var toggleBtn = e.target.closest('.btn-revert-toggle');
+        if (toggleBtn) {
+          var choices = toggleBtn.closest('.revert-container').querySelector('.revert-choices');
+          choices.style.display = choices.style.display === 'flex' ? 'none' : 'flex';
+          return;
+        }
+        var cancelBtn = e.target.closest('.btn-revert-cancel');
+        if (cancelBtn) {
+          cancelBtn.closest('.revert-choices').style.display = 'none';
+          return;
+        }
+        var choiceBtn = e.target.closest('.btn-revert-choice');
+        if (choiceBtn) {
+          var container = choiceBtn.closest('.revert-container');
+          var url = container.getAttribute('data-url');
+          var destination = choiceBtn.getAttribute('data-destination');
+          choiceBtn.disabled = true;
+          fetch('/jobs/revert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url, destination: destination }),
+          }).then(function(res) {
+            if (res.ok) {
+              window.location.reload();
+              return;
+            }
+            return res.json().catch(function() { return {}; }).then(function(data) {
+              choiceBtn.disabled = false;
+              alert((data && data.error) || 'Could not revert this job.');
+            });
+          }).catch(function() {
+            choiceBtn.disabled = false;
+            alert('Network error — please try again.');
+          });
+        }
       });
     </script>
   </body>
@@ -2349,15 +2288,16 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                 <td>
                   <div style="display:flex;flex-direction:column;gap:6px;min-width:120px;">
                     ${applyBtn}
-                    <button type="button" class="btn-applied-action"
-                      data-job-id="${jobId}"
-                      data-title="${escapeHtml(match.job.title)}"
-                      data-company="${escapeHtml(match.job.company)}"
-                      data-score="${sc}"
-                      data-source="${escapeHtml(match.job.source ?? '')}"
-                      style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Applied</button>
-                    <button type="button" class="btn-dismiss-action" data-job-id="${jobId}"
-                      style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Dismiss</button>
+                    <form method="post" action="/jobs/${jobId}/applied">
+                      <input type="hidden" name="title" value="${escapeHtml(match.job.title)}" />
+                      <input type="hidden" name="company" value="${escapeHtml(match.job.company)}" />
+                      <input type="hidden" name="score" value="${sc}" />
+                      <input type="hidden" name="source" value="${escapeHtml(match.job.source ?? '')}" />
+                      <button type="submit" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Applied</button>
+                    </form>
+                    <form method="post" action="/jobs/${jobId}/dismiss">
+                      <button type="submit" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Dismiss</button>
+                    </form>
                     <button type="button" onclick="toggleDet('${detId}')" style="width:100%;padding:6px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">${detBtnLabel}</button>
                     <a href="/jobs/tailored-cv?hash=${cvHash}" target="_blank" style="display:block;text-align:center;padding:6px 12px;background:#faf5ff;color:#6d28d9;border:1px solid #ddd6fe;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Tailored CV</a>
                     <a href="/jobs/answer-questions?hash=${cvHash}" style="display:block;text-align:center;padding:6px 12px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Answer Questions</a>
@@ -2452,7 +2392,6 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
     </style>
   </head>
   <body>
-    ${statusActionModalHtml()}
     <div class="page">
 
       <div class="card">
@@ -3230,32 +3169,6 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       function escHtml(s) {
         return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       }
-
-      ${statusActionScript()}
-
-      document.addEventListener('click', function(e) {
-        var appliedBtn = e.target.closest('.btn-applied-action');
-        if (appliedBtn) {
-          var jobId = appliedBtn.getAttribute('data-job-id');
-          var fields = {
-            title: appliedBtn.getAttribute('data-title'),
-            company: appliedBtn.getAttribute('data-company'),
-            score: appliedBtn.getAttribute('data-score'),
-            source: appliedBtn.getAttribute('data-source'),
-          };
-          sendStatusAction('/jobs/' + jobId + '/applied', fields, function() {
-            window.location.href = '/history?tab=applied';
-          });
-          return;
-        }
-        var dismissBtn = e.target.closest('.btn-dismiss-action');
-        if (dismissBtn) {
-          var dismissJobId = dismissBtn.getAttribute('data-job-id');
-          sendStatusAction('/jobs/' + dismissJobId + '/dismiss', {}, function() {
-            window.location.reload();
-          });
-        }
-      });
     </script>
   </body>
 </html>`;
