@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { AppService } from './app.service';
+import { verifyDashboardStatusPassword } from './dashboard-auth';
 
 @Controller()
 export class AppController {
@@ -106,19 +107,43 @@ export class AppController {
     @Body('company') company: string,
     @Body('score') score: string,
     @Body('source') source: string,
+    @Body('password') password: string,
     @Res() response: Response,
   ): Promise<void> {
+    if (!verifyDashboardStatusPassword(password)) {
+      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
+      return;
+    }
     await this.appService.dashboardJobApplied(jobId, { title, company, score: Number(score) || 0, source });
-    response.redirect('/history?tab=applied');
+    response.status(200).json({ ok: true });
   }
 
   @Post('jobs/:jobId/dismiss')
   async dashboardJobDismiss(
     @Param('jobId') jobId: string,
+    @Body('password') password: string,
     @Res() response: Response,
   ): Promise<void> {
+    if (!verifyDashboardStatusPassword(password)) {
+      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
+      return;
+    }
     await this.appService.dashboardJobDismiss(jobId);
-    response.redirect('/');
+    response.status(200).json({ ok: true });
+  }
+
+  @Post('jobs/revert')
+  async revertJobStatus(
+    @Body('url') url: string,
+    @Body('password') password: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    if (!verifyDashboardStatusPassword(password)) {
+      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
+      return;
+    }
+    const result = await this.appService.revertJobStatus(url);
+    response.status(200).json({ ok: true, previousStatus: result.previousStatus });
   }
 
   @Post('jobs/applied')
@@ -128,10 +153,15 @@ export class AppController {
     @Body('company') company: string,
     @Body('score') score: string,
     @Body('source') source: string,
+    @Body('password') password: string,
     @Res() response: Response,
   ): Promise<void> {
+    if (!verifyDashboardStatusPassword(password)) {
+      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
+      return;
+    }
     await this.appService.markApplied(url, { title, company, score: Number(score) || 0, source });
-    response.redirect('/history?tab=applied');
+    response.status(200).json({ ok: true });
   }
 
   @Post('jobs/dismissed')
@@ -141,10 +171,15 @@ export class AppController {
     @Body('company') company: string,
     @Body('score') score: string,
     @Body('source') source: string,
+    @Body('password') password: string,
     @Res() response: Response,
   ): Promise<void> {
+    if (!verifyDashboardStatusPassword(password)) {
+      response.status(401).json({ ok: false, error: 'Incorrect or missing password.' });
+      return;
+    }
     await this.appService.markDismissed(url, { title, company, score: Number(score) || 0, source });
-    response.redirect('/history?tab=dismissed');
+    response.status(200).json({ ok: true });
   }
 
   @Post('telegram/webhook')

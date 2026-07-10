@@ -63,6 +63,19 @@ export async function redisAddRoleKey(
   }
 }
 
+export async function redisRemoveRoleKey(
+  type: 'applied' | 'dismissed',
+  roleKey: string,
+): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await r.zrem<string>(ROLE_KEY_MAP[type], roleKey);
+  } catch (err) {
+    console.error('[redis] removeRoleKey failed:', (err as Error).message);
+  }
+}
+
 export async function redisGetRoleSet(
   type: 'applied' | 'dismissed',
   ttlMs: number,
@@ -241,6 +254,37 @@ export async function redisStoreJobHistory(entry: JobHistoryEntry): Promise<void
     await r.zremrangebyscore(HISTORY_KEY, 0, now - HISTORY_TTL_MS);
   } catch (err) {
     console.error('[redis] storeJobHistory failed:', (err as Error).message);
+  }
+}
+
+// Reverting a decision removes its history entry so it stops showing on the History
+// page and — via the caller also clearing the applied/dismissed URL + role-key stores —
+// the job is eligible to resurface on the dashboard the next time it's scanned. Returns
+// the removed entry (or null if none matched) so the caller can log the prior status and
+// clean up its role key / applied-jobs-dashboard cache.
+export async function redisRemoveJobHistoryEntry(url: string): Promise<JobHistoryEntry | null> {
+  const r = getClient();
+  if (!r) return null;
+  try {
+    const members = await r.zrange<string[]>(HISTORY_KEY, 0, -1);
+    let removed: JobHistoryEntry | null = null;
+    const rawToRemove: string[] = [];
+    for (const raw of members) {
+      try {
+        const obj = (typeof raw === 'string' ? JSON.parse(raw) : raw) as JobHistoryEntry;
+        if (obj.url === url) {
+          rawToRemove.push(typeof raw === 'string' ? raw : JSON.stringify(raw));
+          removed = obj;
+        }
+      } catch { /* skip malformed entries */ }
+    }
+    if (rawToRemove.length > 0) {
+      await r.zrem<string>(HISTORY_KEY, ...rawToRemove);
+    }
+    return removed;
+  } catch (err) {
+    console.error('[redis] removeJobHistoryEntry failed:', (err as Error).message);
+    return null;
   }
 }
 
@@ -581,6 +625,16 @@ export async function redisSaveAppliedJob(entry: AppliedJobEntry): Promise<void>
     await r.set(`dashboard:applied:${entry.jobId}`, JSON.stringify(entry), { ex: APPLIED_JOB_TTL_SECONDS });
   } catch (err) {
     console.error('[redis] saveAppliedJob failed:', (err as Error).message);
+  }
+}
+
+export async function redisDeleteAppliedJob(jobId: string): Promise<void> {
+  const r = getClient();
+  if (!r) return;
+  try {
+    await r.del(`dashboard:applied:${jobId}`);
+  } catch (err) {
+    console.error('[redis] deleteAppliedJob failed:', (err as Error).message);
   }
 }
 

@@ -63,11 +63,12 @@ import {
   writeJsonFile,
 } from './storage';
 import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
-import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisGet, redisGetJobHistory, redisGetRoleSet, redisLog, redisSetEx, redisStoreJobHistory, redisSaveDashboardJobBatch } from './redis-store';
+import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisDeleteAppliedJob, redisGet, redisGetJobHistory, redisGetRoleSet, redisLog, redisRemoveJobHistoryEntry, redisRemoveRoleKey, redisSetEx, redisStoreJobHistory, redisSaveDashboardJobBatch } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef, hashJobUrl } from './telegram';
 import { JobPosting, JobSearchState, MatchResult, RunSummary, ScorerDiagnostic, SearchProfile } from './types';
 import { saveJobDecision } from '../database/database.service';
+import { logStatusChange } from './audit-log';
 
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
 const DEFAULT_APPLIED_FILE = 'job_search_applied.json';
@@ -880,6 +881,62 @@ export async function markJobDecision(
     ...current,
     latestMatches: current.latestMatches.filter((m) => normDecision(m.job.canonicalUrl) !== normDecision(normalizedUrl)),
   }));
+
+  // Audit trail — logged unconditionally for every status change, independent of
+  // whichever caller (dashboard button, Telegram inline button, url-based endpoint)
+  // triggered it, so a mistake stays traceable even if a password gate upstream is
+  // ever bypassed or misconfigured.
+  await logStatusChange({
+    jobId: hashJobUrl(normalizedUrl),
+    jobUrl: match?.job.canonicalUrl ?? normalizedUrl,
+    title: historyTitle,
+    company: historyCompany,
+    oldStatus: match ? 'open' : 'unknown',
+    newStatus: decision,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// Reverts a previous Applied/Dismissed decision back to the open/listing state:
+// removes the URL from whichever exclusion store it was in (so the bot can resurface it
+// on the next scan), removes its role-key dedupe entry, and removes its History-page
+// entry. Does NOT reconstruct the original dashboard card immediately — the job
+// reappears the next time it's fetched from its source, since it's no longer excluded.
+export async function revertJobDecision(rawUrl: string): Promise<{ ok: boolean; previousStatus: 'applied' | 'dismissed' | null }> {
+  const normalizedUrl = rawUrl.trim();
+  if (!normalizedUrl) return { ok: false, previousStatus: null };
+
+  const appliedFile = process.env.JOB_SEARCH_APPLIED_FILE ?? DEFAULT_APPLIED_FILE;
+  const dismissedFile = process.env.JOB_SEARCH_DISMISSED_FILE ?? DEFAULT_DISMISSED_FILE;
+
+  const removedEntry = await redisRemoveJobHistoryEntry(normalizedUrl);
+  const previousStatus = removedEntry?.type ?? null;
+
+  await removeUrlsFromStore(appliedFile, 'applied_urls', [normalizedUrl]);
+  await removeUrlsFromStore(dismissedFile, 'dismissed_urls', [normalizedUrl]);
+
+  if (removedEntry) {
+    const roleKey = buildRoleKey(removedEntry.company, removedEntry.title);
+    await redisRemoveRoleKey('applied', roleKey);
+    await redisRemoveRoleKey('dismissed', roleKey);
+  }
+
+  const jobId = hashJobUrl(normalizedUrl);
+  if (previousStatus === 'applied') {
+    await redisDeleteAppliedJob(jobId);
+  }
+
+  await logStatusChange({
+    jobId,
+    jobUrl: normalizedUrl,
+    title: removedEntry?.title ?? '',
+    company: removedEntry?.company ?? '',
+    oldStatus: previousStatus ?? 'unknown',
+    newStatus: 'open',
+    timestamp: new Date().toISOString(),
+  });
+
+  return { ok: true, previousStatus };
 }
 
 export async function readJobSearchState(): Promise<JobSearchState> {
