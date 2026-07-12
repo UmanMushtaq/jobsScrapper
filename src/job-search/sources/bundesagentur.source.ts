@@ -49,6 +49,14 @@ interface BaResponse {
 
 const QUERIES = ['Node.js', 'NestJS', 'TypeScript Backend', 'Backend Engineer', 'Node.js Entwickler', 'Backend Entwickler'];
 
+// Debug-level logging (raw status + body shape) fires once per run, on the first query
+// only — enough to diagnose a silent 0-results run from the Render log without spamming
+// it on every one of the 6 queries. See the July 12 2026 registry-audit report for why
+// this was added: a source can run "successfully" (200 OK, no thrown error) while still
+// returning zero jobs because of a wrong parameter name or an unexpected response shape,
+// and that failure mode is invisible without seeing the actual raw response at least once.
+let debugLoggedThisRun = false;
+
 export class BundesagenturJobsSource implements JobSource {
   name = SOURCE;
   priority = 3;
@@ -56,10 +64,13 @@ export class BundesagenturJobsSource implements JobSource {
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
     detailFetchesThisRun = 0;
+    debugLoggedThisRun = false;
+    let totalFetched = 0;
 
     for (const query of QUERIES) {
       try {
         const results = await fetchJobs(query, settings);
+        totalFetched += results.length;
         for (const job of results) {
           jobs.set(job.canonicalUrl, job);
         }
@@ -76,42 +87,66 @@ export class BundesagenturJobsSource implements JobSource {
     } else {
       console.log(`[bundesagentur] ${jobs.size} unique relevant jobs (${detailFetchesThisRun} detail fetches)`);
     }
+    console.log(`[bundesagentur] fetched=${totalFetched}, passed_filters=${jobs.size}`);
 
     return Array.from(jobs.values());
   }
 }
 
 async function fetchJobs(query: string, settings: SearchSettings): Promise<JobPosting[]> {
-  const params = new URLSearchParams({
-    was: query,
-    angebotsart: '1',
-    maxErgebnisse: '100',
-  });
-
   const headers = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
     'Accept': 'application/json',
     'X-API-Key': API_KEY,
   };
 
+  // v6 and v4 use DIFFERENT parameter names for page size — v6 takes `size`/`page`, v4
+  // takes `maxErgebnisse`. Reusing one param set for both was the likely root cause of
+  // this source's silent 0-results bug: v6 would accept the request (200 OK, since
+  // unrecognized params are typically ignored rather than rejected) but return its
+  // default/empty result set, and since `response.ok` was true the code never fell back
+  // to the confirmed-working v4 call — it just kept whatever (empty) v6 gave it.
+  const v6Params = new URLSearchParams({ was: query, angebotsart: '1', size: '100', page: '1' });
+  const v4Params = new URLSearchParams({ was: query, angebotsart: '1', maxErgebnisse: '100' });
+
   let data: BaResponse | null = null;
+  let v6Status: number | null = null;
   try {
-    const response = await fetch(`${BASE_URL_V6}?${params.toString()}`, { headers });
+    const response = await fetch(`${BASE_URL_V6}?${v6Params.toString()}`, { headers });
+    v6Status = response.status;
     if (response.ok) {
-      data = (await response.json()) as BaResponse;
+      const text = await response.text();
+      const parsed = JSON.parse(text) as BaResponse;
+      if (!debugLoggedThisRun) {
+        console.log(`[bundesagentur][debug] v6 status=${response.status} body(first 500)=${text.slice(0, 500)}`);
+        console.log(`[bundesagentur][debug] v6 keys=${Object.keys(parsed).join(',')}`);
+        debugLoggedThisRun = true;
+      }
+      // Only treat v6 as authoritative if it actually returned jobs — an empty
+      // stellenangebote array on a 200 is indistinguishable from "wrong params" without
+      // falling back, so fall back to v4 rather than trusting a suspicious empty result.
+      if (Array.isArray(parsed.stellenangebote) && parsed.stellenangebote.length > 0) {
+        data = parsed;
+      }
     }
   } catch {
     /* fall through to v4 */
   }
 
   if (!data) {
-    const response = await fetch(`${BASE_URL_V4}?${params.toString()}`, { headers });
+    const response = await fetch(`${BASE_URL_V4}?${v4Params.toString()}`, { headers });
     if (response.status === 403 || response.status === 429) {
-      console.log(`[bundesagentur] blocked by ${response.status} for "${query}"`);
+      console.log(`[bundesagentur] blocked by ${response.status} for "${query}" (v6 status was ${v6Status})`);
       return [];
     }
     if (!response.ok) throw new Error(`Bundesagentur API ${response.status}`);
-    data = (await response.json()) as BaResponse;
+    const text = await response.text();
+    data = JSON.parse(text) as BaResponse;
+    if (!debugLoggedThisRun) {
+      console.log(`[bundesagentur][debug] v4 status=${response.status} body(first 500)=${text.slice(0, 500)}`);
+      console.log(`[bundesagentur][debug] v4 keys=${Object.keys(data).join(',')}`);
+      debugLoggedThisRun = true;
+    }
   }
 
   const jobList = data.stellenangebote ?? [];

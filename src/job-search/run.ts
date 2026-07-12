@@ -79,31 +79,92 @@ const DEFAULT_DISMISSED_FILE = 'job_search_dismissed.json';
 const DEFAULT_SENT_FILE = 'job_search_sent.json';
 const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
-const ACTIVE_SOURCES = [
-  'welcometothejungle.com', 'adzuna.com', 'francetravail.fr',
-  'apec.fr', 'greenhouse.io', 'jobs.lever.co', 'jobicy.com',
-  'weworkremotely.com', 'remotive.com', 'remoteok.com', 'arbeitnow.com',
-  'berlinstartupjobs.com', 'bundesagentur.de',
-  'stepstone.de', 'stellenanzeigen.de',
-  'news.ycombinator.com',
-  'jobs.ashbyhq.com', 'eu.talent.io',
-  'nofluffjobs.com', 'justjoin.it',
-  'eurobrussels.com', 'ictjob.be',
-  'nationalevacaturebank.nl', 'jobbird.nl',
-  'pracuj.pl', 'theprotocol.it',
 
-  'cadremploi.fr', 'hellowork.com',
-  'jobat.be',
-  'vacancy.nl', 'intermediair.nl',
-  'xing.com', 'jobware.de',
-  'infojobs.it', 'talent.it',
-  'jobs.lu', 'moovijob.com',
-  'himalayas.app', 'nodesk.co',
-  // Germany-coverage pass, July 12 2026:
-  'jooble.org', 'englishjobs.de',
-  // removed (blocked/dead): europeremotely.com (502),
-  // startup.jobs (403), wellfound.com (cloud IP block)
+// Germany-coverage pass, July 12 2026 — sources deliberately NOT built, and why:
+//   - Xing Jobs: already covered above (XingJobsSource, pre-existing) despite its own
+//     bot protection requiring ScraperAPI — not new work for this pass, left as-is.
+//   - Honeypot.io / Instaffo / Moberries: reverse marketplaces (companies apply to
+//     candidate profiles, not the other way round) — there's no "search and apply"
+//     flow to scrape. Uman should maintain a profile on these manually instead.
+//   - Indeed.de: would burn the entire ScraperAPI budget (3 keys x 100 req/day) on a
+//     single source; StepStone is the one ScraperAPI consumer authorized this pass.
+//   - Monster.de / meinestadt.de / kimeta.de: pure dedup noise — these mirror listings
+//     already covered by Bundesagentur/StepStone/Adzuna/Jooble, adding scrape cost
+//     without adding unique jobs.
+//   - GermanTechJobs.de / Relocate.me: network-blocked from this sandbox before a feed
+//     vs. Playwright decision could be made — see their .blocked.md files next to
+//     this file's sibling sources for what was tried and what's needed to finish them.
+//
+// Germany-coverage Wave 2, July 12 2026 — same network-blocked situation, none built:
+//   - Make it in Germany: not a new source at all — it's the BA Jobsuche database
+//     filtered to consenting employers, so the plan was a boolean tag on existing
+//     BA-sourced jobs, not a scraper. Needs a live look at either the site's own XHR
+//     calls or the BA API's full (unmapped) response body to find the distinguishing
+//     field. See make-it-in-germany-flag.ts.blocked.md.
+//   - WeAreDevelopers, Europe Language Jobs, The Local Jobs, JobMESH, Get in IT: each
+//     needs a live discovery pass (feed check → XHR capture → cheerio vs. Playwright
+//     decision) that can't be done from this sandbox — see each source's own
+//     `*.blocked.md` file next to this file's sibling sources for exactly what was
+//     tried and what's needed to finish it.
+//
+// Single source of truth for "what's registered" — moved to module scope (July 12 2026
+// registry audit) specifically so ACTIVE_SOURCES below can be DERIVED from it instead of
+// hand-duplicated. The previous hand-maintained ACTIVE_SOURCES list silently drifted out
+// of sync with this array (jooble.org and englishjobs.de were registered here but never
+// added to the display list, and 'bundesagentur.de' lingered in the display list under a
+// name no source has ever actually used) — that drift is exactly what made Wave 1's new
+// German sources invisible on the dashboard despite running successfully every scan.
+export const allSources = [
+  new WttjJobsSource(),
+  new AdzunaJobsSource(),
+  new FranceTravailJobsSource(),
+  new GreenhouseJobsSource(),
+  new AshbyJobsSource(),
+  new LeverJobsSource(),
+  new JobicyJobsSource(),
+  new WeWorkRemotelyJobsSource(),
+  new RemotiveJobsSource(),
+  new RemoteOKJobsSource(),
+  new ArbeitnowJobsSource(),
+  new BerlinStartupJobsSource(),
+  new BundesagenturJobsSource(),
+  new StepstoneGermanySource(),
+  new StellenanzeigenSource(),
+  new TalentioJobsSource(),
+  new IndeedJobsSource(),
+  new HackerNewsJobsSource(),
+  new EuroBrusselsSource(),
+  new IctJobBelgiumSource(),
+  new NvbNlSource(),
+  new JobbirdNlSource(),
+  new PracujPlSource(),
+  new TheProtocolSource(),
+  new PlatsbankenSource(),
+  new CadremploiSource(),
+  new HelloWorkSource(),
+  new JobatSource(),
+  new VacancyNlSource(),
+  new IntermediairSource(),
+  new XingJobsSource(),
+  new JobwareSource(),
+  new InfoJobsItSource(),
+  new TalentItSource(),
+  new JobsLuSource(),
+  new MoovijobSource(),
+  new HimalayasSource(),
+  new NodeskSource(),
+  new ApecPlaywrightSource(),
+  new JustJoinSource(),
+  new JobbSafariSource(),
+  new NoFluffJobsSource(),
+  new GlassdoorSource(),
+  new DuunitoriSource(),
+  new EuresSource(),
+  new JoobleJobsSource(),
+  new EnglishJobsDeSource(),
 ];
+// Derived from allSources (see comment above) — never hand-maintained again.
+const ACTIVE_SOURCES = allSources.map((s) => s.name);
 // linkedin.com has no public API — requires a paid partner integration
 const BLOCKED_SOURCES = ['linkedin.com'];
 
@@ -206,81 +267,10 @@ export async function runJobSearchOnce(
       console.log(`[preference] learning from ${prefModel.appliedCount} applied + ${prefModel.dismissedCount} dismissed → ${prefModel.weights.size} weighted words`);
     }
 
-    // Germany-coverage pass, July 12 2026 — sources deliberately NOT built, and why:
-    //   - Xing Jobs: already covered above (XingJobsSource, pre-existing) despite its own
-    //     bot protection requiring ScraperAPI — not new work for this pass, left as-is.
-    //   - Honeypot.io / Instaffo / Moberries: reverse marketplaces (companies apply to
-    //     candidate profiles, not the other way round) — there's no "search and apply"
-    //     flow to scrape. Uman should maintain a profile on these manually instead.
-    //   - Indeed.de: would burn the entire ScraperAPI budget (3 keys x 100 req/day) on a
-    //     single source; StepStone is the one ScraperAPI consumer authorized this pass.
-    //   - Monster.de / meinestadt.de / kimeta.de: pure dedup noise — these mirror listings
-    //     already covered by Bundesagentur/StepStone/Adzuna/Jooble, adding scrape cost
-    //     without adding unique jobs.
-    //   - GermanTechJobs.de / Relocate.me: network-blocked from this sandbox before a feed
-    //     vs. Playwright decision could be made — see their .blocked.md files next to
-    //     this file's sibling sources for what was tried and what's needed to finish them.
-    //
-    // Germany-coverage Wave 2, July 12 2026 — same network-blocked situation, none built:
-    //   - Make it in Germany: not a new source at all — it's the BA Jobsuche database
-    //     filtered to consenting employers, so the plan was a boolean tag on existing
-    //     BA-sourced jobs, not a scraper. Needs a live look at either the site's own XHR
-    //     calls or the BA API's full (unmapped) response body to find the distinguishing
-    //     field. See make-it-in-germany-flag.ts.blocked.md.
-    //   - WeAreDevelopers, Europe Language Jobs, The Local Jobs, JobMESH, Get in IT: each
-    //     needs a live discovery pass (feed check → XHR capture → cheerio vs. Playwright
-    //     decision) that can't be done from this sandbox — see each source's own
-    //     `*.blocked.md` file next to this file's sibling sources for exactly what was
-    //     tried and what's needed to finish it.
-    const allSources = [
-      new WttjJobsSource(),
-      new AdzunaJobsSource(),
-      new FranceTravailJobsSource(),
-      new GreenhouseJobsSource(),
-      new AshbyJobsSource(),
-      new LeverJobsSource(),
-      new JobicyJobsSource(),
-      new WeWorkRemotelyJobsSource(),
-      new RemotiveJobsSource(),
-      new RemoteOKJobsSource(),
-      new ArbeitnowJobsSource(),
-      new BerlinStartupJobsSource(),
-      new BundesagenturJobsSource(),
-      new StepstoneGermanySource(),
-      new StellenanzeigenSource(),
-      new TalentioJobsSource(),
-      new IndeedJobsSource(),
-      new HackerNewsJobsSource(),
-      new EuroBrusselsSource(),
-      new IctJobBelgiumSource(),
-      new NvbNlSource(),
-      new JobbirdNlSource(),
-      new PracujPlSource(),
-      new TheProtocolSource(),
-      new PlatsbankenSource(),
-      new CadremploiSource(),
-      new HelloWorkSource(),
-      new JobatSource(),
-      new VacancyNlSource(),
-      new IntermediairSource(),
-      new XingJobsSource(),
-      new JobwareSource(),
-      new InfoJobsItSource(),
-      new TalentItSource(),
-      new JobsLuSource(),
-      new MoovijobSource(),
-      new HimalayasSource(),
-      new NodeskSource(),
-      new ApecPlaywrightSource(),
-      new JustJoinSource(),
-      new JobbSafariSource(),
-      new NoFluffJobsSource(),
-      new GlassdoorSource(),
-      new DuunitoriSource(),
-      new EuresSource(),
-      new JoobleJobsSource(),
-      new EnglishJobsDeSource(),
-    ];
+    // allSources is defined at module scope (see the top of this file) — every source
+    // instance is created once at module load, not per-run, since none of them hold
+    // mutable per-run state (verified: no source class references `this.<field>` beyond
+    // the `name`/`priority` set at declaration).
     const sources = onlySources?.length
       ? allSources.filter((s) => onlySources.includes(s.name))
       : excludeSources?.length
@@ -293,6 +283,17 @@ export async function runJobSearchOnce(
 
     const playwrightSources = sources.filter((s) => PLAYWRIGHT_SOURCES.has(s.name));
     const fastSources = sources.filter((s) => !PLAYWRIGHT_SOURCES.has(s.name));
+
+    // Registration-gap canary: derived directly from the actual objects instantiated
+    // above, never from a separately hand-maintained name list — a scraper that exists
+    // on disk but was never added to allSources simply can't appear here, and one that
+    // IS in allSources can't silently vanish from a stale display-only array (this is
+    // exactly the bug class that hid jooble.org/englishjobs.de from the Germany
+    // dashboard views after Wave 1 — see the July 12 2026 registry-audit report). Printed
+    // at the start of every run so a registration gap is visible in the logs immediately.
+    console.log(`[registry] ${sources.length} sources this run: ${sources.map((s) => s.name).join(', ')}`);
+    console.log(`[registry] fast (${fastSources.length}): ${fastSources.map((s) => s.name).join(', ')}`);
+    console.log(`[registry] playwright rotation (${playwrightSources.length}): ${playwrightSources.map((s) => s.name).join(', ')}`);
 
     // Run non-Playwright sources in parallel
     const fastResults: SourceRunResult[] = await Promise.all(
@@ -414,22 +415,23 @@ export async function runJobSearchOnce(
           Date.now() - profile.search.maxAgeHours * 60 * 60 * 1000 && baseFilter(job),
     );
 
-    // Per-source fresh/scored diagnostics — helps track sources that fetch many jobs but pass 0
-    const apecTotal = jobs.filter((j) => j.source === 'apec.fr').length;
-    const apecFresh = freshJobs.filter((j) => j.source === 'apec.fr').length;
-    if (apecTotal > 0) {
-      console.log(`[apec] ${apecFresh}/${apecTotal} jobs are fresh (not seen before)`);
-    }
-
     const rawMatches = freshJobs
       .map((job) => scoreJob(job, profile, prefModel))
       .filter((match): match is MatchResult => match !== null)
       .filter((match) => checkLocationEligibility(match.job))
       .sort(sortMatches);
 
-    if (apecTotal > 0) {
-      const apecScored = rawMatches.filter((m) => m.job.source === 'apec.fr').length;
-      console.log(`[apec] ${apecScored} passed scoring threshold out of ${apecFresh} fresh`);
+    // Per-source fetched vs. passed-filters diagnostics — every source, not just apec.fr
+    // (generalized from an apec-only version, July 12 2026 registry audit). This is what
+    // distinguishes "the source's fetch() itself returned nothing" (a fetch/API bug) from
+    // "it fetched plenty but the language/experience/blocklist/stack filters in matcher.ts
+    // rejected all of it" (expected/working-as-intended) — both look identical as a bare
+    // "0 jobs" on a dashboard without this line in the logs.
+    for (const r of sourceResults) {
+      if (r.jobs.length === 0) continue;
+      const fresh = freshJobs.filter((j) => j.source === r.source).length;
+      const passed = rawMatches.filter((m) => m.job.source === r.source).length;
+      console.log(`[source-diag] ${r.source}: fetched=${r.jobs.length}, fresh=${fresh}, passed_filters=${passed}`);
     }
 
     // Deduplicate across sources: the same job WILL appear on Arbeitsagentur + StepStone +
@@ -457,8 +459,8 @@ export async function runJobSearchOnce(
     }
     const slicedMatches = dedupedMatches.slice(0, maxResults);
 
-    if (apecTotal > 0) {
-      const apecInBatch = slicedMatches.filter((m) => m.job.source === 'apec.fr').length;
+    const apecInBatch = slicedMatches.filter((m) => m.job.source === 'apec.fr').length;
+    if (apecInBatch > 0 || jobs.some((j) => j.source === 'apec.fr')) {
       console.log(`[apec] ${apecInBatch} in final batch after maxResults cut`);
     }
 

@@ -1816,23 +1816,35 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
         Set <code>JOB_PROXY_URL</code> and <code>JOB_PROXY_SECRET</code> in Render's environment, and keep the proxy + cloudflared running on your laptop.</div>` : ''}
     </div>`;
 
-  // Country tagging — determines which grouped section each source belongs to
+  // Country tagging — determines which grouped section each source belongs to on the
+  // Platform Status page. This is a per-SOURCE classification (unlike the main
+  // dashboard's per-JOB tab, which prefers each job's own countryCode — see
+  // sourceToCountryTab below) so genuinely multi-country sources belong in 'INTL', never
+  // pinned to a single country: a source found under one country tag here has its ENTIRE
+  // job count attributed to that one country regardless of where the jobs actually are.
+  // (July 12 2026 registry audit: adzuna.com was wrongly pinned to 'FR' even though it
+  // searches 12 countries including DE — moved to 'INTL'. jooble.org and englishjobs.de
+  // were missing entirely, defaulting to 'INTL' and never appearing under Germany despite
+  // being German-only sources — added below. The stray 'bundesagentur.de' key was removed
+  // — no source has ever been named that; the real name is 'arbeitsagentur.de', already
+  // present.)
   const SOURCE_COUNTRY: Record<string, string> = {
     'apec.fr': 'FR',
     'welcometothejungle.com': 'FR',
     'francetravail.fr': 'FR',
-    'adzuna.com': 'FR',
     'arbeitnow.com': 'DE',
     'berlinstartupjobs.com': 'DE',
-    'bundesagentur.de': 'DE',
     'arbeitsagentur.de': 'DE',
     'stepstone.de': 'DE',
     'stellenanzeigen.de': 'DE',
+    'jooble.org': 'DE',
+    'englishjobs.de': 'DE',
     'nofluffjobs.com': 'PL',
     'justjoin.it': 'PL',
     'pracuj.pl': 'PL',
     'theprotocol.it': 'PL',
     'jobbsafari.se': 'SE',
+    'arbetsformedlingen.se': 'SE',
     'eurobrussels.com': 'BE',
     'ictjob.be': 'BE',
     'nationalevacaturebank.nl': 'NL',
@@ -1856,6 +1868,12 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     'jobs.ashbyhq.com': 'INTL',
     'eu.talent.io': 'INTL',
     'eures.europa.eu': 'INTL',
+    // Multi-country — see note above, must not be pinned to a single country tag.
+    'adzuna.com': 'INTL',
+    'glassdoor.com': 'INTL',
+    // Finland-only (not multi-country), but there is no dedicated FI group in GROUPS
+    // below — 'INTL' is the least-wrong catch-all bucket until one is added.
+    'duunitori.fi': 'INTL',
     'jobicy.com': 'REMOTE',
     'weworkremotely.com': 'REMOTE',
     'remotive.com': 'REMOTE',
@@ -2049,8 +2067,15 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       ? dashboardJobs.map((j) => ({ match: j.match as MatchResult, foundAt: j.foundAt }))
       : state.latestMatches.map((m) => ({ match: m }));
 
-  const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'adzuna.com', 'cadremploi.fr', 'hellowork.com']);
-  const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com', 'stepstone.de', 'stellenanzeigen.de', 'xing.com', 'jobware.de']);
+  // Source-based fallback ONLY — used when a job has no countryCode (see
+  // sourceToCountryTab below, which checks the job's own countryCode FIRST). A
+  // single-country source can safely appear here, but a multi-country source
+  // (Adzuna, EURES, Glassdoor) must NOT — tagging it to one country here would force
+  // every job it finds into that one tab regardless of where the job actually is,
+  // exactly the bug that hid Adzuna's non-French jobs and miscategorized EURES
+  // jobs as "remote" (fixed July 12 2026 — see the country-tag audit report).
+  const FR_SOURCES = new Set(['apec.fr', 'welcometothejungle.com', 'francetravail.fr', 'cadremploi.fr', 'hellowork.com']);
+  const DE_SOURCES = new Set(['arbeitsagentur.de', 'arbeitnow.com', 'berlinstartupjobs.com', 'stepstone.de', 'stellenanzeigen.de', 'xing.com', 'jobware.de', 'jooble.org', 'englishjobs.de']);
   const BE_SOURCES = new Set(['eurobrussels.com', 'ictjob.be', 'jobat.be']);
   const NL_SOURCES = new Set(['nationalevacaturebank.nl', 'jobbird.nl', 'vacancy.nl', 'intermediair.nl']);
   const IT_SOURCES = new Set(['infojobs.it', 'talent.it']);
@@ -2058,7 +2083,22 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
   const PL_SOURCES = new Set(['nofluffjobs.com', 'justjoin.it', 'pracuj.pl', 'theprotocol.it']);
   const SE_SOURCES = new Set(['jobbsafari.se']);
 
-  function sourceToCountryTab(source: string): string {
+  // Maps a job's own ISO countryCode (every source sets this in mapJob — see
+  // JobPosting.countryCode in types.ts) onto one of the 8 dashboard tab keys.
+  const COUNTRY_CODE_TO_TAB: Record<string, string> = {
+    FR: 'fr', DE: 'de', BE: 'be', NL: 'nl', IT: 'it', LU: 'lu', PL: 'pl', SE: 'se',
+  };
+
+  function sourceToCountryTab(source: string, countryCode?: string | null): string {
+    // The job's own countryCode wins whenever it maps to one of the 8 tabs — this is
+    // what makes multi-country sources (Adzuna, EURES, Glassdoor) route correctly
+    // instead of being force-bucketed by source alone. Only falls back to the
+    // source-based Sets above when countryCode is missing/unmapped (remote-first
+    // boards genuinely have no single country).
+    if (countryCode) {
+      const tab = COUNTRY_CODE_TO_TAB[countryCode.toUpperCase()];
+      if (tab) return tab;
+    }
     if (FR_SOURCES.has(source)) return 'fr';
     if (DE_SOURCES.has(source)) return 'de';
     if (BE_SOURCES.has(source)) return 'be';
@@ -2072,7 +2112,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
   const countryCounts: Record<string, number> = { all: displayMatches.length, fr: 0, de: 0, be: 0, nl: 0, it: 0, lu: 0, pl: 0, se: 0, remote: 0 };
   for (const { match } of displayMatches) {
-    const tab = sourceToCountryTab(match.job.source ?? '');
+    const tab = sourceToCountryTab(match.job.source ?? '', match.job.countryCode);
     countryCounts[tab] = (countryCounts[tab] ?? 0) + 1;
   }
 
@@ -2089,7 +2129,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             const cvHash = hashJobUrl(match.job.canonicalUrl);
             const jobId = cvHash;
             const isAging = foundAt != null && (now - foundAt) > 48 * 60 * 60 * 1000;
-            const countryTab = sourceToCountryTab(match.job.source ?? '');
+            const countryTab = sourceToCountryTab(match.job.source ?? '', match.job.countryCode);
 
             // Table row: compact summary
             const salaryDisplay = match.salaryLabel !== 'salary not listed'
