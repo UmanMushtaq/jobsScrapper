@@ -3,6 +3,7 @@ import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'jobicy.com';
 
@@ -33,14 +34,12 @@ interface JobicyQuery {
   geo?: string;
 }
 
-const QUERIES: JobicyQuery[] = [
-  { tag: 'node.js' },
-  { tag: 'nodejs' },
-  { tag: 'nestjs' },
-  { tag: 'nest.js' },
-  { tag: 'typescript' },
-  { tag: 'backend' },
-];
+// Jobicy's `tag` param is a tag-taxonomy match, not free-text search — mapping every
+// canonical keyword to a lowercase tag is a faithful mechanical swap (some multi-word
+// entries like "typescript backend" won't match any real tag and just return 0 results,
+// the same harmless no-op behavior every other query-variant miss already has elsewhere
+// in this codebase). July 13 2026 keyword consolidation.
+const QUERIES: JobicyQuery[] = ENGLISH_KEYWORDS.map((tag) => ({ tag: tag.toLowerCase() }));
 
 export class JobicyJobsSource implements JobSource {
   name = SOURCE;

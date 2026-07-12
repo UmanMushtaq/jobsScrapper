@@ -5,13 +5,15 @@ import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
+import { CORE_KEYWORDS_MINIMAL } from '../keywords';
 
 const SOURCE = 'nationalevacaturebank.nl';
 const BASE_URL = 'https://www.nationalevacaturebank.nl';
 const API_URL = 'https://api.nationalevacaturebank.nl/api/jobs/v3/sites/nationalevacaturebank.nl/jobs';
 
-// ScraperAPI-credit source — capped at 3 highest-yield queries to limit credit burn.
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'typescript'];
+// ScraperAPI-credit source — capped at 3 highest-yield queries to limit credit burn
+// (July 13 2026 keyword consolidation).
+const SEARCH_QUERIES = CORE_KEYWORDS_MINIMAL;
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

@@ -4,20 +4,19 @@ import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
 import { redisGet, redisSetEx } from '../redis-store';
 import { acquirePlaywrightLock } from './playwright-queue';
+import { CORE_KEYWORDS_MINIMAL, FRENCH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'apec.fr';
 const BASE_URL = 'https://www.apec.fr';
 const SEARCH_URL = 'https://www.apec.fr/candidat/recherche-emploi.html/emploi';
 const REDIS_STATUS_KEY = 'apec:playwright:status';
 
-const SEARCH_QUERIES = [
-  'nodejs',
-  'node.js',
-  'nestjs',
-  'backend typescript',
-  'développeur nodejs',
-  'ingénieur backend nodejs',
-];
+// Playwright source — each query is a full browser navigation on a 512MB instance, so
+// this stays on the minimal English set (not the full ENGLISH_KEYWORDS list) plus every
+// French variant, rather than the full combined English+French set — a France-based
+// source still needs the French coverage, but not 19 English casing variants on top of
+// it (July 13 2026 keyword consolidation).
+const SEARCH_QUERIES = [...CORE_KEYWORDS_MINIMAL, ...FRENCH_KEYWORDS];
 
 const MAX_DETAILS_PER_QUERY = 15;
 

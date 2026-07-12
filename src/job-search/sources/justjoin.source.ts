@@ -2,12 +2,14 @@ import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'justjoin.it';
 const BASE_URL = 'https://justjoin.it';
 const API_URL = 'https://justjoin.it/api/candidate-api/offers';
 
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'nestjs', 'nest.js', 'typescript', 'typescript backend'];
+// July 13 2026 keyword consolidation — full English set.
+const SEARCH_QUERIES = ENGLISH_KEYWORDS;
 
 const RELEVANT_TITLE_KEYWORDS = [
   'node', 'nest', 'typescript', 'javascript', 'backend', 'fullstack',

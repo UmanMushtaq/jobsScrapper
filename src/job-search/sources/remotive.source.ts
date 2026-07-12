@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'remotive.com';
 
@@ -22,7 +23,8 @@ interface RemotiveResponse {
   jobs: RemotiveJob[];
 }
 
-const KEY_QUERIES = ['Node.js backend', 'TypeScript backend', 'NestJS', 'Backend Engineer'];
+// July 13 2026 keyword consolidation — full English set.
+const KEY_QUERIES = ENGLISH_KEYWORDS;
 
 export class RemotiveJobsSource implements JobSource {
   name = SOURCE;

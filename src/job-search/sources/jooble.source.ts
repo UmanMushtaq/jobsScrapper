@@ -3,13 +3,15 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { CORE_KEYWORDS_MINIMAL } from '../keywords';
 
 const SOURCE = 'jooble.org';
 
 // Free API key from https://jooble.org/api/about — Uman must register and set
 // JOOBLE_API_KEY in Render's environment variables. No-ops cleanly (logs once, returns
 // no jobs) when the key is absent, exactly like adzuna.source.ts does for its own keys.
-const QUERIES = ['node.js backend', 'nestjs', 'typescript backend', 'backend entwickler node'];
+// Paid-per-call API — highest-signal minimal set only (July 13 2026 keyword consolidation).
+const QUERIES = CORE_KEYWORDS_MINIMAL;
 
 export interface JoobleResult {
   title?: string;

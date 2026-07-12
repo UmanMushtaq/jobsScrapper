@@ -10,12 +10,15 @@ import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
+import { CORE_KEYWORDS_MINIMAL } from '../keywords';
 
 const SOURCE = 'glassdoor.com';
 const BASE_URL = 'https://www.glassdoor.com/Job/jobs.htm';
 
-// Capped at 2 queries — render-mode ScraperAPI credits are expensive.
-const SEARCH_QUERIES = ['nodejs', 'typescript'];
+// Capped at 2 queries — render-mode ScraperAPI credits are expensive (see budget note
+// above), tighter than the standard CORE_KEYWORDS_MINIMAL 3-query set, so only the
+// first 2 (highest-yield) entries are used here (July 13 2026 keyword consolidation).
+const SEARCH_QUERIES = CORE_KEYWORDS_MINIMAL.slice(0, 2);
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',

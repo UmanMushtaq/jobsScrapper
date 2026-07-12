@@ -2,10 +2,12 @@ import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { RawJob, extractJobsFromHtml, mapRawJob, sleep } from './shared-scraper';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'vacancy.nl';
 const BASE_URL = 'https://www.vacancy.nl';
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'node js', 'NestJS', 'nestjs', 'nest.js', 'nest js', 'typescript', 'typescript backend'];
+// July 13 2026 keyword consolidation — full English set.
+const SEARCH_QUERIES = ENGLISH_KEYWORDS;
 
 // Direct fetch with realistic Windows Chrome headers — no ScraperAPI (returns 500)
 const HEADERS = {

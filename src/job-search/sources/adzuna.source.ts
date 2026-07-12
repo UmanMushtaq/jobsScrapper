@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { CORE_KEYWORDS_MINIMAL } from '../keywords';
 
 const ADZUNA_BASE_URL = 'https://api.adzuna.com/v1/api/jobs';
 const SOURCE = 'adzuna.com';
@@ -38,7 +39,7 @@ export class AdzunaJobsSource implements JobSource {
   name = SOURCE;
   priority = 3;
 
-  async fetch(queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
+  async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const appId = process.env.ADZUNA_APP_ID;
     const appKey = process.env.ADZUNA_APP_KEY;
 
@@ -53,8 +54,10 @@ export class AdzunaJobsSource implements JobSource {
     const maxPages = Number(process.env.ADZUNA_MAX_PAGES ?? 2);
     const jobs = new Map<string, JobPosting>();
 
+    // Rate-limited (12 countries x maxPages) — highest-signal minimal set only
+    // (July 13 2026 keyword consolidation), not the passed-in profile queries.
     for (const country of countries) {
-      for (const query of queries) {
+      for (const query of CORE_KEYWORDS_MINIMAL) {
         for (let page = 1; page <= maxPages; page++) {
           try {
             const results = await fetchPage(appId, appKey, country, query, page, settings);

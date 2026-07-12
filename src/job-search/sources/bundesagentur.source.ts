@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { sleep } from './shared-scraper';
+import { ENGLISH_KEYWORDS, GERMAN_KEYWORDS } from '../keywords';
 
 const SOURCE = 'arbeitsagentur.de';
 
@@ -47,7 +48,9 @@ interface BaResponse {
   maxErgebnisse?: number;
 }
 
-const QUERIES = ['Node.js', 'NestJS', 'TypeScript Backend', 'Backend Engineer', 'Node.js Entwickler', 'Backend Entwickler'];
+// Free public API, no rate limit — full English + German combined set for maximum
+// recall (July 13 2026 keyword consolidation).
+const QUERIES = [...ENGLISH_KEYWORDS, ...GERMAN_KEYWORDS];
 
 // Debug-level logging (raw status + body shape) fires once per run, on the first query
 // only — enough to diagnose a silent 0-results run from the Render log without spamming

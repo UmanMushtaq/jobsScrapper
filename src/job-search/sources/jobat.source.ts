@@ -2,10 +2,12 @@ import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { RawJob, extractJobsFromHtml, mapRawJob, sleep } from './shared-scraper';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'jobat.be';
 const BASE_URL = 'https://www.jobat.be';
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'node js', 'NestJS', 'nestjs', 'nest.js', 'nest js', 'typescript', 'typescript backend'];
+// July 13 2026 keyword consolidation — full English set.
+const SEARCH_QUERIES = ENGLISH_KEYWORDS;
 
 // Direct fetch with Windows Chrome UA — ScraperAPI returns 200 but renders a JS shell with 0 jobs
 const HEADERS = {

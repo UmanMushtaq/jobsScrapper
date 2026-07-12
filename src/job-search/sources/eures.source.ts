@@ -5,6 +5,7 @@ import { detectLanguage } from './language-detect';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
 import { RequiredLanguage } from '../language-requirement-filter';
 import { extractRequiredMinimumYears } from '../experience-parser';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'eures.europa.eu';
 const API_URL = 'https://europa.eu/eures/api/jv-searchengine/public/jv-search/search';
@@ -18,7 +19,9 @@ const LOCATION_CODES = ['lu', 'it', 'se', 'be', 'nl'];
 // keyword and returns every job in the location scope (verified: 21,355 records for one
 // query, first hit a Swedish train mechanic). 'TITLE' works correctly (verified: 86
 // records for "nodejs"). Do not switch this back to 'EVERYWHERE'.
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'node', 'nestjs', 'typescript', 'backend developer'];
+// July 13 2026 keyword consolidation — full English set (TITLE-scope confirmation above
+// was about the search mode working at all, not this exact list being required).
+const SEARCH_QUERIES = ENGLISH_KEYWORDS;
 
 const HEADERS = {
   'Content-Type': 'application/json',

@@ -1,6 +1,7 @@
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { ENGLISH_KEYWORDS, FRENCH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'francetravail.fr';
 const AUTH_URL = 'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire';
@@ -41,19 +42,10 @@ interface FranceTravailResponse {
   resultats: FranceTravailOffer[];
 }
 
-// France Travail's search index is French-first — English tech terms often return 0 results.
-// Use French variants alongside English to maximise recall.
-const FRANCE_TRAVAIL_QUERIES = [
-  'nodejs',
-  'node.js',
-  'nestjs',
-  'typescript',
-  'développeur nodejs',
-  'développeur node.js',
-  'ingénieur backend nodejs',
-  'développeur typescript',
-  'développeur nestjs',
-];
+// France Travail's search index is French-first — English tech terms often return 0
+// results. Plain REST API (no Playwright/ScraperAPI), so the full English + French
+// combined set is used for maximum recall (July 13 2026 keyword consolidation).
+const FRANCE_TRAVAIL_QUERIES = [...ENGLISH_KEYWORDS, ...FRENCH_KEYWORDS];
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
 

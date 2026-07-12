@@ -4,12 +4,14 @@ import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { acquirePlaywrightLock } from './playwright-queue';
+import { CORE_KEYWORDS_MINIMAL, FRENCH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'cadremploi.fr';
 const BASE_URL = 'https://www.cadremploi.fr';
-// Playwright source — each query is a full browser navigation on a 512MB instance,
-// so this stays capped at current count + 1 new variant.
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'NestJS', 'nest.js', 'typescript backend'];
+// Playwright source — each query is a full browser navigation on a 512MB instance, so
+// this uses the minimal English set plus full French coverage rather than the full
+// combined English+French list (July 13 2026 keyword consolidation).
+const SEARCH_QUERIES = [...CORE_KEYWORDS_MINIMAL, ...FRENCH_KEYWORDS];
 
 export class CadremploiSource implements JobSource {
   name = SOURCE;

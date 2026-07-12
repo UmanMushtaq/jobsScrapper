@@ -4,13 +4,15 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { acquirePlaywrightLock } from './playwright-queue';
+import { CORE_KEYWORDS_MINIMAL } from '../keywords';
 
 const SOURCE = 'eurobrussels.com';
 const BASE_URL = 'https://www.eurobrussels.com';
 
-// Playwright source — each query is a full browser navigation on a 512MB instance,
-// so this stays capped at current count + 1 new variant.
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'nestjs', 'nest.js', 'typescript backend', 'backend node'];
+// Playwright source — each query is a full browser navigation on a 512MB instance, so
+// this uses the minimal set rather than the full ENGLISH_KEYWORDS list (July 13 2026
+// keyword consolidation). English-only board — no French/German needed.
+const SEARCH_QUERIES = CORE_KEYWORDS_MINIMAL;
 
 export class EuroBrusselsSource implements JobSource {
   name = SOURCE;

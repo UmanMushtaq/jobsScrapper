@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { isRelevantJob } from './shared-scraper';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'himalayas.app';
 
@@ -25,7 +26,8 @@ interface HimalayasResponse {
   totalCount?: number;
 }
 
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'node js', 'nestjs', 'nest.js', 'nest js', 'typescript backend', 'typescript'];
+// July 13 2026 keyword consolidation — full English set.
+const SEARCH_QUERIES = ENGLISH_KEYWORDS;
 
 // EU/EEA allowlist for Himalayas' locationRestrictions field. If a job lists
 // restrictions and NONE of them match this list, the job is scoped to a

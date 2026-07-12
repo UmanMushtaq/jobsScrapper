@@ -3,6 +3,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RawJob, RELOCATION_KEYWORDS, extractJobsFromHtml, mapRawJob } from './shared-scraper';
+import { ENGLISH_KEYWORDS, GERMAN_KEYWORDS } from '../keywords';
 
 const SOURCE = 'jobware.de';
 const BASE_URL = 'https://www.jobware.de';
@@ -13,10 +14,13 @@ const API_URL = 'https://www.jobware.de/api/d48b2/xnfwe';
 // page are exercised rather than betting the whole source on one guessed URL.
 const SEARCH_PAGE_URL = 'https://www.jobware.de/jobs';
 
-// Deliberately narrower than NODE_QUERY_VARIANTS: jobware.de's jw_jobname param searches
-// German job TITLES only, and 'nestjs'/'nest.js'/'nest js' confirmed return 0 results here
-// (verified previously) since German titles almost never contain "nestjs". Do not add them back.
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'node', 'typescript', 'backend entwickler'];
+// jobware.de's jw_jobname param searches German job TITLES only, and 'nestjs'/'nest.js'/
+// 'nest js' confirmed return 0 results here (verified previously) since German titles
+// almost never contain "nestjs" — every "nest"-containing canonical keyword is filtered
+// out here specifically for that reason (July 13 2026 keyword consolidation: sourced
+// from the canonical English + German lists, minus this one confirmed-dead term family;
+// do not add "nest" terms back for this source without re-verifying).
+const SEARCH_QUERIES = [...ENGLISH_KEYWORDS, ...GERMAN_KEYWORDS].filter((k) => !/nest/i.test(k));
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

@@ -5,6 +5,7 @@ import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
+import { CORE_KEYWORDS_MINIMAL } from '../keywords';
 
 const SOURCE = 'stepstone.de';
 const BASE_URL = 'https://www.stepstone.de/jobs/';
@@ -14,16 +15,12 @@ const BASE_URL = 'https://www.stepstone.de/jobs/';
 // production). StepStone is the ONLY source authorized to consume ScraperAPI credits in
 // this pass; every other source added/fixed alongside it uses plain fetch/cheerio.
 // Hard-capped at 10 ScraperAPI requests/run (shared 3-key x 100/day budget across the
-// whole app) — narrowed from the plain-fetch query list to the 6 highest-yield terms so
-// a render=false + render=true fallback pair per query still fits under the cap.
-const SEARCH_QUERIES = [
-  'nodejs',
-  'node.js',
-  'nestjs',
-  'typescript',
-  'Node.js Entwickler',
-  'NestJS Entwickler',
-];
+// whole app) — sourced from the canonical CORE_KEYWORDS_MINIMAL plus the two German
+// phrase variants confirmed to surface results on this German site, so a render=false +
+// render=true fallback pair per query still fits under the cap (July 13 2026 keyword
+// consolidation — kept the German variants rather than dropping to the plain minimal
+// set, since this is a German-only site and they were deliberately added and verified).
+const SEARCH_QUERIES = [...CORE_KEYWORDS_MINIMAL, 'Node.js Entwickler', 'NestJS Entwickler'];
 
 const MAX_SCRAPERAPI_REQUESTS_PER_RUN = 10;
 

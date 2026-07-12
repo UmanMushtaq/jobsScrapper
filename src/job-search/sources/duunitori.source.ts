@@ -11,10 +11,12 @@ import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { RawJob, extractJobsFromHtml, mapRawJob, sleep } from './shared-scraper';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'duunitori.fi';
 const BASE_URL = 'https://duunitori.fi';
-const SEARCH_QUERIES = ['nodejs', 'node.js', 'typescript'];
+// July 13 2026 keyword consolidation — no ScraperAPI/Playwright cost, full English set.
+const SEARCH_QUERIES = ENGLISH_KEYWORDS;
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

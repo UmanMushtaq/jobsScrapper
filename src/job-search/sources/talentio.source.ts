@@ -4,11 +4,13 @@ import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'eu.talent.io';
 const API_BASE = 'https://api.eu.talent.io/api/backend/search/positions';
 
-const QUERIES = ['Node.js', 'nodejs', 'NestJS', 'nest.js', 'TypeScript backend', 'TypeScript'];
+// July 13 2026 keyword consolidation — full English set.
+const QUERIES = ENGLISH_KEYWORDS;
 
 export interface TalentioPosition {
   id: string;

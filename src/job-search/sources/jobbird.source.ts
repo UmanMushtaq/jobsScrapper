@@ -4,6 +4,7 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'jobbird.nl';
 const BASE_URL = 'https://www.jobbird.com/nl/vacature';
@@ -13,20 +14,8 @@ const BASE_URL = 'https://www.jobbird.com/nl/vacature';
 const JOB_URL_BASE = `${BASE_URL}/`;
 const AJAX_URL = 'https://www.jobbird.com/nl/ajax/job';
 
-const SEARCH_QUERIES = [
-  'nodejs',
-  'node.js',
-  'node js',
-  'NodeJS',
-  'Node.js',
-  'nestjs',
-  'nest.js',
-  'nest js',
-  'NestJS',
-  'typescript',
-  'backend typescript',
-  'backend node',
-];
+// July 13 2026 keyword consolidation — full English set.
+const SEARCH_QUERIES = ENGLISH_KEYWORDS;
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',

@@ -1,6 +1,7 @@
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
+import { ENGLISH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'arbetsformedlingen.se';
 
@@ -10,17 +11,8 @@ const SOURCE = 'arbetsformedlingen.se';
 // No Playwright, no ScraperAPI needed — pure JSON REST API
 const BASE_URL = 'https://jobsearch.api.jobtechdev.se/search';
 
-const QUERIES = [
-  'nodejs',
-  'node.js',
-  'node js',
-  'nestjs',
-  'nest.js',
-  'nest js',
-  'typescript backend',
-  'typescript',
-  'backend developer',
-];
+// July 13 2026 keyword consolidation — full English set.
+const QUERIES = ENGLISH_KEYWORDS;
 
 interface PlatsbankenHit {
   id: string;
