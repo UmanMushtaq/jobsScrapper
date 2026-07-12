@@ -100,6 +100,12 @@ export class AppController {
     response.redirect('/');
   }
 
+  @Post('run/talentio')
+  async runTalentio(@Res() response: Response): Promise<void> {
+    void this.appService.runSource('talentio');
+    response.redirect('/');
+  }
+
   // Main dashboard actions — no gate of any kind, fire immediately on click, exactly as
   // before the password-gate experiment (which was reverted after Uman clarified the
   // actual requirement was a destination picker on the History page's Revert only).

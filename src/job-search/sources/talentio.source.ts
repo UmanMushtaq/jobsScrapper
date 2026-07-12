@@ -10,7 +10,7 @@ const API_BASE = 'https://api.eu.talent.io/api/backend/search/positions';
 
 const QUERIES = ['Node.js', 'nodejs', 'NestJS', 'nest.js', 'TypeScript backend', 'TypeScript'];
 
-interface TalentioPosition {
+export interface TalentioPosition {
   id: string;
   name: string;
   slug?: string;
@@ -46,10 +46,12 @@ export class TalentioJobsSource implements JobSource {
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
+    let totalFetched = 0;
 
     for (const query of QUERIES) {
       try {
         const results = await fetchTalentio(query, settings);
+        totalFetched += results.length;
         for (const job of results) {
           jobs.set(job.canonicalUrl, job);
         }
@@ -63,6 +65,14 @@ export class TalentioJobsSource implements JobSource {
     if (result.length > 0) {
       console.log(`[talentio] ${result.length} jobs across ${QUERIES.length} queries`);
     }
+    // fetched = raw count across all queries before cross-query dedup; passed_filters =
+    // unique count after dedup (matcher.ts's language/experience/blocklist/stack filters
+    // run later, centrally, on the aggregated job pool — see run.ts's [source-diag] line
+    // for that stage). This line fires even via the standalone manual runner
+    // (runSingleSource), which bypasses the centralized run.ts pipeline entirely — added
+    // specifically so a manual "Run Talent.io" click gives an immediate fetch-vs-dedup
+    // signal without waiting for a full scan (July 12 2026 orphaned-source fix).
+    console.log(`[talentio] fetched=${totalFetched}, passed_filters=${result.length}`);
     return result;
   }
 }
@@ -104,7 +114,7 @@ async function fetchTalentio(query: string, settings: SearchSettings): Promise<J
     .filter((p): p is JobPosting => p !== null);
 }
 
-function mapPosition(pos: TalentioPosition): JobPosting | null {
+export function mapPosition(pos: TalentioPosition): JobPosting | null {
   if (!pos.id || !pos.name) return null;
 
   const companyName = pos.company?.name ?? 'Unknown';

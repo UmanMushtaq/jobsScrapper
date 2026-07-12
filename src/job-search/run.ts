@@ -194,6 +194,43 @@ export const FAST_SOURCES = [
   'justjoin.it',
 ];
 
+// Sources routed through the one-per-run Playwright rotation (memory-heavy — Render's
+// 512MB free tier can't run two Playwright instances in the same execution). Hoisted to
+// module scope (was local to runJobSearchOnce) so it can be exported for the
+// reachability test below, alongside FAST_SOURCES.
+export const PLAYWRIGHT_SOURCES = new Set([
+  'cadremploi.fr', 'hellowork.com', 'eurobrussels.com', 'apec.fr', 'nofluffjobs.com',
+]);
+
+// Sources with a dedicated on-demand runner (runSingleSource in this file), reachable
+// via a dashboard button independent of any scheduler interval. Keep in sync with
+// runSingleSource's parameter type.
+export const MANUAL_ONLY_SOURCES = new Set(['apec.fr', 'indeed.com', 'eu.talent.io']);
+
+// July 12 2026 orphaned-source audit: every source NOT in FAST_SOURCES,
+// PLAYWRIGHT_SOURCES, or MANUAL_ONLY_SOURCES falls back to the SLOW scheduler's default
+// inclusion (runs automatically every 480min, but invisible to the "Run now" button and
+// far less frequently exercised/observed than the other paths — exactly the weak,
+// easy-to-overlook path that let eu.talent.io go unnoticed as apparently orphaned for two
+// sessions, even though it was technically included here all along). Any source relying
+// solely on this path must be listed here explicitly — see
+// registry-reachability.spec.ts, which fails for any allSources member that is in NONE
+// of FAST_SOURCES / PLAYWRIGHT_SOURCES / MANUAL_ONLY_SOURCES / SLOW_SCHEDULER_ONLY. This
+// makes "only reachable via the quiet 8-hour catch-all" a conscious, documented choice
+// for every source, not a silent default a new source can fall into by omission.
+export const SLOW_SCHEDULER_ONLY = new Set([
+  'welcometothejungle.com', 'adzuna.com', 'francetravail.fr', 'greenhouse.io',
+  'jobs.ashbyhq.com', 'jobs.lever.co', 'jobicy.com', 'weworkremotely.com', 'remotive.com',
+  'remoteok.com', 'arbeitnow.com', 'berlinstartupjobs.com', 'arbeitsagentur.de',
+  'stepstone.de', 'stellenanzeigen.de', 'news.ycombinator.com',
+  'nofluffjobs.com', 'justjoin.it', 'eurobrussels.com', 'ictjob.be',
+  'nationalevacaturebank.nl', 'jobbird.nl', 'pracuj.pl', 'theprotocol.it',
+  'arbetsformedlingen.se', 'cadremploi.fr', 'hellowork.com', 'jobat.be', 'vacancy.nl',
+  'intermediair.nl', 'xing.com', 'jobware.de', 'infojobs.it', 'talent.it', 'jobs.lu',
+  'moovijob.com', 'himalayas.app', 'nodesk.co', 'jobbsafari.se', 'glassdoor.com',
+  'duunitori.fi', 'eures.europa.eu', 'jooble.org', 'englishjobs.de',
+]);
+
 export async function runJobSearchOnce(
   overrideProfile?: SearchProfile,
   excludeSources?: string[],
@@ -277,10 +314,7 @@ export async function runJobSearchOnce(
         ? allSources.filter((s) => !excludeSources.includes(s.name))
         : allSources;
     // Split sources into Playwright (memory-heavy) and non-Playwright (safe to parallelize)
-    const PLAYWRIGHT_SOURCES = new Set([
-      'cadremploi.fr', 'hellowork.com', 'eurobrussels.com', 'apec.fr', 'nofluffjobs.com',
-    ]);
-
+    // — PLAYWRIGHT_SOURCES is defined at module scope above.
     const playwrightSources = sources.filter((s) => PLAYWRIGHT_SOURCES.has(s.name));
     const fastSources = sources.filter((s) => !PLAYWRIGHT_SOURCES.has(s.name));
 
@@ -829,9 +863,12 @@ export interface JobDecisionMeta {
   source?: string;
 }
 
-export async function runSingleSource(sourceName: 'apec' | 'indeed'): Promise<void> {
+export async function runSingleSource(sourceName: 'apec' | 'indeed' | 'talentio'): Promise<void> {
   const profile = await loadSearchProfile();
-  const source = sourceName === 'apec' ? new ApecPlaywrightSource() : new IndeedJobsSource();
+  const source =
+    sourceName === 'apec' ? new ApecPlaywrightSource()
+    : sourceName === 'indeed' ? new IndeedJobsSource()
+    : new TalentioJobsSource();
   console.log(`[manual] running single source: ${source.name}`);
   try {
     const jobs = await source.fetch(profile.search.queries, profile.search);
