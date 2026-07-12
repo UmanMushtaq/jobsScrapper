@@ -220,6 +220,18 @@ export async function runJobSearchOnce(
     //   - GermanTechJobs.de / Relocate.me: network-blocked from this sandbox before a feed
     //     vs. Playwright decision could be made — see their .blocked.md files next to
     //     this file's sibling sources for what was tried and what's needed to finish them.
+    //
+    // Germany-coverage Wave 2, July 12 2026 — same network-blocked situation, none built:
+    //   - Make it in Germany: not a new source at all — it's the BA Jobsuche database
+    //     filtered to consenting employers, so the plan was a boolean tag on existing
+    //     BA-sourced jobs, not a scraper. Needs a live look at either the site's own XHR
+    //     calls or the BA API's full (unmapped) response body to find the distinguishing
+    //     field. See make-it-in-germany-flag.ts.blocked.md.
+    //   - WeAreDevelopers, Europe Language Jobs, The Local Jobs, JobMESH, Get in IT: each
+    //     needs a live discovery pass (feed check → XHR capture → cheerio vs. Playwright
+    //     decision) that can't be done from this sandbox — see each source's own
+    //     `*.blocked.md` file next to this file's sibling sources for exactly what was
+    //     tried and what's needed to finish it.
     const allSources = [
       new WttjJobsSource(),
       new AdzunaJobsSource(),
