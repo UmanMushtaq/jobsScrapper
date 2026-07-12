@@ -59,3 +59,25 @@ describe('extractRequiredMinimumYears — additional EN/FR/DE pattern coverage',
     expect(extractRequiredMinimumYears('Node.js backend engineer building REST APIs.')).toBeNull();
   });
 });
+
+describe('extractRequiredMinimumYears — German coverage pass, July 12 2026', () => {
+  it('extracts 7 from the abbreviated "mind. 7 Jahre" form', () => {
+    expect(extractRequiredMinimumYears('mind. 7 Jahre Berufserfahrung')).toBe(7);
+  });
+
+  it('extracts 7 from "mind. 7 Jahre" without a trailing "Berufserfahrung"', () => {
+    expect(extractRequiredMinimumYears('mind. 7 Jahre')).toBe(7);
+  });
+
+  it('extracts 6 from "6+ Jahre Berufserfahrung"', () => {
+    expect(extractRequiredMinimumYears('6+ Jahre Berufserfahrung')).toBe(6);
+  });
+
+  it('extracts 5 from "5-10 Jahre" (German range, lower bound)', () => {
+    expect(extractRequiredMinimumYears('5-10 Jahre Erfahrung')).toBe(5);
+  });
+
+  it('extracts 5 from "5+ Jahre"', () => {
+    expect(extractRequiredMinimumYears('5+ Jahre Erfahrung im Backend-Bereich')).toBe(5);
+  });
+});

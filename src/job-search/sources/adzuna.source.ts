@@ -106,6 +106,11 @@ async function fetchPage(
   return data.results.map((result) => mapResult(result, country));
 }
 
+// Adzuna descriptions are truncated to ~500 chars. Below this length the language
+// filter and stack filter can't make a confident call on a shortened snippet — flagged
+// via descriptionPartial rather than silently scored as if it were the full JD.
+const SHORT_DESCRIPTION_THRESHOLD = 120;
+
 function mapResult(result: AdzunaResult, country: string): JobPosting {
   const countryCode = COUNTRY_CODE_MAP[country] ?? country.toUpperCase();
   const currency = COUNTRY_CURRENCY[country] ?? 'EUR';
@@ -114,6 +119,7 @@ function mapResult(result: AdzunaResult, country: string): JobPosting {
   const companyName = result.company?.display_name ?? 'Unknown';
   const text = `${result.title} ${result.description}`.toLowerCase();
   const salaryMin = result.salary_min ?? null;
+  const descriptionPartial = (result.description ?? '').length > 0 && (result.description ?? '').length < SHORT_DESCRIPTION_THRESHOLD;
 
   return {
     source: SOURCE,
@@ -144,6 +150,7 @@ function mapResult(result: AdzunaResult, country: string): JobPosting {
     isStartup: containsAny(text, ['startup', 'seed', 'series a', 'early-stage', 'founding']),
     employeeCount: null,
     companyCreationYear: null,
+    descriptionPartial,
   };
 }
 

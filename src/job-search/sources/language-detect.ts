@@ -48,8 +48,10 @@ const ENGLISH_TEAM_SIGNALS = [
   'englisch.*voraussetzung', 'englisch.*notwendig',
   'unsere arbeitssprache ist englisch', 'arbeitssprache englisch',
   'arbeitssprache.*englisch', 'englisch als arbeitssprache',
-  'unternehmenssprache englisch', 'firmensprache englisch', 'firmensprache ist englisch',
+  'unternehmenssprache englisch', 'unternehmenssprache ist englisch',
+  'firmensprache englisch', 'firmensprache ist englisch',
   'wir arbeiten auf englisch', 'kommunikation auf englisch', 'meetings auf englisch',
+  'englischsprachig', 'englischsprachiges umfeld', 'englischsprachiges team',
   'internationales team', 'internationale teams',
   'internationales umfeld', 'internationale umgebung',
   'internationale kollegen', 'internationale zusammenarbeit',
@@ -144,8 +146,11 @@ export function detectLanguage(raw: string): string {
   const text = raw.toLowerCase();
   const words = text.split(/\s+/).filter(Boolean).length || 1;
 
-  // Count French-specific accented chars (not shared with German)
-  const frAccents = (text.match(/[àâéèêëîïôùûüçœæ]/g) ?? []).length;
+  // Count French-specific accented chars (not shared with German). ü is deliberately
+  // excluded here — it's a German umlaut, not a French letter (German words like "für",
+  // "grün", "Büro" were previously miscounted as French accent signals, misclassifying
+  // short German descriptions as French — fixed in the Germany-coverage pass, July 12 2026).
+  const frAccents = (text.match(/[àâéèêëîïôùûçœæ]/g) ?? []).length;
   // Count German-specific chars
   const deAccents = (text.match(/[äöüß]/g) ?? []).length;
 

@@ -108,6 +108,11 @@ export interface JobPosting {
   // EURES only). Consumed by language-requirement-filter.ts alongside the free-text
   // requirement-phrase heuristic, which applies to every source's description.
   requiredLanguages?: { code: string; level?: string; required?: boolean }[] | null;
+  // True when `description` is a short snippet (Adzuna/Jooble truncation, or a
+  // Bundesagentur detail-fetch that 404'd) rather than the full JD — the language filter
+  // and Gemini scorer both need full text, so a job flagged here got scored on
+  // incomplete information and is worth a manual second look, not an automatic pass.
+  descriptionPartial?: boolean;
 }
 
 export interface ScoreBreakdown {

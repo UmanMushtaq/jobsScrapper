@@ -34,12 +34,16 @@ export const REJECTED_COMPANIES: string[] = [
 // contain a period as part of the brand name, so only a single TRAILING period (e.g.
 // "Acme Corp.") and whole trailing suffix words are removed.
 const CORPORATE_SUFFIXES = [
-  'gmbh', 'sas', 'sa', 's.a.', 'sarl', 's.a.r.l.', 'bv', 'b.v.', 'nv', 'n.v.',
+  'gmbh', 'mbh', 'ug', 'sas', 'sa', 's.a.', 'sarl', 's.a.r.l.', 'bv', 'b.v.', 'nv', 'n.v.',
   'ltd', 'llc', 'inc', 'plc', 'ag', 'kg', 'oy', 'ab', 'as',
   'spa', 's.p.a.', 'srl', 's.r.l.', 'sro', 's.r.o.', 'oyj', 'kft',
 ];
 
-function normalizeCompanyName(raw: string): string {
+// Exported so other cross-source matching (e.g. run.ts's cross-source dedup key) uses the
+// exact same normalization — German company names in particular vary wildly in how the
+// legal suffix is written across sources ("Acme GmbH" from Bundesagentur vs "Acme" from
+// StepStone vs "ACME GmbH & Co. KG" from Adzuna) and would otherwise dedupe inconsistently.
+export function normalizeCompanyName(raw: string): string {
   let name = (raw ?? '').toLowerCase().trim().replace(/\s+/g, ' ');
   name = name.replace(/\.$/, '');
 
@@ -51,6 +55,13 @@ function normalizeCompanyName(raw: string): string {
         name = name.slice(0, -(suffix.length + 1)).replace(/\.$/, '').trim();
         changed = true;
       }
+    }
+    // Common German compound legal form ("GmbH & Co. KG" — the "KG" is stripped by the
+    // suffix loop above, leaving "... & co" behind) — strip that joiner too so the next
+    // pass can reach "GmbH".
+    if (/\s&\s?co$/.test(name)) {
+      name = name.replace(/\s&\s?co$/, '').trim();
+      changed = true;
     }
   }
   return name;

@@ -2,11 +2,16 @@ import axios from 'axios';
 import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { RawJob, RELOCATION_KEYWORDS, extractJobsFromHtml, mapRawJob } from './shared-scraper';
 
 const SOURCE = 'jobware.de';
 const BASE_URL = 'https://www.jobware.de';
 const API_URL = 'https://www.jobware.de/api/d48b2/xnfwe';
+// Fallback if the versioned API path above 404s/changes shape — this sandbox cannot
+// reach jobware.de to confirm either endpoint is still live (see the Germany-coverage
+// report's network-blocked section), so both a working API and a working HTML search
+// page are exercised rather than betting the whole source on one guessed URL.
+const SEARCH_PAGE_URL = 'https://www.jobware.de/jobs';
 
 // Deliberately narrower than NODE_QUERY_VARIANTS: jobware.de's jw_jobname param searches
 // German job TITLES only, and 'nestjs'/'nest.js'/'nest js' confirmed return 0 results here
@@ -69,15 +74,32 @@ export class JobwareSource implements JobSource {
 }
 
 async function fetchQuery(query: string, cutoff: number): Promise<JobPosting[]> {
-  const res = await axios.get<JobwareResponse>(API_URL, {
-    params: { jw_jobname: query },
-    headers: HEADERS,
-    timeout: 20_000,
-    validateStatus: (s) => s < 500,
-  });
+  const apiJobs = await fetchViaApi(query, cutoff);
+  if (apiJobs.length > 0) return apiJobs;
+
+  return fetchViaHtmlFallback(query, cutoff);
+}
+
+async function fetchViaApi(query: string, cutoff: number): Promise<JobPosting[]> {
+  let res;
+  try {
+    res = await axios.get<JobwareResponse>(API_URL, {
+      params: { jw_jobname: query },
+      headers: HEADERS,
+      timeout: 20_000,
+      validateStatus: (s) => s < 500,
+    });
+  } catch (err) {
+    console.log(`[jobware] API request failed for "${query}": ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
 
   if (res.status === 403 || res.status === 429) {
     console.error('[jobware] blocked:', res.status, query);
+    return [];
+  }
+  if (res.status === 404) {
+    console.log(`[jobware] API endpoint 404 for "${query}" — falling back to HTML search page`);
     return [];
   }
 
@@ -90,6 +112,33 @@ async function fetchQuery(query: string, cutoff: number): Promise<JobPosting[]> 
   return list
     .filter((j) => !j.date || j.date >= cutoff)
     .map(mapJob)
+    .filter((j): j is JobPosting => j !== null)
+    .filter((j) => isRelevant(j.title));
+}
+
+async function fetchViaHtmlFallback(query: string, cutoff: number): Promise<JobPosting[]> {
+  let res;
+  try {
+    res = await axios.get<string>(SEARCH_PAGE_URL, {
+      params: { jw_jobname: query },
+      headers: { ...HEADERS, Accept: 'text/html,application/xhtml+xml,*/*;q=0.8' },
+      timeout: 20_000,
+      responseType: 'text',
+      validateStatus: (s) => s < 500,
+    });
+  } catch {
+    return [];
+  }
+
+  if (res.status !== 200 || typeof res.data !== 'string') return [];
+
+  const rawJobs: RawJob[] = extractJobsFromHtml(res.data, BASE_URL);
+  return rawJobs
+    .filter((j) => {
+      const d = j.datePosted ?? j.publishedAt;
+      return !d || new Date(d).getTime() >= cutoff;
+    })
+    .map((j) => mapRawJob(j, SOURCE, 4, 'DE', 'Germany', BASE_URL))
     .filter((j): j is JobPosting => j !== null)
     .filter((j) => isRelevant(j.title));
 }

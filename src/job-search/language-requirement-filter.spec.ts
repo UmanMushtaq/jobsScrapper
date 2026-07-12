@@ -118,3 +118,20 @@ describe('evaluateLanguageRequirement — July 8 2026 pattern additions', () => 
     expect(result.reject).toBe(false);
   });
 });
+
+describe('evaluateLanguageRequirement — German coverage pass, July 12 2026', () => {
+  it('rejects "Deutsch in Wort und Schrift" (without the "-kenntnisse" prefix)', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend Entwickler gesucht. Deutsch in Wort und Schrift wird vorausgesetzt.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('rejects "Deutschkenntnisse auf C1-Niveau"', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend role. Deutschkenntnisse auf C1-Niveau erforderlich.');
+    expect(result.reject).toBe(true);
+  });
+
+  it('rejects "Deutschkenntnisse auf B2 Niveau" (no hyphen)', () => {
+    const result = evaluateLanguageRequirement(null, 'Backend role. Deutschkenntnisse auf B2 Niveau sind Voraussetzung.');
+    expect(result.reject).toBe(true);
+  });
+});

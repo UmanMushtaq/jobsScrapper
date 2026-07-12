@@ -4,25 +4,28 @@ import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
+import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 
 const SOURCE = 'stepstone.de';
 const BASE_URL = 'https://www.stepstone.de/jobs/';
 
+// StepStone returns 0 jobs on a direct fetch — its bot protection blocks plain requests
+// (confirmed: direct axios.get with browser-like headers below still yields nothing in
+// production). StepStone is the ONLY source authorized to consume ScraperAPI credits in
+// this pass; every other source added/fixed alongside it uses plain fetch/cheerio.
+// Hard-capped at 10 ScraperAPI requests/run (shared 3-key x 100/day budget across the
+// whole app) — narrowed from the plain-fetch query list to the 6 highest-yield terms so
+// a render=false + render=true fallback pair per query still fits under the cap.
 const SEARCH_QUERIES = [
   'nodejs',
   'node.js',
-  'node js',
-  'NodeJS',
   'nestjs',
-  'nest.js',
-  'nest js',
-  'NestJS',
   'typescript',
-  'backend typescript',
-  'backend node',
   'Node.js Entwickler',
   'NestJS Entwickler',
 ];
+
+const MAX_SCRAPERAPI_REQUESTS_PER_RUN = 10;
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -32,7 +35,7 @@ const HEADERS = {
 };
 
 
-interface RawJob {
+export interface RawJob {
   id?: string;
   url?: string;
   jobUrl?: string;
@@ -55,10 +58,16 @@ export class StepstoneGermanySource implements JobSource {
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
     const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
+    let requestsUsed = 0;
 
     for (const query of SEARCH_QUERIES) {
+      if (requestsUsed >= MAX_SCRAPERAPI_REQUESTS_PER_RUN) {
+        console.log('[stepstone-de] ScraperAPI request cap reached for this run — stopping early');
+        break;
+      }
       try {
-        const fetched = await fetchPage(query, cutoff);
+        const { jobs: fetched, requestsMade } = await fetchPage(query, cutoff, MAX_SCRAPERAPI_REQUESTS_PER_RUN - requestsUsed);
+        requestsUsed += requestsMade;
         for (const job of fetched) {
           jobs.set(job.canonicalUrl, job);
         }
@@ -71,34 +80,44 @@ export class StepstoneGermanySource implements JobSource {
       }
     }
 
-    console.log(`[stepstone-de] ${jobs.size} unique jobs fetched`);
+    if (jobs.size === 0) {
+      console.log(`[stepstone-de] 0 jobs — disabled cleanly for this run (ScraperAPI budget or blocked)`);
+    } else {
+      console.log(`[stepstone-de] ${jobs.size} unique jobs fetched (${requestsUsed} ScraperAPI requests)`);
+    }
     return Array.from(jobs.values());
   }
 }
 
-async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
+async function fetchPage(
+  query: string,
+  cutoff: number,
+  requestBudget: number,
+): Promise<{ jobs: JobPosting[]; requestsMade: number }> {
   const targetUrl = `${BASE_URL}${encodeURIComponent(query)}?radius=30&sort=2`;
-  let res;
-  try {
-    res = await axios.get<string>(targetUrl, {
-      headers: HEADERS,
-      timeout: 30_000,
-      responseType: 'text',
-      validateStatus: (s) => s < 500,
-    });
-  } catch {
-    return [];
+  const apiKey = await getNextKey();
+  if (!apiKey) {
+    console.log('[stepstone-de] ScraperAPI keys exhausted or unconfigured — disabling cleanly for this run');
+    return { jobs: [], requestsMade: 0 };
+  }
+  if (requestBudget <= 0) return { jobs: [], requestsMade: 0 };
+
+  let requestsMade = 0;
+
+  // render=false first — cheaper ScraperAPI credit cost. Only escalate to render=true
+  // (full headless browser, needed if StepStone's listing is JS-hydrated) when the cheap
+  // attempt comes back empty and there's still budget left in this run.
+  let html = await fetchViaScraperApi(targetUrl, apiKey, false);
+  requestsMade++;
+  let jobs = html ? extractJobs(html) : [];
+
+  if (jobs.length === 0 && requestBudget > requestsMade) {
+    html = await fetchViaScraperApi(targetUrl, apiKey, true);
+    requestsMade++;
+    jobs = html ? extractJobs(html) : [];
   }
 
-  if (res.status === 403 || res.status === 429) {
-    console.log(`[stepstone-de] blocked ${res.status} for "${query}"`);
-    return [];
-  }
-
-  const html: string = res.data;
-  const jobs = extractJobs(html);
-
-  return jobs
+  const mapped = jobs
     .filter((j) => {
       const dateStr = j.datePosted ?? j.publishedAt;
       if (!dateStr) return true;
@@ -106,6 +125,31 @@ async function fetchPage(query: string, cutoff: number): Promise<JobPosting[]> {
     })
     .map(mapJob)
     .filter((j): j is JobPosting => j !== null);
+
+  return { jobs: mapped, requestsMade };
+}
+
+async function fetchViaScraperApi(targetUrl: string, apiKey: string, render: boolean): Promise<string | null> {
+  const url = buildScraperUrl(targetUrl, apiKey, false, { render, residential: false });
+  let res;
+  try {
+    res = await axios.get<string>(url, {
+      headers: HEADERS,
+      timeout: 60_000,
+      responseType: 'text',
+      validateStatus: (s) => s < 500,
+    });
+  } catch {
+    return null;
+  }
+
+  if (res.status === 403 || res.status === 429) {
+    console.log(`[stepstone-de] blocked ${res.status} via ScraperAPI (render=${render})`);
+    return null;
+  }
+  if (res.status >= 400) return null;
+
+  return res.data;
 }
 
 function extractJobs(html: string): RawJob[] {
@@ -194,7 +238,7 @@ function parseJobCardsFromHtml(html: string): RawJob[] {
   return jobs;
 }
 
-function mapJob(raw: RawJob): JobPosting | null {
+export function mapJob(raw: RawJob): JobPosting | null {
   const title = raw.title ?? raw.name;
   if (!title) return null;
 
@@ -268,7 +312,7 @@ function extractExperienceMinimum(text: string): number | null {
   const rangeMatch = text.match(/(\d+)\s*(?:to|-|bis)\s*\d+\s+(?:years?|jahre?)/i);
   if (rangeMatch) return parseInt(rangeMatch[1], 10);
   const patterns = [
-    /(?:minimum|mindestens|at\s+least|min\.?)\s+(\d+)\s+(?:years?|jahre?)/i,
+    /(?:minimum|mindestens|mind\.?|at\s+least|min\.?)\s+(\d+)\s+(?:years?|jahre?)/i,
     /(\d+)\s+(?:years?|jahre?)\s+(?:of\s+)?(?:professional\s+)?(?:experience|erfahrung)/i,
   ];
   for (const p of patterns) {

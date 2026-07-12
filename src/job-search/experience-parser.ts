@@ -22,10 +22,10 @@ export function extractRequiredMinimumYears(text: string): number | null {
   if (plus) return parseInt(plus[1], 10);
 
   // "minimum 6 years" / "minimum of 6 years" / "at least 6 years" / "au moins 6 ans" /
-  // "mindestens 6 Jahre" — an optional filler word ("of"/"de") between the minimum-phrase
-  // and the number covers "minimum of X years" specifically.
+  // "mindestens 6 Jahre" / "mind. 7 Jahre" — an optional filler word ("of"/"de") between
+  // the minimum-phrase and the number covers "minimum of X years" specifically.
   const minPhrase = text.match(new RegExp(
-    String.raw`(?:minimum|at\s+least|au\s+moins|minimum\s+de|mindestens)\s*(?:of\s+|de\s+)?(\d{1,2})\s*${YEAR_UNIT}`, 'i',
+    String.raw`(?:minimum|at\s+least|au\s+moins|minimum\s+de|mindestens|mind\.?)\s*(?:of\s+|de\s+)?(\d{1,2})\s*${YEAR_UNIT}`, 'i',
   ));
   if (minPhrase) return parseInt(minPhrase[1], 10);
 

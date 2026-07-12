@@ -1,4 +1,4 @@
-import { REJECTED_COMPANIES, isRejectedCompany } from './rejected-companies';
+import { REJECTED_COMPANIES, isRejectedCompany, normalizeCompanyName } from './rejected-companies';
 
 describe('rejected-companies seed list', () => {
   it('matches the July 8 2026 seed list exactly', () => {
@@ -42,5 +42,35 @@ describe('isRejectedCompany', () => {
 
   it('matches a multi-word entry ("Redcare Pharmacy GmbH")', () => {
     expect(isRejectedCompany('Redcare Pharmacy GmbH')).toBe(true);
+  });
+});
+
+describe('normalizeCompanyName — German legal-suffix stripping (Germany-coverage pass, July 12 2026)', () => {
+  it('strips a bare "GmbH" suffix', () => {
+    expect(normalizeCompanyName('Acme GmbH')).toBe('acme');
+  });
+
+  it('strips the compound "GmbH & Co. KG" suffix', () => {
+    expect(normalizeCompanyName('Acme GmbH & Co. KG')).toBe('acme');
+  });
+
+  it('leaves a name with no suffix unchanged (lowercased)', () => {
+    expect(normalizeCompanyName('ACME')).toBe('acme');
+  });
+
+  it('strips a bare "AG" suffix', () => {
+    expect(normalizeCompanyName('Acme AG')).toBe('acme');
+  });
+
+  it('strips "UG" (haftungsbeschränkt short form)', () => {
+    expect(normalizeCompanyName('Acme UG')).toBe('acme');
+  });
+
+  it('collapses three different source spellings of the same German company to one key', () => {
+    const a = normalizeCompanyName('Acme GmbH');
+    const b = normalizeCompanyName('Acme');
+    const c = normalizeCompanyName('ACME GmbH & Co. KG');
+    expect(a).toBe(b);
+    expect(b).toBe(c);
   });
 });

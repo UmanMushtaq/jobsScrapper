@@ -4,6 +4,7 @@ import { AiEnrichment, enrichMatch, clearGeminiOverloadFlag, isGeminiOverloaded 
 import { scoreLocation } from './sources/location-filter';
 import { isFrontendPrimaryStack } from './stack-filter';
 import { evaluateLanguageRequirement } from './language-requirement-filter';
+import { normalizeCompanyName } from './rejected-companies';
 import { checkFollowups } from './followup';
 import { salaryMeetsMinimum, scoreJob } from './matcher';
 import { buildPreferenceContext, buildPreferenceModel } from './preference';
@@ -54,6 +55,8 @@ import { NodeskSource } from './sources/nodesk.source';
 import { GlassdoorSource } from './sources/glassdoor.source';
 import { DuunitoriSource } from './sources/duunitori.source';
 import { EuresSource } from './sources/eures.source';
+import { JoobleJobsSource } from './sources/jooble.source';
+import { EnglishJobsDeSource } from './sources/englishjobs-de.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -96,6 +99,8 @@ const ACTIVE_SOURCES = [
   'infojobs.it', 'talent.it',
   'jobs.lu', 'moovijob.com',
   'himalayas.app', 'nodesk.co',
+  // Germany-coverage pass, July 12 2026:
+  'jooble.org', 'englishjobs.de',
   // removed (blocked/dead): europeremotely.com (502),
   // startup.jobs (403), wellfound.com (cloud IP block)
 ];
@@ -111,6 +116,10 @@ export const FAST_SOURCES = [
   'arbetsformedlingen.se',
   'arbeitnow.com',
   'berlinstartupjobs.com',
+  // Official API, no ScraperAPI — was missing from this list even though it already
+  // qualifies (fixed as part of the July 12 2026 Germany-coverage pass).
+  'adzuna.com',
+  'jooble.org',
   'greenhouse.io',
   'jobs.lever.co',
   'weworkremotely.com',
@@ -197,6 +206,20 @@ export async function runJobSearchOnce(
       console.log(`[preference] learning from ${prefModel.appliedCount} applied + ${prefModel.dismissedCount} dismissed → ${prefModel.weights.size} weighted words`);
     }
 
+    // Germany-coverage pass, July 12 2026 — sources deliberately NOT built, and why:
+    //   - Xing Jobs: already covered above (XingJobsSource, pre-existing) despite its own
+    //     bot protection requiring ScraperAPI — not new work for this pass, left as-is.
+    //   - Honeypot.io / Instaffo / Moberries: reverse marketplaces (companies apply to
+    //     candidate profiles, not the other way round) — there's no "search and apply"
+    //     flow to scrape. Uman should maintain a profile on these manually instead.
+    //   - Indeed.de: would burn the entire ScraperAPI budget (3 keys x 100 req/day) on a
+    //     single source; StepStone is the one ScraperAPI consumer authorized this pass.
+    //   - Monster.de / meinestadt.de / kimeta.de: pure dedup noise — these mirror listings
+    //     already covered by Bundesagentur/StepStone/Adzuna/Jooble, adding scrape cost
+    //     without adding unique jobs.
+    //   - GermanTechJobs.de / Relocate.me: network-blocked from this sandbox before a feed
+    //     vs. Playwright decision could be made — see their .blocked.md files next to
+    //     this file's sibling sources for what was tried and what's needed to finish them.
     const allSources = [
       new WttjJobsSource(),
       new AdzunaJobsSource(),
@@ -243,6 +266,8 @@ export async function runJobSearchOnce(
       new GlassdoorSource(),
       new DuunitoriSource(),
       new EuresSource(),
+      new JoobleJobsSource(),
+      new EnglishJobsDeSource(),
     ];
     const sources = onlySources?.length
       ? allSources.filter((s) => onlySources.includes(s.name))
@@ -395,14 +420,18 @@ export async function runJobSearchOnce(
       console.log(`[apec] ${apecScored} passed scoring threshold out of ${apecFresh} fresh`);
     }
 
-    // Deduplicate: job aggregators (Adzuna) post the same role across many cities/sources.
-    // Key includes source so cross-source matches are preserved; strip "|city" suffixes from title.
+    // Deduplicate across sources: the same job WILL appear on Arbeitsagentur + StepStone +
+    // Adzuna etc. Key deliberately excludes source — same company+title collapses to one
+    // regardless of which source(s) found it — and also excludes city, since job
+    // aggregators (Adzuna) repost the same role across many cities. Company is run through
+    // the same corporate-suffix normalization as the rejected-companies blocklist ("Acme
+    // GmbH" / "Acme" / "Acme GmbH & Co. KG" from three different sources must collapse to
+    // the same key, not three separate near-duplicate cards).
     const seenCompanyRole = new Set<string>();
     const dedupedMatches: MatchResult[] = [];
     for (const match of rawMatches) {
       const baseTitle = match.job.title.split('|')[0].trim().toLowerCase().replace(/\s+/g, ' ');
-      // Cross-source key: same title+company regardless of source
-      const crossSourceKey = `${match.job.company.toLowerCase()}::${baseTitle}`;
+      const crossSourceKey = `${normalizeCompanyName(match.job.company)}::${baseTitle}`;
       if (seenCompanyRole.has(crossSourceKey)) {
         console.log(`[dedup] skipped duplicate: "${match.job.title}" @ ${match.job.company} (${match.job.source})`);
         continue;

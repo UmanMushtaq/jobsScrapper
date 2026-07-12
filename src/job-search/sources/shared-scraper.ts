@@ -268,7 +268,7 @@ function extractExperienceMinimum(text: string): number | null {
   const rangeMatch = text.match(/(\d+)\s*(?:to|-|bis|à)\s*\d+\s+(?:years?|ans?|jahre?)/i);
   if (rangeMatch) return parseInt(rangeMatch[1], 10);
   const patterns = [
-    /(?:minimum|mindestens|at\s+least|min\.?|au\s+moins)\s+(\d+)\s+(?:years?|ans?|jahre?)/i,
+    /(?:minimum|mindestens|mind\.?|at\s+least|min\.?|au\s+moins)\s+(\d+)\s+(?:years?|ans?|jahre?)/i,
     /(\d+)\s+(?:years?|ans?|jahre?)\s+(?:of\s+)?(?:professional\s+)?(?:experience|erfahrung|expérience)/i,
   ];
   for (const p of patterns) {

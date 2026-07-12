@@ -369,3 +369,41 @@ describe('scoreJob — GTM/marketing-engineering role-type mismatch (Rule 6)', (
     expect(result).not.toBeNull();
   });
 });
+
+describe('scoreJob — German internship/training title rejection (Germany-coverage pass, July 12 2026)', () => {
+  // job_search_profile.json's excludedTitleKeywords list — real production config, not a
+  // stand-in, since these keywords only matter in combination with the actual profile.
+  const germanProfile: SearchProfile = {
+    ...profile,
+    search: {
+      ...profile.search,
+      excludedTitleKeywords: [
+        'intern', 'internship', 'alternance', 'apprentice', 'apprenticeship',
+        'student', 'staff', 'lead', 'principal', 'head of', 'manager',
+        'praktikum', 'praktikant', 'ausbildung', 'duales studium', 'minijob', 'trainee',
+      ],
+    },
+  };
+
+  it.each([
+    'Werkstudent Backend Entwicklung (m/w/d)',
+    'Praktikant Softwareentwicklung',
+    'Praktikum Backend Engineering',
+    'Ausbildung zum Fachinformatiker',
+    'Duales Studium Informatik',
+    'Minijob Backend Support',
+    'Trainee Software Engineering',
+  ])('rejects title "%s"', (title) => {
+    const result = scoreJob(buildJob({ title }), germanProfile);
+    expect(result).toBeNull();
+  });
+
+  it('"Werkstudent" is caught via the existing "student" substring match, not a dedicated keyword', () => {
+    expect('werkstudent'.includes('student')).toBe(true);
+  });
+
+  it('still accepts a regular backend title that happens to share no excluded substrings', () => {
+    const result = scoreJob(buildJob({ title: 'Backend Entwickler (Node.js)' }), germanProfile);
+    expect(result).not.toBeNull();
+  });
+});
