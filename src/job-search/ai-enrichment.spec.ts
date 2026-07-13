@@ -1,4 +1,4 @@
-import { buildGoogleGenAIOptions, evaluateGeminiScoring, GeminiRawScoring } from './ai-enrichment';
+import { buildGoogleGenAIOptions, evaluateGeminiScoring, GeminiRawScoring, buildHistoryDescExcerpt } from './ai-enrichment';
 
 describe('buildGoogleGenAIOptions', () => {
   const ORIGINAL_ENV = process.env;
@@ -107,5 +107,29 @@ describe('evaluateGeminiScoring', () => {
     expect(evaluateGeminiScoring({ relevanceScore: 150 }).relevanceScore).toBe(100);
     expect(evaluateGeminiScoring({ relevanceScore: -10 }).relevanceScore).toBe(0);
     expect(evaluateGeminiScoring({}).relevanceScore).toBe(50);
+  });
+});
+
+describe('buildHistoryDescExcerpt', () => {
+  // Calibration must compare against real JD content, not just title/company/location —
+  // this is what both the PostgreSQL-backed and Redis-backed history paths call to turn a
+  // stored job description into the excerpt that actually reaches historyContext and the
+  // Gemini prompt.
+  it('truncates a long job description to the 500-char calibration excerpt length', () => {
+    const longDescription = 'A'.repeat(2000);
+    const excerpt = buildHistoryDescExcerpt(longDescription);
+    expect(excerpt).toHaveLength(500);
+    expect(excerpt).toBe('A'.repeat(500));
+  });
+
+  it('passes short descriptions through unchanged', () => {
+    expect(buildHistoryDescExcerpt('Node.js backend role, 6 ans d\'experience requis')).toBe(
+      'Node.js backend role, 6 ans d\'experience requis',
+    );
+  });
+
+  it('returns undefined for null or undefined input (no JD text available)', () => {
+    expect(buildHistoryDescExcerpt(null)).toBeUndefined();
+    expect(buildHistoryDescExcerpt(undefined)).toBeUndefined();
   });
 });

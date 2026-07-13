@@ -670,6 +670,11 @@ export interface JobDecisionHistoryEntry {
   countryCode: string | null;
   score: number;
   foundAt: number; // ms epoch
+  // Full JD text (or a reasonably sized excerpt), stored so Gemini calibration compares
+  // against actual role content, not just title/company/location metadata — mirrors what
+  // job_decisions.job_description already stores on the PostgreSQL side. Optional/absent
+  // on entries recorded before this field existed.
+  jobDescription?: string;
 }
 
 const HISTORY_APPLIED_KEY = 'history:applied';

@@ -257,19 +257,21 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const entry = jobs.find((j) => j.jobId === jobId);
     if (entry) {
       const m = entry.match as {
-        job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null; locationLabel?: string; workMode?: string };
+        job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null; locationLabel?: string; workMode?: string; description?: string };
         score?: number;
       };
       const url = m?.job?.canonicalUrl;
       if (url) await markJobDecision('applied', url, meta);
       const appliedAt = Date.now();
-      // Record for Gemini calibration
+      // Record for Gemini calibration — include JD text (not just title/company) so
+      // calibration compares actual role content, matching the PostgreSQL storage path.
       await redisRecordJobDecisionHistory('applied', {
         title: m?.job?.title ?? meta?.title ?? '',
         company: m?.job?.company ?? meta?.company ?? '',
         countryCode: m?.job?.countryCode ?? null,
         score: m?.score ?? meta?.score ?? 0,
         foundAt: entry.foundAt,
+        jobDescription: m?.job?.description?.slice(0, 2000) || undefined,
       });
       // Save full entry for Applied tab (10-day TTL)
       await redisSaveAppliedJob({
@@ -296,14 +298,16 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const jobs = await redisGetDashboardJobs();
     const entry = jobs.find((j) => j.jobId === jobId);
     if (entry) {
-      const m = entry.match as { job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null }; score?: number };
-      // Record for Gemini calibration
+      const m = entry.match as { job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null; description?: string }; score?: number };
+      // Record for Gemini calibration — include JD text (not just title/company) so
+      // calibration compares actual role content, matching the PostgreSQL storage path.
       await redisRecordJobDecisionHistory('dismissed', {
         title: m?.job?.title ?? '',
         company: m?.job?.company ?? '',
         countryCode: m?.job?.countryCode ?? null,
         score: m?.score ?? 0,
         foundAt: entry.foundAt,
+        jobDescription: m?.job?.description?.slice(0, 2000) || undefined,
       });
       // Add to dismissed_urls + remove from seen_urls so bot never re-surfaces this job
       const url = m?.job?.canonicalUrl;

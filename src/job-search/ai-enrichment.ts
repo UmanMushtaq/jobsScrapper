@@ -337,6 +337,20 @@ export function evaluateGeminiScoring(raw: GeminiRawScoring): GeminiScoringEvalu
   };
 }
 
+// JD excerpt length used in the calibration prompt (historyContext, built in enrichSingle
+// below). Up to 70 history entries (20 applied + 50 dismissed) are included on every single
+// job scored, so this is deliberately well short of the 2000 chars actually stored
+// (PostgreSQL job_description column / Redis JobDecisionHistoryEntry.jobDescription) — 500
+// chars is enough to usually reach the sentence stating a language or experience
+// requirement, without multiplying prompt size 70x. No prompt-length budget exists
+// elsewhere in the codebase to defer to, so this cap is a judgment call, not a derived
+// constant.
+const HISTORY_DESC_EXCERPT_LENGTH = 500;
+
+export function buildHistoryDescExcerpt(jobDescription: string | null | undefined): string | undefined {
+  return jobDescription?.slice(0, HISTORY_DESC_EXCERPT_LENGTH) ?? undefined;
+}
+
 export interface AiEnrichment {
   fraudScore: number;
   fraudReasons: string[];
@@ -738,7 +752,7 @@ async function enrichSingle(
     const toEntry = (r: { job_title: string; company: string; country: string | null; ai_score: number; primary_stack: string | null; role_type: string | null; job_description: string | null }) => ({
       title: r.job_title, company: r.company, country: r.country ?? undefined,
       score: r.ai_score, stack: r.primary_stack ?? undefined,
-      roleType: r.role_type ?? undefined, desc: r.job_description?.slice(0, 200) ?? undefined,
+      roleType: r.role_type ?? undefined, desc: buildHistoryDescExcerpt(r.job_description),
     });
     appliedEntries = pgHistory.applied.map(toEntry);
     dismissedEntries = pgHistory.dismissed.map(toEntry);
@@ -747,8 +761,8 @@ async function enrichSingle(
       redisGetJobDecisionHistory('applied', 20),
       redisGetJobDecisionHistory('dismissed', 50),
     ]);
-    appliedEntries = redisApplied.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score }));
-    dismissedEntries = redisDismissed.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score }));
+    appliedEntries = redisApplied.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score, desc: buildHistoryDescExcerpt(e.jobDescription) }));
+    dismissedEntries = redisDismissed.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score, desc: buildHistoryDescExcerpt(e.jobDescription) }));
   }
 
   let historyContext = '';
@@ -842,6 +856,15 @@ async function enrichSingle(
   console.log(
     `[scoring] calibration_applied=${historyContext.length > 0} applied_count=${appliedEntries.length} ` +
     `dismissed_count=${dismissedEntries.length} job="${job.title}" @ ${job.company}`,
+  );
+
+  const entriesWithDesc = [...appliedEntries, ...dismissedEntries].filter((e) => !!e.desc);
+  const avgJdLength = entriesWithDesc.length > 0
+    ? Math.round(entriesWithDesc.reduce((sum, e) => sum + (e.desc?.length ?? 0), 0) / entriesWithDesc.length)
+    : 0;
+  console.log(
+    `[scoring] calibration_jd_text_included=${entriesWithDesc.length > 0} avg_jd_length=${avgJdLength} ` +
+    `(${entriesWithDesc.length}/${appliedEntries.length + dismissedEntries.length} entries had JD text)`,
   );
 
   const prompt =
