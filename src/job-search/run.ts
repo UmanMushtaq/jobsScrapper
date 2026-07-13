@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { AiEnrichment, enrichMatch, clearGeminiOverloadFlag, isGeminiOverloaded } from './ai-enrichment';
+import { reconcileScores } from './reconciliation';
 import { scoreLocation } from './sources/location-filter';
 import { isFrontendPrimaryStack } from './stack-filter';
 import { evaluateLanguageRequirement } from './language-requirement-filter';
@@ -661,13 +662,33 @@ export async function runJobSearchOnce(
     const newMatches: MatchResult[] = [];
     const rejectedByAi: MatchResult[] = [];
     for (const { match, ai } of enrichSettled) {
-      if (ai && ai.relevanceScore < 55) {
-        console.log(`[notify] LOW RELEVANCE (${ai.relevanceScore}/100) — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]${ai.relevanceIssues.length ? ` — ${ai.relevanceIssues[0]}` : ''}`);
-        rejectedByAi.push(match);
-        continue;
-      }
-      if (ai && ai.isSuspicious) {
-        console.log(`[notify] SUSPICIOUS (fraud=${ai.fraudScore}) — skipped: "${match.job.title}" @ ${match.job.company} [${match.job.source}]`);
+      const jobLabel = `"${match.job.title}" @ ${match.job.company}`;
+      // codeHardSkip is always false here — matcher.ts's own hard-skip filters (rejected
+      // companies, frontend-primary stack, language requirement, location, experience
+      // cap, internship titles, etc.) already returned null before this job ever reached
+      // enrichment. Logged explicitly anyway so the reconciliation record is complete.
+      const result = reconcileScores({
+        jobLabel,
+        codeScore: match.score,
+        codeHardSkip: false,
+        geminiScore: ai?.relevanceScore ?? null,
+        geminiHardSkip: ai?.hardSkipTriggered ?? false,
+        geminiHardSkipReason: ai?.hardSkipReason ?? null,
+        isSuspicious: ai?.isSuspicious ?? false,
+        fraudScore: ai?.fraudScore,
+      });
+      console.log(result.logLine);
+
+      if (!result.relevant) {
+        const label =
+          result.reason === 'hard_skip' ? 'HARD SKIP'
+          : result.reason === 'suspicious_fraud' ? 'SUSPICIOUS'
+          : 'LOW RELEVANCE';
+        const detail =
+          result.reason === 'hard_skip' ? (ai?.hardSkipReason ?? '')
+          : result.reason === 'suspicious_fraud' ? `fraud=${ai?.fraudScore}`
+          : (ai?.relevanceIssues?.[0] ?? '');
+        console.log(`[notify] ${label} (${ai?.relevanceScore ?? 'n/a'}/100) — skipped: ${jobLabel} [${match.job.source}]${detail ? ` — ${detail}` : ''}`);
         rejectedByAi.push(match);
         continue;
       }

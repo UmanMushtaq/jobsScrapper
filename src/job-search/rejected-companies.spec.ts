@@ -1,11 +1,12 @@
 import { REJECTED_COMPANIES, isRejectedCompany, normalizeCompanyName } from './rejected-companies';
 
 describe('rejected-companies seed list', () => {
-  it('matches the July 8 2026 seed list exactly', () => {
+  it('matches the July 13 2026 seed list exactly (adds the Gemini hard-skip rulebook\'s permanent blocklist)', () => {
     const seed = [
       'dashlane', 'redcare pharmacy', 'strv', 'swan', 'team.blue', 'papaya',
       'tricentis', 'sweep', 'atolls', 'securepoint', 'swile', 'devoteam',
       'oskey', 'modjo', 'sii', 'creative clicks', 'winamax',
+      'theodo', 'transparent hiring',
     ];
     expect(REJECTED_COMPANIES).toEqual(seed);
   });
@@ -42,6 +43,14 @@ describe('isRejectedCompany', () => {
 
   it('matches a multi-word entry ("Redcare Pharmacy GmbH")', () => {
     expect(isRejectedCompany('Redcare Pharmacy GmbH')).toBe(true);
+  });
+
+  it('matches "Theodo" (hard skip rule 8 — grandes ecoles filter)', () => {
+    expect(isRejectedCompany('Theodo')).toBe(true);
+  });
+
+  it('matches "Transparent Hiring" (hard skip rule 8 — paid service, not a real employer)', () => {
+    expect(isRejectedCompany('Transparent Hiring')).toBe(true);
   });
 });
 

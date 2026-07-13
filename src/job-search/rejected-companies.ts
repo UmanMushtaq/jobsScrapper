@@ -24,6 +24,8 @@ export const REJECTED_COMPANIES: string[] = [
   'sii', // rejected — July 8 2026 manual review
   'creative clicks', // rejected — July 8 2026 manual review
   'winamax', // rejected — July 8 2026 manual review
+  'theodo', // permanent blocklist — grandes ecoles filter, July 13 2026
+  'transparent hiring', // permanent blocklist — paid service, not a real employer, July 13 2026
 ];
 
 // Trailing corporate suffixes stripped before matching, so "Swile SAS" / "STRV s.r.o."

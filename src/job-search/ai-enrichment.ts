@@ -288,6 +288,55 @@ export function getGeminiModuleState(): GeminiModuleState {
   };
 }
 
+// Gemini's raw hard-skip/scoring fields, exactly as requested in the FIELD DEFINITIONS
+// section of SYSTEM_INSTRUCTION. Parsed and audited by evaluateGeminiScoring below,
+// independent of the JSON parse/network call so it's directly unit-testable with fixtures.
+export interface GeminiRawScoring {
+  hardSkipTriggered?: boolean;
+  hardSkipReason?: string | null;
+  languageAssessment?: string | null;
+  stackMatch?: string | null;
+  experienceNote?: string | null;
+  confidence?: string;
+  reasoning?: string | null;
+  relevanceScore?: number;
+}
+
+export interface GeminiScoringEvaluation {
+  hardSkipTriggered: boolean;
+  hardSkipReason: string | null;
+  languageAssessment: string | null;
+  stackMatch: string | null;
+  experienceNote: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  reasoning: string | null;
+  relevanceScore: number;
+}
+
+// Server-side enforcement of the hard-skip rule: a hard skip forces the score to 0
+// regardless of what Gemini put in relevanceScore. Never trust the model alone for
+// this — the rulebook asks it to zero the score itself, but the veto has to be
+// absolute and auditable, not something an LLM can waffle on.
+export function evaluateGeminiScoring(raw: GeminiRawScoring): GeminiScoringEvaluation {
+  const hardSkipTriggered = raw.hardSkipTriggered === true;
+  const requestedScore = Math.min(100, Math.max(0, Number(raw.relevanceScore ?? 50)));
+  const confidence: 'high' | 'medium' | 'low' =
+    raw.confidence === 'high' || raw.confidence === 'low' ? raw.confidence : 'medium';
+
+  return {
+    hardSkipTriggered,
+    hardSkipReason: hardSkipTriggered
+      ? (raw.hardSkipReason?.trim() || 'hard skip rule triggered (no reason given)')
+      : null,
+    languageAssessment: raw.languageAssessment?.trim() || null,
+    stackMatch: raw.stackMatch?.trim() || null,
+    experienceNote: raw.experienceNote?.trim() || null,
+    confidence,
+    reasoning: raw.reasoning?.trim() || null,
+    relevanceScore: hardSkipTriggered ? 0 : requestedScore,
+  };
+}
+
 export interface AiEnrichment {
   fraudScore: number;
   fraudReasons: string[];
@@ -301,6 +350,15 @@ export interface AiEnrichment {
   visaFriendly: boolean | null;
   visaNote: string | null;
   languageRequirement: string | null;
+  // Hard-skip rulebook verdict (see HARD_SKIP_RULEBOOK) — the reconciliation logic in
+  // run.ts treats this as an absolute veto, never averaged against relevanceScore.
+  hardSkipTriggered: boolean;
+  hardSkipReason: string | null;
+  languageAssessment: string | null;
+  stackMatch: string | null;
+  experienceNote: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  reasoning: string | null;
   // Null when salary is above the threshold or unknown.
   // Non-null when estimated salary is below the €39,582/yr (€3,299/mo) Talent permit floor.
   visaRisk: string | null;
@@ -444,44 +502,113 @@ const CANDIDATE_TECH_STACK =
   `  Testing:    Jest\n` +
   `=== END TECH STACK ===\n`;
 
+// Verbatim target-country list from Uman's actual relocation rules — hardcoded here
+// rather than sourced from job_search_profile.json's targetCountryCodes because that
+// list is used for a different purpose (location-filter.ts's onsite/hybrid allowlist)
+// and has drifted from the rules Gemini needs (it currently includes FI, not GR).
+const TARGET_COUNTRIES = [
+  'France', 'Germany', 'Belgium', 'Netherlands', 'Luxembourg', 'Italy', 'Spain',
+  'Sweden', 'Denmark', 'Czech Republic', 'Ireland', 'Hungary', 'Poland', 'Greece',
+];
+
+// The real hard-skip rulebook. Every rule here mirrors a code-side filter that already
+// runs in matcher.ts before a job ever reaches Gemini (rejected-companies.ts,
+// stack-filter.ts, language-requirement-filter.ts, location-filter.ts, experience-parser.ts,
+// the internship/apprenticeship title exclusions in job_search_profile.json). Gemini gets
+// the same rules explicitly so it stops scoring generic "job quality" and instead checks
+// the actual disqualifying criteria — this is what was causing a job the code correctly
+// flagged to still get an unrelated high "quality" score from Gemini with no hard-skip
+// field to veto it.
+const HARD_SKIP_RULEBOOK =
+  `=== HARD SKIP RULEBOOK (authoritative — check every rule explicitly below, one by one; do not form a vague holistic impression) ===\n` +
+  `Candidate profile: Backend Engineer, Node.js/NestJS/TypeScript, 4 years production experience, based in Paris, ` +
+  `France, holding a French APS visa (no sponsorship needed for France-based roles), open to relocation across: ` +
+  `${TARGET_COUNTRIES.join(', ')}.\n\n` +
+  `If ANY of the following 8 rules is true, the job is a HARD SKIP: set hardSkipTriggered=true, cite the specific ` +
+  `rule number and reason in hardSkipReason, and force relevanceScore to exactly 0 — regardless of how strong the ` +
+  `job otherwise looks on any other dimension.\n\n` +
+  `1. WRONG PRIMARY STACK: Python, Go, PHP, Java, .NET, Scala, or C++ is the PRIMARY backend language and Node.js ` +
+  `is not mentioned at all, or is clearly secondary/incidental.\n` +
+  `2. REQUIRED NON-ENGLISH LANGUAGE: French, Dutch, or German is stated as a REQUIRED working language with no ` +
+  `English alternative or signal anywhere in the posting or reasonably inferable company context (see the language ` +
+  `note below for how to check this).\n` +
+  `3. EXPERIENCE FLOOR OF 6+: a stated MINIMUM experience requirement of 6 or more years. "5 years", "5+", ` +
+  `"5 a 10 ans", or any phrasing where 5 is the lower bound of a range is NOT a skip — only a stated floor of 6 or ` +
+  `more years triggers this.\n` +
+  `4. PEOPLE-MANAGEMENT PRIMARY ROLE: the role's PRIMARY responsibility is team/people management (hiring, ` +
+  `performance reviews, headcount ownership) rather than individual technical contribution. A "Tech Lead" title ` +
+  `alone is NOT automatically this — but explicit language like "piloter une equipe" (lead/manage a team of ` +
+  `developers) as a core listed mission IS this.\n` +
+  `5. ONSITE OUTSIDE THE EU: an onsite role based in the USA, Canada, or any country outside the EU with no ` +
+  `remote-from-EU option.\n` +
+  `6. REMOTE-ONLY COUNTRY RESTRICTION: a REMOTE-ONLY role that explicitly restricts applicants to residents of a ` +
+  `specific country the candidate does not live in (e.g. "Poland only", "must reside in Netherlands"). This is NOT ` +
+  `a skip for ONSITE or HYBRID roles in target countries, since relocation is in scope — it only applies to fully ` +
+  `remote listings.\n` +
+  `7. NON-PROFESSIONAL CONTRACT: internship, working-student (Werkstudent/stagiaire), apprenticeship, or ` +
+  `graduate-program-only contracts.\n` +
+  `8. BLOCKLISTED COMPANY: the company is "Theodo" (grandes ecoles filter) or "Transparent Hiring" (paid service, ` +
+  `not a real employer).\n\n` +
+  `The following look concerning but are NEVER hard skips on their own — report them as informational notes only, ` +
+  `never as a disqualifying reason:\n` +
+  `- Salary below the candidate's target (informational only — report the gap in experienceNote or reasoning).\n` +
+  `- Stated experience above 4 years but below the 6-year hard cap (informational only).\n` +
+  `- Fullstack roles requiring React alongside Node.js/NestJS (the candidate has real but lighter React experience ` +
+  `— a genuine partial-fit note, not a skip).\n` +
+  `- Unconfirmed/unknown working language when nothing explicit is stated and no clear non-English signal exists ` +
+  `— this should LOWER CONFIDENCE, not trigger a skip.\n` +
+  `- Small/early-stage startup risk, equity-heavy comp, non-standard compensation structure (informational only).\n` +
+  `=== END HARD SKIP RULEBOOK ===\n`;
+
 const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null, visaContext: string, statusLine: string, jobSource = '') =>
   `You are acting as a senior recruiter scanning a job for ${name}.\n\n` +
   `TECHNOLOGY CONSTRAINT: Only mention technologies, frameworks, tools, and integrations that appear in the candidate's CV or tech stack below. Never invent or assume experience with technologies not listed. If the job requires a technology not in the candidate's stack, do not claim the candidate has experience with it. You may mention willingness to learn it if relevant.\n\n` +
   `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
   CANDIDATE_TECH_STACK + `\n` +
+  HARD_SKIP_RULEBOOK + `\n` +
   `Visa: ${visaContext}\n` +
   `  Remote roles: always compatible (candidate works from Paris for any EU company).\n` +
   `  On-site/hybrid in France: compatible — candidate is open to any French city (Paris, Lyon, Marseille, Bordeaux, etc.).\n` +
   `  On-site/hybrid outside France: only compatible if employer explicitly mentions visa sponsorship or relocation support.\n\n` +
   `Language note: this job posting may be written in French, Dutch, German, or another European language.\n` +
   `  The candidate is a fluent English speaker (A1 French). The candidate has a browser translator and can read any JD language.\n\n` +
-  `  LANGUAGE RULE: Never reject a job purely because the JD is written in French, Dutch, or German.\n\n` +
-  `  Before applying any language penalty, check for these English signals in the JD:\n` +
+  `  LANGUAGE RULE: Never hard-skip a job purely because the JD is WRITTEN in French, Dutch, or German — the ` +
+  `posting's language alone is NOT evidence that fluency in it is REQUIRED for the job. HARD SKIP rule 2 only fires ` +
+  `when the language is a stated REQUIRED WORKING language with no English alternative.\n\n` +
+  `  Before concluding rule 2 applies, check for these English signals in the JD:\n` +
   `  - English explicitly mentioned as required or working language\n` +
   `  - C1, B2, fluent English in expected skills\n` +
   `  - International teams or clients mentioned\n` +
   `  - Company is multinational or has offices in multiple countries\n` +
   `  - Role involves international partners or clients\n\n` +
-  `  If ANY of these signals are present, do NOT apply a language penalty. Score the job based on stack match only.\n\n` +
+  `  If ANY of these signals are present, do NOT trigger rule 2. Record what you found in languageAssessment (e.g. "JD mentions international team, no language requirement stated").\n\n` +
   `  If NONE of these signals are present, use web search to check the company. Search: [company name] working language OR langue de travail OR company culture\n\n` +
-  `  If web search shows the company works in English or is international, do NOT apply language penalty.\n\n` +
-  `  Only apply language penalty if both the JD AND web search confirm the role requires French/Dutch/German fluency with no English alternative. In that case set relevanceScore below 40 and note the language barrier in relevanceIssues.\n\n` +
-  `  The posting language alone is NOT evidence that French/Dutch/German is required for the job.\n\n` +
+  `  If web search shows the company works in English or is international, do NOT trigger rule 2 — note this in languageAssessment.\n\n` +
+  `  Only trigger rule 2 if both the JD AND web search confirm the role requires French/Dutch/German fluency with no English alternative. In that case set hardSkipTriggered=true, hardSkipReason citing rule 2, relevanceScore=0, and describe what was found in languageAssessment.\n\n` +
+  `  If nothing explicit is stated and no clear non-English signal exists either way, do NOT trigger rule 2 — instead set confidence to "low" or "medium" and explain the uncertainty in languageAssessment.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
-  `  relevanceScore: integer 0-100. How well does this job match the candidate's CV?\n` +
+  `  hardSkipTriggered: true/false. true if ANY of the 8 rules in the HARD SKIP RULEBOOK above applies. Check every ` +
+  `rule explicitly, one by one, before scoring anything else.\n` +
+  `  hardSkipReason: if hardSkipTriggered is true, cite the specific rule number and a one-line reason (e.g. "Rule 1: ` +
+  `primary stack is Python/Django, Node.js not mentioned"). null if hardSkipTriggered is false.\n` +
+  `  languageAssessment: what working-language signal you found and how (explicit JD field, body text, or company ` +
+  `research from web search). e.g. "JD states French required, no English alternative found in posting or company ` +
+  `site" or "No explicit language requirement, no non-English signal detected".\n` +
+  `  stackMatch: brief assessment of how the job's primary stack compares to the candidate's Node.js/NestJS/` +
+  `TypeScript stack (e.g. "Node.js and NestJS both explicitly required, strong match" or "Primary stack is Java/` +
+  `Spring, Node.js not mentioned").\n` +
+  `  experienceNote: stated experience requirement vs the candidate's 4 years, informational only (e.g. "Requires ` +
+  `5+ years, candidate has 4 — within the accepted 5-year floor" or "No experience requirement stated").\n` +
+  `  confidence: "high"/"medium"/"low" — how confident you are in this assessment overall. Use "low" or "medium" ` +
+  `when a working-language requirement is unconfirmed rather than guessing, or when key JD details are ambiguous.\n` +
+  `  reasoning: 1-3 sentence plain explanation of the overall assessment.\n` +
+  `  relevanceScore: integer 0-100. If hardSkipTriggered is true, this MUST be exactly 0 — no exceptions. Otherwise, ` +
+  `how well does this job match the candidate's CV?\n` +
   `\n` +
-  `    HARD PENALTIES (score must be below 40):\n` +
-  `    - Primary backend language is NOT Node.js: C#/.NET, Java, Go, PHP, Python, Ruby as the main stack with no Node.js\n` +
-  `    - Angular or Vue.js is the PRIMARY frontend framework and the role is fullstack requiring heavy Angular/Vue work\n` +
-  `    - Role is primarily frontend (React, Angular, Vue) with backend as secondary\n` +
-  `    - Job requires MORE than 5 years of experience (6+ years, "senior" implying 6+, or similar) — this must score below the pass threshold regardless of stack fit, domain, or any other factor. No exceptions.\n` +
-  `\n` +
-  `    MEDIUM PENALTIES (reduce score by 20-30 points):\n` +
+  `    MEDIUM PENALTIES (reduce score by 20-30 points — informational quality signals, NOT hard skips):\n` +
   `    - Fullstack role where frontend is more than 50% of the work\n` +
   `    - Node.js mentioned only once as a nice-to-have, not primary\n` +
-  `    - Requires 6+ years strictly with no flexibility signal\n` +
-  `    - Requires French, Dutch, or German fluency with no English-team signal (candidate is A1 French only)\n` +
   `    - AI/ML, DevOps, or mobile as primary skill requirement\n` +
   `\n` +
   `    REWARDS (increase score):\n` +
@@ -747,8 +874,7 @@ async function enrichSingle(
     contents: prompt,
   });
 
-  let raw: {
-    relevanceScore?: number;
+  let raw: GeminiRawScoring & {
     relevanceIssues?: string[];
     visaFriendly?: boolean | null;
     visaNote?: string | null;
@@ -773,10 +899,15 @@ async function enrichSingle(
     console.warn(`[gemini] malformed JSON response for "${job.title}" @ ${job.company} — treating as empty`);
     raw = {};
   }
-  const relevanceScore = Math.min(100, Math.max(0, Number(raw.relevanceScore ?? 50)));
+  const scoring = evaluateGeminiScoring(raw);
+  const relevanceScore = scoring.relevanceScore;
   const fraudScore = Math.min(100, Math.max(0, Number(raw.fraudScore ?? 0)));
   const companyQualityScore = Math.min(100, Math.max(0, Number(raw.companyQualityScore ?? 70)));
-  console.log(`[gemini] "${job.title}" @ ${job.company} — relevance=${relevanceScore} fraud=${fraudScore} quality=${companyQualityScore} visa=${raw.visaFriendly ?? 'unknown'} model=${model}`);
+  console.log(
+    `[gemini] "${job.title}" @ ${job.company} — relevance=${relevanceScore}` +
+    (scoring.hardSkipTriggered ? ` HARD_SKIP(${scoring.hardSkipReason})` : '') +
+    ` fraud=${fraudScore} quality=${companyQualityScore} visa=${raw.visaFriendly ?? 'unknown'} confidence=${scoring.confidence} model=${model}`,
+  );
   const descWordCount = job.description.trim().split(/\s+/).filter(Boolean).length;
   const coverLetterThreshold = descWordCount < 120 ? 45 : descWordCount < 350 ? 50 : 55;
   const shouldGenerateCoverLetter = relevanceScore >= coverLetterThreshold;
@@ -824,6 +955,13 @@ async function enrichSingle(
     visaFriendly: raw.visaFriendly ?? null,
     visaNote: raw.visaNote?.trim() || null,
     languageRequirement: raw.languageRequirement?.trim() || null,
+    hardSkipTriggered: scoring.hardSkipTriggered,
+    hardSkipReason: scoring.hardSkipReason,
+    languageAssessment: scoring.languageAssessment,
+    stackMatch: scoring.stackMatch,
+    experienceNote: scoring.experienceNote,
+    confidence: scoring.confidence,
+    reasoning: scoring.reasoning,
     visaRisk,
     fraudScore,
     fraudReasons: (raw.fraudReasons ?? []).slice(0, 3),
