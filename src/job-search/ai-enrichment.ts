@@ -839,6 +839,11 @@ async function enrichSingle(
     historyContext = lines.join('\n');
   }
 
+  console.log(
+    `[scoring] calibration_applied=${historyContext.length > 0} applied_count=${appliedEntries.length} ` +
+    `dismissed_count=${dismissedEntries.length} job="${job.title}" @ ${job.company}`,
+  );
+
   const prompt =
     (preferenceContext ? `${preferenceContext}\n\n` : '') +
     (historyContext ? `${historyContext}\n\n` : '') +
