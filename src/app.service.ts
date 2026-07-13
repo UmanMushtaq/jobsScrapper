@@ -2273,7 +2273,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                 </div>`
               : '';
 
-            const detailsRow = `<tr id="${detId}" data-country="${countryTab}" style="display:none;">
+            const detailsRow = `<tr id="${detId}" data-country="${countryTab}" data-job-id="${jobId}" style="display:none;">
               <td colspan="8" style="padding:0 10px 20px;">
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;padding:16px;background:#f8fafc;border-radius:10px;border:1px solid #e5e7eb;">
 
@@ -2315,7 +2315,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             const agingTag = isAging ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3c7;color:#92400e;">48h+</span>` : '';
 
             return `
-              <tr data-country="${countryTab}" style="${agingBorder}">
+              <tr data-country="${countryTab}" data-job-id="${jobId}" style="${agingBorder}">
                 <td>
                   <div style="font-weight:600;font-size:14px;line-height:1.4;">${escapeHtml(match.job.title)}${agingTag}</div>
                   <div style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}&nbsp;${hnBadge}${emailBadge}</div>
@@ -2331,16 +2331,8 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                 <td>
                   <div style="display:flex;flex-direction:column;gap:6px;min-width:120px;">
                     ${applyBtn}
-                    <form method="post" action="/jobs/${jobId}/applied">
-                      <input type="hidden" name="title" value="${escapeHtml(match.job.title)}" />
-                      <input type="hidden" name="company" value="${escapeHtml(match.job.company)}" />
-                      <input type="hidden" name="score" value="${sc}" />
-                      <input type="hidden" name="source" value="${escapeHtml(match.job.source ?? '')}" />
-                      <button type="submit" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Applied</button>
-                    </form>
-                    <form method="post" action="/jobs/${jobId}/dismiss">
-                      <button type="submit" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Dismiss</button>
-                    </form>
+                    <button type="button" class="btn-job-applied" data-job-id="${jobId}" data-title="${escapeHtml(match.job.title)}" data-company="${escapeHtml(match.job.company)}" data-score="${sc}" data-source="${escapeHtml(match.job.source ?? '')}" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Applied</button>
+                    <button type="button" class="btn-job-dismiss" data-job-id="${jobId}" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Dismiss</button>
                     <button type="button" onclick="toggleDet('${detId}')" style="width:100%;padding:6px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">${detBtnLabel}</button>
                     <a href="/jobs/tailored-cv?hash=${cvHash}" target="_blank" style="display:block;text-align:center;padding:6px 12px;background:#faf5ff;color:#6d28d9;border:1px solid #ddd6fe;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Tailored CV</a>
                     <a href="/jobs/answer-questions?hash=${cvHash}" style="display:block;text-align:center;padding:6px 12px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Answer Questions</a>
@@ -2929,6 +2921,40 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
         if (!row) return;
         row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
       }
+
+      // Applied/Dismiss — background fetch instead of a <form> submit, so the click
+      // never navigates the page (that navigation was the cause of the scroll jump:
+      // Applied went to /history?tab=applied, Dismiss reloaded / from the top).
+      document.addEventListener('click', function(e) {
+        var appliedBtn = e.target.closest('.btn-job-applied');
+        var dismissBtn = e.target.closest('.btn-job-dismiss');
+        var btn = appliedBtn || dismissBtn;
+        if (!btn) return;
+        var jobId = btn.getAttribute('data-job-id');
+        var url = appliedBtn ? '/jobs/' + jobId + '/applied' : '/jobs/' + jobId + '/dismiss';
+        var body = appliedBtn ? {
+          title: btn.getAttribute('data-title'),
+          company: btn.getAttribute('data-company'),
+          score: btn.getAttribute('data-score'),
+          source: btn.getAttribute('data-source'),
+        } : {};
+        btn.disabled = true;
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then(function(res) {
+          if (res.ok) {
+            document.querySelectorAll('tr[data-job-id="' + jobId + '"]').forEach(function(row) { row.remove(); });
+            return;
+          }
+          btn.disabled = false;
+          alert('Could not update this job — please try again.');
+        }).catch(function() {
+          btn.disabled = false;
+          alert('Network error — please try again.');
+        });
+      });
 
       function copyTxt(idx, part) {
         var el;
