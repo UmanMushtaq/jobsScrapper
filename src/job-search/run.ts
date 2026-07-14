@@ -193,6 +193,9 @@ export const FAST_SOURCES = [
   'jobicy.com',
   'jobware.de',
   'justjoin.it',
+  // Official EURES public API, no ScraperAPI — registered the same way France Travail
+  // is (July 14 2026 EURES rebuild: full 14-country coverage + manual runner).
+  'eures.europa.eu',
 ];
 
 // Sources routed through the one-per-run Playwright rotation (memory-heavy — Render's
@@ -206,7 +209,7 @@ export const PLAYWRIGHT_SOURCES = new Set([
 // Sources with a dedicated on-demand runner (runSingleSource in this file), reachable
 // via a dashboard button independent of any scheduler interval. Keep in sync with
 // runSingleSource's parameter type.
-export const MANUAL_ONLY_SOURCES = new Set(['apec.fr', 'indeed.com', 'eu.talent.io']);
+export const MANUAL_ONLY_SOURCES = new Set(['apec.fr', 'indeed.com', 'eu.talent.io', 'eures.europa.eu']);
 
 // July 12 2026 orphaned-source audit: every source NOT in FAST_SOURCES,
 // PLAYWRIGHT_SOURCES, or MANUAL_ONLY_SOURCES falls back to the SLOW scheduler's default
@@ -884,12 +887,13 @@ export interface JobDecisionMeta {
   source?: string;
 }
 
-export async function runSingleSource(sourceName: 'apec' | 'indeed' | 'talentio'): Promise<void> {
+export async function runSingleSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures'): Promise<void> {
   const profile = await loadSearchProfile();
   const source =
     sourceName === 'apec' ? new ApecPlaywrightSource()
     : sourceName === 'indeed' ? new IndeedJobsSource()
-    : new TalentioJobsSource();
+    : sourceName === 'talentio' ? new TalentioJobsSource()
+    : new EuresSource();
   console.log(`[manual] running single source: ${source.name}`);
   try {
     const jobs = await source.fetch(profile.search.queries, profile.search);

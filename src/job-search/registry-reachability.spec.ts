@@ -29,6 +29,11 @@ describe('source registry reachability', () => {
     expect(MANUAL_ONLY_SOURCES.has('eu.talent.io')).toBe(true);
   });
 
+  it('eures.europa.eu has both a manual runner and a fast-scheduler slot (July 14 2026 EURES rebuild)', () => {
+    expect(MANUAL_ONLY_SOURCES.has('eures.europa.eu')).toBe(true);
+    expect(FAST_SOURCES.includes('eures.europa.eu')).toBe(true);
+  });
+
   it('a source cannot be silently reachable-by-omission: every allSources name maps to exactly one primary classification', () => {
     // Not a hard requirement that categories are mutually exclusive (a source CAN
     // legitimately have more than one path, e.g. apec.fr has both a Playwright slot and

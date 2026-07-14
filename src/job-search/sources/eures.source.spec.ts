@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { EuresSource, EuresJv, mapJob, extractRequiredLanguages, extractExperienceMinimum } from './eures.source';
+import { EuresSource, EuresJv, mapJob, extractRequiredLanguages, extractExperienceMinimum, mapToEuresLocationCode } from './eures.source';
 import { evaluateLanguageRequirement } from '../language-requirement-filter';
 import { SearchSettings } from '../types';
 
@@ -54,6 +54,48 @@ describe('eures mapJob', () => {
     const job = mapJob(buildJv({ lastModificationDate: 1783369560676, creationDate: undefined }), FAR_FUTURE_CUTOFF);
     expect(job?.publishedAt).toBe(new Date(1783369560676).toISOString());
     expect(job?.publishedAtTimestamp).toBe(1783369560676);
+  });
+
+  it('truncates the description to the 500-char calibration-parity excerpt cap and flags descriptionPartial', () => {
+    const longDescription = 'A'.repeat(2000);
+    const job = mapJob(buildJv({ description: longDescription }), FAR_FUTURE_CUTOFF);
+    expect(job?.description).toHaveLength(500);
+    expect(job?.descriptionPartial).toBe(true);
+  });
+
+  it('does not pad a short description — only caps the upper bound', () => {
+    const job = mapJob(buildJv({ description: 'Short JD.' }), FAR_FUTURE_CUTOFF);
+    expect(job?.description).toBe('Short JD.');
+    expect(job?.descriptionPartial).toBe(true);
+  });
+});
+
+describe('mapToEuresLocationCode', () => {
+  it('maps every code in Uman\'s target-country list to its lowercase EURES locationCode', () => {
+    const expected: Record<string, string> = {
+      FR: 'fr', DE: 'de', BE: 'be', NL: 'nl', LU: 'lu', IT: 'it', ES: 'es',
+      SE: 'se', DK: 'dk', CZ: 'cz', IE: 'ie', HU: 'hu', PL: 'pl', FI: 'fi',
+    };
+    for (const [code, expectedLower] of Object.entries(expected)) {
+      expect(mapToEuresLocationCode(code)).toBe(expectedLower);
+    }
+  });
+
+  it('is case-insensitive', () => {
+    expect(mapToEuresLocationCode('fr')).toBe('fr');
+    expect(mapToEuresLocationCode('Fr')).toBe('fr');
+  });
+
+  it('maps Greece (GR), flagged in the July 13 2026 target-country discrepancy report', () => {
+    expect(mapToEuresLocationCode('GR')).toBe('gr');
+  });
+
+  it('returns null and logs a warning for a country with no known EURES mapping, without throwing', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(() => mapToEuresLocationCode('XX')).not.toThrow();
+    expect(mapToEuresLocationCode('XX')).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no EURES locationCode mapping for country "XX"'));
+    warnSpy.mockRestore();
   });
 });
 
@@ -123,32 +165,35 @@ describe('eures experienceLevelMinimum extraction (>5-year cap, Task 2)', () => 
   });
 });
 
-describe('EuresSource.fetch — dedup across queries', () => {
-  const settings: SearchSettings = {
-    titles: [],
-    queries: [],
-    requiredKeywords: [],
-    preferredKeywordGroups: [],
-    experience: { min: 0, max: 10 },
-    minimumSalaryMonthlyEur: 0,
-    language: 'en',
-    maxResults: 50,
-    maxAgeHours: 24 * 365,
-    checkIntervalHours: 8,
-    willingToRelocate: true,
-    preferredCountries: [],
-    acceptRemote: true,
-    acceptHybrid: true,
-    acceptOnSite: true,
-    usaJobs: false,
-    startupJobs: true,
-    startupPrioritySources: [],
-    excludedCountries: [],
-    europeCountryCodes: [],
-    usaCountryCodes: [],
-    relocationKeywords: [],
-    excludedTitleKeywords: [],
-  };
+describe('EuresSource.fetch — per-country search, dedup, and diagnostics', () => {
+  function buildSettings(targetCountryCodes: string[]): SearchSettings {
+    return {
+      titles: [],
+      queries: [],
+      requiredKeywords: [],
+      preferredKeywordGroups: [],
+      experience: { min: 0, max: 10 },
+      minimumSalaryMonthlyEur: 0,
+      language: 'en',
+      maxResults: 50,
+      maxAgeHours: 24 * 365,
+      checkIntervalHours: 8,
+      willingToRelocate: true,
+      preferredCountries: [],
+      acceptRemote: true,
+      acceptHybrid: true,
+      acceptOnSite: true,
+      usaJobs: false,
+      startupJobs: true,
+      startupPrioritySources: [],
+      excludedCountries: [],
+      europeCountryCodes: [],
+      usaCountryCodes: [],
+      relocationKeywords: [],
+      excludedTitleKeywords: [],
+      targetCountryCodes,
+    };
+  }
 
   beforeEach(() => {
     jest.useFakeTimers();
@@ -159,7 +204,7 @@ describe('EuresSource.fetch — dedup across queries', () => {
     jest.useRealTimers();
   });
 
-  it('dedupes the same jvProfileId returned by two different queries', async () => {
+  it('dedupes the same jvProfileId returned by two different queries within one country', async () => {
     const sharedJv = buildJv({ id: 'same-id-across-queries' });
     mockedAxios.post.mockResolvedValue({
       status: 200,
@@ -167,12 +212,68 @@ describe('EuresSource.fetch — dedup across queries', () => {
     });
 
     const source = new EuresSource();
-    const fetchPromise = source.fetch([], settings);
+    const fetchPromise = source.fetch([], buildSettings(['LU']));
     // Flush every pending sleep(1500) between queries without a real wait.
     await jest.runAllTimersAsync();
     const jobs = await fetchPromise;
 
     const matching = jobs.filter((j) => j.canonicalUrl.includes(encodeURIComponent('same-id-across-queries')));
     expect(matching.length).toBe(1);
+  });
+
+  it('logs one [eures] country=<code> fetched=N passed_filters=M line per country, not one aggregate line', async () => {
+    const jv = buildJv({ id: 'per-country-log-check' });
+    mockedAxios.post.mockResolvedValue({
+      status: 200,
+      data: { numberRecords: 1, jvs: [jv] },
+    });
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const source = new EuresSource();
+    const fetchPromise = source.fetch([], buildSettings(['LU', 'NL']));
+    await jest.runAllTimersAsync();
+    await fetchPromise;
+
+    const lines = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => /^\[eures\] country=LU fetched=\d+ passed_filters=\d+$/.test(l))).toBe(true);
+    expect(lines.some((l) => /^\[eures\] country=NL fetched=\d+ passed_filters=\d+$/.test(l))).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it('skips a target country with no EURES mapping (warns, does not throw, still processes the rest)', async () => {
+    const jv = buildJv({ id: 'unmapped-country-check' });
+    mockedAxios.post.mockResolvedValue({
+      status: 200,
+      data: { numberRecords: 1, jvs: [jv] },
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const source = new EuresSource();
+    const fetchPromise = source.fetch([], buildSettings(['XX', 'LU']));
+    await jest.runAllTimersAsync();
+    const jobs = await fetchPromise;
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no EURES locationCode mapping for country "XX"'));
+    expect(jobs.some((j) => j.canonicalUrl.includes(encodeURIComponent('unmapped-country-check')))).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it('uses only ENGLISH_KEYWORDS for a non-FR/DE country, but adds FRENCH_KEYWORDS for FR and GERMAN_KEYWORDS for DE', async () => {
+    mockedAxios.post.mockResolvedValue({ status: 200, data: { numberRecords: 0, jvs: [] } });
+
+    const source = new EuresSource();
+    const fetchPromise = source.fetch([], buildSettings(['LU', 'FR', 'DE']));
+    await jest.runAllTimersAsync();
+    await fetchPromise;
+
+    const bodies = mockedAxios.post.mock.calls.map((c) => c[1] as { locationCodes: string[] });
+    const luCalls = bodies.filter((b) => b.locationCodes[0] === 'lu').length;
+    const frCalls = bodies.filter((b) => b.locationCodes[0] === 'fr').length;
+    const deCalls = bodies.filter((b) => b.locationCodes[0] === 'de').length;
+
+    expect(frCalls).toBeGreaterThan(luCalls);
+    expect(deCalls).toBeGreaterThan(luCalls);
   });
 });

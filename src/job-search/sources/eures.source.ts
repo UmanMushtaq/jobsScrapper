@@ -5,23 +5,49 @@ import { detectLanguage } from './language-detect';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
 import { RequiredLanguage } from '../language-requirement-filter';
 import { extractRequiredMinimumYears } from '../experience-parser';
-import { ENGLISH_KEYWORDS } from '../keywords';
+import { ENGLISH_KEYWORDS, FRENCH_KEYWORDS, GERMAN_KEYWORDS } from '../keywords';
 
 const SOURCE = 'eures.europa.eu';
 const API_URL = 'https://europa.eu/eures/api/jv-searchengine/public/jv-search/search';
 const PORTAL_URL = 'https://europa.eu/eures/portal/jv-se/jv-details';
 
-// Gap countries only — FR/DE/PL deliberately excluded, already have strong dedicated
-// coverage elsewhere; EURES fills Luxembourg/Italy/Sweden/Belgium/Netherlands instead.
-const LOCATION_CODES = ['lu', 'it', 'se', 'be', 'nl'];
+// EURES's own JD text must not be stored/displayed beyond a short excerpt — the public
+// portal's terms prohibit republishing vacancy data, and this integration calls the
+// frontend's own JSON API rather than scraping rendered HTML, so staying well inside an
+// "aggregate + link back" footprint matters here specifically (unlike France
+// Travail/APEC, which have partner-style terms that allow more). 500 chars matches the
+// excerpt cap already used for applied/dismissed calibration elsewhere in the codebase
+// (buildHistoryDescExcerpt in ai-enrichment.ts) — same judgment call, kept as a small
+// local constant rather than importing that function directly: ai-enrichment.ts is a
+// much heavier module (Gemini SDK, Postgres, Redis) and sources/ files are meant to stay
+// leaf-level, so re-importing it here would be a backwards dependency for a one-line cap.
+const EURES_DESC_EXCERPT_LENGTH = 500;
 
-// specificSearchCode: 'EVERYWHERE' is broken on this API — it silently ignores the
-// keyword and returns every job in the location scope (verified: 21,355 records for one
-// query, first hit a Swedish train mechanic). 'TITLE' works correctly (verified: 86
-// records for "nodejs"). Do not switch this back to 'EVERYWHERE'.
-// July 13 2026 keyword consolidation — full English set (TITLE-scope confirmation above
-// was about the search mode working at all, not this exact list being required).
-const SEARCH_QUERIES = ENGLISH_KEYWORDS;
+// July 14 2026 rebuild: previously scoped to "gap countries only" (lu/it/se/be/nl,
+// deliberately excluding fr/de/pl because those already have strong dedicated coverage
+// elsewhere). Expanded to the full target-country list per Uman's explicit instruction —
+// cross-source overlap with France Travail/Arbeitsagentur/etc. is fine, since run.ts's
+// cross-source dedup (by normalized company + title) already collapses same-job repeats
+// from multiple sources.
+//
+// ISO-2 code (as stored in profile.search.targetCountryCodes, uppercase) → EURES's own
+// lowercase locationCodes value. Covers Uman's actual target list plus Greece: a July 13
+// 2026 session flagged that profile.search.targetCountryCodes currently has FI where
+// Uman's real target-country rulebook says GR (see that session's Gemini hard-skip
+// rulebook report) — an existing, already-flagged discrepancy this file doesn't silently
+// resolve either way. Both FI and GR are mapped correctly here regardless of which one
+// ends up being correct in the profile.
+const EURES_LOCATION_CODES: Record<string, string> = {
+  FR: 'fr', DE: 'de', BE: 'be', NL: 'nl', LU: 'lu', IT: 'it', ES: 'es',
+  SE: 'se', DK: 'dk', CZ: 'cz', IE: 'ie', HU: 'hu', PL: 'pl', FI: 'fi', GR: 'gr',
+};
+
+// specificSearchCode: 'EVERYWHERE' is broken on this API — verified July 7 2026, it
+// silently ignores the keyword and returns every job in the location scope (21,355
+// records for one query, first hit a Swedish train mechanic). 'TITLE' is the confirmed
+// working mode (86 records for "nodejs"). Do not switch this back to 'EVERYWHERE' without
+// re-verifying from a machine with real network access to the live API.
+const SEARCH_SCOPE = 'TITLE';
 
 const HEADERS = {
   'Content-Type': 'application/json',
@@ -65,45 +91,93 @@ interface EuresResponse {
   jvs?: EuresJv[];
 }
 
+// Maps a target-list country code (e.g. "FR", as stored uppercase in
+// profile.search.targetCountryCodes) to EURES's own lowercase locationCodes value.
+// Returns null (and logs a warning) for a code with no known EURES mapping, so an
+// unrecognised or future country added to the target list is skipped safely instead of
+// sending an invalid locationCodes value or throwing.
+export function mapToEuresLocationCode(countryCode: string): string | null {
+  const code = EURES_LOCATION_CODES[countryCode.trim().toUpperCase()];
+  if (!code) {
+    console.warn(`[eures] no EURES locationCode mapping for country "${countryCode}" — skipping`);
+    return null;
+  }
+  return code;
+}
+
+// Dual-language query pattern already used for Arbeitsagentur/France Travail: English
+// keywords everywhere (EURES's requestLanguage:"en" searches English terms regardless of
+// the target country), plus the localized set for France/Germany specifically.
+function buildQueriesForCountry(countryCode: string): string[] {
+  const queries = [...ENGLISH_KEYWORDS];
+  if (countryCode === 'FR') queries.push(...FRENCH_KEYWORDS);
+  if (countryCode === 'DE') queries.push(...GERMAN_KEYWORDS);
+  return queries;
+}
+
 export class EuresSource implements JobSource {
   name = SOURCE;
   priority = 4;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
-    const seen = new Set<string>();
-    const jobs: JobPosting[] = [];
-    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
-    const sessionId = `jobsscrapper-${Date.now()}`;
-
-    for (const query of SEARCH_QUERIES) {
-      try {
-        const fetched = await fetchQuery(query, cutoff, sessionId);
-        for (const job of fetched) {
-          if (!seen.has(job.canonicalUrl)) {
-            seen.add(job.canonicalUrl);
-            jobs.push(job);
-          }
-        }
-      } catch (err) {
-        console.warn(`[eures] query "${query}" failed:`, err instanceof Error ? err.message.slice(0, 200) : err);
-      }
-      await sleep(1500);
+    const targetCountries = settings.targetCountryCodes ?? [];
+    if (targetCountries.length === 0) {
+      console.warn('[eures] no targetCountryCodes configured on this profile — skipping EURES entirely');
+      return [];
     }
 
-    console.log(`[eures] fetched ${jobs.length} unique jobs across ${SEARCH_QUERIES.length} queries`);
-    return jobs;
+    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
+    const sessionId = `jobsscrapper-${Date.now()}`;
+    // Dedup by EURES job ID (encoded in canonicalUrl) across every country/keyword
+    // query in this run — the same job routinely turns up across several keyword
+    // variants within one country.
+    const seen = new Set<string>();
+    const allJobs: JobPosting[] = [];
+
+    for (const countryCode of targetCountries) {
+      const locationCode = mapToEuresLocationCode(countryCode);
+      if (!locationCode) continue;
+
+      const queriesForCountry = buildQueriesForCountry(countryCode);
+      let fetchedRaw = 0;
+      let passedForCountry = 0;
+
+      for (const query of queriesForCountry) {
+        try {
+          const results = await fetchQuery(query, locationCode, cutoff, sessionId);
+          fetchedRaw += results.length;
+          for (const job of results) {
+            if (!seen.has(job.canonicalUrl)) {
+              seen.add(job.canonicalUrl);
+              allJobs.push(job);
+              passedForCountry++;
+            }
+          }
+        } catch (err) {
+          console.warn(`[eures] country=${countryCode} query "${query}" failed:`, err instanceof Error ? err.message.slice(0, 200) : err);
+        }
+        await sleep(1500);
+      }
+
+      // One line per country per run (not one aggregate line) so a single
+      // underperforming country is visible without re-running the whole source.
+      console.log(`[eures] country=${countryCode} fetched=${fetchedRaw} passed_filters=${passedForCountry}`);
+    }
+
+    console.log(`[eures] ${allJobs.length} unique jobs across ${targetCountries.length} countries`);
+    return allJobs;
   }
 }
 
-async function fetchQuery(query: string, cutoff: number, sessionId: string): Promise<JobPosting[]> {
+async function fetchQuery(query: string, locationCode: string, cutoff: number, sessionId: string): Promise<JobPosting[]> {
   // Page 1 only for now — 86 records for the broadest query means one page of 50,
   // sorted MOST_RECENT, comfortably covers what a several-hours scheduler needs. Add
-  // page 2 later if job volume in the gap countries grows enough to justify it.
+  // page 2 later if job volume grows enough to justify it.
   const body = {
     resultsPerPage: 50,
     page: 1,
     sortSearch: 'MOST_RECENT',
-    keywords: [{ keyword: query, specificSearchCode: 'TITLE' }],
+    keywords: [{ keyword: query, specificSearchCode: SEARCH_SCOPE }],
     publicationPeriod: null,
     occupationUris: [],
     skillUris: [],
@@ -112,7 +186,7 @@ async function fetchQuery(query: string, cutoff: number, sessionId: string): Pro
     sectorCodes: [],
     educationAndQualificationLevelCodes: [],
     positionOfferingCodes: [],
-    locationCodes: LOCATION_CODES,
+    locationCodes: [locationCode],
     euresFlagCodes: [],
     otherBenefitsCodes: [],
     requiredLanguages: [],
@@ -128,7 +202,7 @@ async function fetchQuery(query: string, cutoff: number, sessionId: string): Pro
   });
 
   if (response.status !== 200 || !response.data?.jvs) {
-    console.warn(`[eures] unexpected response ${response.status} for "${query}"`);
+    console.warn(`[eures] unexpected response ${response.status} for locationCode=${locationCode} "${query}"`);
     return [];
   }
 
@@ -211,7 +285,13 @@ export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
   const countryCode = Object.keys(raw.locationMap ?? {})[0] ?? null;
   const locationLabel = countryCode ?? 'EU';
 
-  const description = stripHtml((raw.description ?? '')).slice(0, 8000);
+  // Full JD text is never stored beyond this excerpt — see EURES_DESC_EXCERPT_LENGTH
+  // comment above for why (ToS: no republishing vacancy data beyond aggregate + link
+  // back). descriptionPartial=true always, since this cap is a deliberate compliance
+  // choice rather than the API only ever giving us a short snippet (same field, same
+  // "don't trust this as the full JD" signal already used by Adzuna/Jooble/Bundesagentur
+  // for their own partial-description cases).
+  const description = stripHtml((raw.description ?? '')).slice(0, EURES_DESC_EXCERPT_LENGTH);
   const title = raw.title;
   const text = `${title} ${description}`.toLowerCase();
   const workMode: JobPosting['workMode'] =
@@ -256,6 +336,7 @@ export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
     employeeCount: null,
     companyCreationYear: null,
     requiredLanguages: requiredLanguages.length ? requiredLanguages : null,
+    descriptionPartial: true,
   };
 }
 

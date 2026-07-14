@@ -165,11 +165,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     await this.safeRunFast();
   }
 
-  async runSource(sourceName: 'apec' | 'indeed' | 'talentio'): Promise<void> {
+  async runSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures'): Promise<void> {
     await this.safeRunSource(sourceName);
   }
 
-  private async safeRunSource(sourceName: 'apec' | 'indeed' | 'talentio'): Promise<void> {
+  private async safeRunSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures'): Promise<void> {
     const key = `source:${sourceName}`;
     if (this.activeRun) {
       this.logger.warn(`Skipping ${key} run because a full scan is already active.`);
@@ -2034,6 +2034,9 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
         <form method="post" action="/run/talentio">
           <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run Talent.io</button>
         </form>
+        <form method="post" action="/run/eures">
+          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run EURES</button>
+        </form>
       </div>
 
       ${proxyCard}
@@ -2589,6 +2592,9 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
           </form>
           <form method="post" action="/run/talentio">
             <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run Talent.io</button>
+          </form>
+          <form method="post" action="/run/eures">
+            <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run EURES</button>
           </form>
         </div>
       </div>
