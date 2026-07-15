@@ -35,6 +35,7 @@ import { ApecPlaywrightStatus, getApecPlaywrightStatus } from './job-search/sour
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 import { buildAnalyticsData, fetchAnalyticsRows, WindowDays } from './job-search/analytics';
 import { renderAnalyticsPage } from './analytics-page';
+import { DESIGN_SYSTEM_CSS } from './design-system';
 
 // Hardcoded recovery contact. Password recovery delivers to Telegram (already
 // configured); this address is shown on the login page so you always know where
@@ -923,13 +924,13 @@ function renderLogsHtml(logs: BotLogEntry[]): string {
     error: 'background:#fee2e2;color:#b91c1c',
   };
   const rows = logs.length === 0
-    ? `<tr><td colspan="4" style="text-align:center;padding:40px;color:#6b7280;">No logs yet — run the bot once to start seeing entries here.</td></tr>`
+    ? `<tr><td colspan="4"><div class="empty-state">No logs yet — run the bot once to start seeing entries here.</div></td></tr>`
     : logs.map((e) => {
         const ls = levelStyle[e.level] ?? levelStyle['info'];
         return `<tr>
           <td style="padding:8px 12px;font-size:12px;color:#6b7280;white-space:nowrap;">${fmtTs(e.ts)}</td>
           <td style="padding:8px 12px;">
-            <span style="display:inline-block;padding:2px 7px;border-radius:99px;font-size:11px;font-weight:700;${ls}">${escapeHtml(e.level.toUpperCase())}</span>
+            <span class="badge" style="${ls}">${escapeHtml(e.level.toUpperCase())}</span>
           </td>
           <td style="padding:8px 12px;font-size:12px;font-weight:600;color:#374151;white-space:nowrap;">${escapeHtml(e.tag)}</td>
           <td style="padding:8px 12px;font-size:13px;color:#111827;word-break:break-word;">${escapeHtml(e.msg)}</td>
@@ -942,34 +943,18 @@ function renderLogsHtml(logs: BotLogEntry[]): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Bot Logs</title>
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
-      .page { max-width: 1200px; margin: 0 auto; }
-      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
-      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 20px; }
-      .card { background: white; border-radius: 14px; overflow: hidden;
-              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); }
-      .nav { margin-bottom: 20px; display: flex; align-items: center; gap: 16px; }
-      .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
-      .refresh-btn { padding: 6px 14px; background: #2563eb; color: white; border: 0;
-                     border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
-      table { width: 100%; border-collapse: collapse; }
-      thead th { background: #f8fafc; padding: 10px 12px; text-align: left;
-                 font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase;
-                 letter-spacing: .05em; border-bottom: 1px solid #e5e7eb; }
-      tbody tr:hover { background: #f8fafc; }
-      tbody td { border-bottom: 1px solid #f3f4f6; vertical-align: top; }
-      tbody tr:last-child td { border-bottom: 0; }
+    <style>${DESIGN_SYSTEM_CSS}
+      .card { overflow: hidden; padding: 0; }
+      tbody td { vertical-align: top; }
+      .nav { display: flex; align-items: center; }
     </style>
   </head>
   <body>
     <div class="page">
       <div class="nav">
         <a href="/">← Dashboard</a>
-        <button class="refresh-btn" onclick="location.reload()">Refresh</button>
-        <span style="font-size:13px;color:#9ca3af;">Showing last ${logs.length} entries (newest first)</span>
+        <button class="btn btn-primary btn-sm" onclick="location.reload()" style="margin-left:16px;">Refresh</button>
+        <span style="font-size:13px;color:#9ca3af;margin-left:16px;">Showing last ${logs.length} entries (newest first)</span>
       </div>
       <h1>Bot Logs</h1>
       <p class="subtitle">Persistent run log — survives restarts via Redis.</p>
@@ -1035,24 +1020,13 @@ function renderAnswerQuestionsFormHtml(
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Answer Application Questions</title>
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
-      .page { max-width: 700px; margin: 0 auto; }
-      h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
-      .card { background: white; border-radius: 14px; padding: 28px;
-              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); }
-      .nav { margin-bottom: 20px; }
-      .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
+    <style>${DESIGN_SYSTEM_CSS}
+      .page { max-width: 700px; }
       .field { margin-bottom: 18px; }
       .field label { display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:6px; }
       .field input, .field textarea { width:100%; padding:9px 12px; border:1px solid #d1d5db; border-radius:8px;
         font-size:14px; font-family:inherit; color:#111827; outline:none; resize:vertical; }
       .field input:focus, .field textarea:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
-      .btn { padding:10px 24px; background:#2563eb; color:white; border:0; border-radius:8px;
-             font-size:14px; font-weight:600; cursor:pointer; }
-      .btn:hover { background:#1d4ed8; }
       .error { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:10px 14px;
                color:#dc2626; font-size:13px; margin-bottom:18px; }
     </style>
@@ -1061,7 +1035,7 @@ function renderAnswerQuestionsFormHtml(
     <div class="page">
       <div class="nav"><a href="/">← Back to Dashboard</a></div>
       <div class="card">
-        <h1>Answer Application Questions</h1>
+        <h1 style="margin-bottom:6px;">Answer Application Questions</h1>
         <p style="color:#6b7280;margin:0 0 22px;font-size:14px;">Paste the questions from a job application form. Gemini will write tailored answers based on your CV and the specific role.</p>
         ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
         <form method="post" action="/jobs/answer-questions">
@@ -1083,7 +1057,7 @@ function renderAnswerQuestionsFormHtml(
               placeholder="Why do you want to work here?&#10;Describe your experience with microservices.&#10;What is your greatest professional achievement?"></textarea>
           </div>
           <input type="hidden" name="hash" value="${escapeHtml(hash)}" />
-          <button type="submit" class="btn">Generate Answers</button>
+          <button type="submit" class="btn btn-primary">Generate Answers</button>
         </form>
       </div>
     </div>
@@ -1103,7 +1077,7 @@ function renderAnswerQuestionsResultHtml(
       <div style="font-size:14px;color:#374151;margin-bottom:10px;">${escapeHtml(a.question)}</div>
       <div style="font-size:11px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Answer</div>
       <div id="ans-${i}" style="font-size:14px;color:#111827;line-height:1.6;white-space:pre-wrap;">${escapeHtml(a.answer)}</div>
-      <button onclick="copyAns(${i})" style="margin-top:10px;padding:5px 14px;background:white;border:1px solid #d1d5db;border-radius:6px;font-size:12px;cursor:pointer;color:#374151;">Copy</button>
+      <button onclick="copyAns(${i})" class="btn btn-neutral btn-sm" style="margin-top:10px;background:white;">Copy</button>
     </div>`).join('');
   const backLink = hash
     ? `<a href="/jobs/answer-questions?hash=${encodeURIComponent(hash)}" style="color:#2563eb;text-decoration:none;">← Ask different questions</a> &nbsp;·&nbsp; `
@@ -1114,23 +1088,15 @@ function renderAnswerQuestionsResultHtml(
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Answers — ${escapeHtml(title)} at ${escapeHtml(company)}</title>
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
-      .page { max-width: 700px; margin: 0 auto; }
-      h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
-      .card { background: white; border-radius: 14px; padding: 28px;
-              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); }
-      .nav { margin-bottom: 20px; font-size: 14px; }
-      .nav a { color: #2563eb; text-decoration: none; }
+    <style>${DESIGN_SYSTEM_CSS}
+      .page { max-width: 700px; }
     </style>
   </head>
   <body>
     <div class="page">
       <div class="nav">${backLink}<a href="/" style="color:#2563eb;text-decoration:none;">Dashboard</a></div>
       <div class="card">
-        <h1>Answers</h1>
+        <h1 style="margin-bottom:6px;">Answers</h1>
         <p style="color:#6b7280;font-size:14px;margin:0 0 20px;">${escapeHtml(title)} at ${escapeHtml(company)}</p>
         ${pairs}
       </div>
@@ -1183,7 +1149,7 @@ function workModeBadge(mode: string): string {
     'on-site': 'background:#f3f4f6;color:#374151',
   };
   const style = styles[mode] ?? styles['on-site'];
-  return `<span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;${style}">${escapeHtml(mode)}</span>`;
+  return `<span class="badge" style="${style}">${escapeHtml(mode)}</span>`;
 }
 
 function statusDot(status: string): string {
@@ -1204,20 +1170,19 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
 
   const tableRows = (rows: JobHistoryEntry[], type: 'applied' | 'dismissed') => {
     if (!rows.length) {
-      return `<tr><td colspan="7" style="text-align:center;padding:32px;color:#6b7280;">
+      return `<tr><td colspan="7"><div class="empty-state">
         No ${type} jobs yet.${type === 'applied' ? ' Use the Applied button on a job card to track it here.' : ''}
-      </td></tr>`;
+      </div></td></tr>`;
     }
-    return rows.map((e, i) => {
-      const bg = type === 'applied' ? '#f0fdf4' : '#fafafa';
+    return rows.map((e) => {
       const badge = type === 'applied'
-        ? `<span style="padding:2px 8px;border-radius:99px;background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;">APPLIED</span>`
-        : `<span style="padding:2px 8px;border-radius:99px;background:#f3f4f6;color:#6b7280;font-size:11px;font-weight:700;">DISMISSED</span>`;
+        ? `<span class="badge badge-success">APPLIED</span>`
+        : `<span class="badge badge-neutral">DISMISSED</span>`;
       const sc = e.score;
       const scColor = sc >= 80 ? '#15803d' : sc >= 60 ? '#d97706' : '#6b7280';
       const scBg = sc >= 80 ? '#dcfce7' : sc >= 60 ? '#fef3c7' : '#f3f4f6';
       return `
-        <tr style="background:${i % 2 === 0 ? 'white' : bg};">
+        <tr>
           <td style="padding:10px 14px;font-size:13px;color:#6b7280;">${fmtDate(e.date)}</td>
           <td style="padding:10px 14px;">
             <div style="font-weight:600;font-size:14px;">${escapeHtml(e.title)}</div>
@@ -1225,7 +1190,7 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
           </td>
           <td style="padding:10px 14px;font-weight:500;font-size:14px;">${escapeHtml(e.company)}</td>
           <td style="padding:10px 14px;">
-            <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:${scColor};background:${scBg};">${sc}%</span>
+            <span class="badge" style="font-size:13px;padding:3px 10px;color:${scColor};background:${scBg};">${sc}%</span>
           </td>
           <td style="padding:10px 14px;">${badge}</td>
           <td style="padding:10px 14px;">
@@ -1234,15 +1199,15 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
           </td>
           <td style="padding:10px 14px;">
             <div class="revert-container" data-url="${escapeHtml(e.url)}">
-              <button type="button" class="btn-revert-toggle"
-                style="padding:5px 12px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Revert</button>
+              <button type="button" class="btn-revert-toggle btn btn-sm"
+                style="background:#fff7ed;color:#c2410c;border-color:#fed7aa;">Revert</button>
               <div class="revert-choices" style="display:none;flex-direction:column;gap:4px;margin-top:6px;min-width:110px;">
-                <button type="button" class="btn-revert-choice" data-destination="listing"
-                  style="padding:4px 10px;font-size:11px;border-radius:5px;border:1px solid #d1d5db;background:white;color:#374151;cursor:pointer;text-align:left;">→ Job Listing</button>
-                <button type="button" class="btn-revert-choice" data-destination="dismissed"
-                  style="padding:4px 10px;font-size:11px;border-radius:5px;border:1px solid #d1d5db;background:white;color:#374151;cursor:pointer;text-align:left;">→ Dismissed</button>
-                <button type="button" class="btn-revert-choice" data-destination="applied"
-                  style="padding:4px 10px;font-size:11px;border-radius:5px;border:1px solid #d1d5db;background:white;color:#374151;cursor:pointer;text-align:left;">→ Applied</button>
+                <button type="button" class="btn-revert-choice btn btn-neutral btn-sm" data-destination="listing"
+                  style="justify-content:flex-start;">→ Job Listing</button>
+                <button type="button" class="btn-revert-choice btn btn-neutral btn-sm" data-destination="dismissed"
+                  style="justify-content:flex-start;">→ Dismissed</button>
+                <button type="button" class="btn-revert-choice btn btn-neutral btn-sm" data-destination="applied"
+                  style="justify-content:flex-start;">→ Applied</button>
                 <button type="button" class="btn-revert-cancel"
                   style="padding:2px 6px;font-size:11px;border:0;background:transparent;color:#9ca3af;cursor:pointer;text-align:left;">Cancel</button>
               </div>
@@ -1258,31 +1223,14 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Application History — Uman Mushtaq</title>
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
-      .page { max-width: 1100px; margin: 0 auto; }
-      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
-      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 20px; }
-      .card { background: white; border-radius: 14px; padding: 24px;
-              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 20px; }
-      .nav { margin-bottom: 20px; }
-      .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
+    <style>${DESIGN_SYSTEM_CSS}
       .tab-bar { display:flex; gap:6px; margin-bottom:20px; }
       .tab-btn { padding:9px 20px; border-radius:8px; font-size:14px; font-weight:600;
                  border:0; cursor:pointer; transition:background .15s,color .15s; }
-      .tab-btn.active-applied  { background:#2563eb; color:white; }
-      .tab-btn.active-dismissed{ background:#6b7280; color:white; }
-      .tab-btn.inactive { background:#f3f4f6; color:#374151; }
+      .tab-btn.active-applied  { background:var(--color-primary); color:white; }
+      .tab-btn.active-dismissed{ background:var(--color-neutral); color:white; }
+      .tab-btn.inactive { background:var(--color-neutral-bg); color:#374151; }
       .tab-btn.inactive:hover  { background:#e5e7eb; }
-      table { width: 100%; border-collapse: collapse; }
-      thead th { background:#f8fafc; padding:10px 14px; text-align:left;
-                 font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase;
-                 letter-spacing:.05em; border-bottom:1px solid #e5e7eb; }
-      tbody tr:hover { background:#f8fafc !important; }
-      tbody td { border-bottom:1px solid #f3f4f6; vertical-align:middle; }
-      tbody tr:last-child td { border-bottom:0; }
     </style>
   </head>
   <body>
@@ -1830,7 +1778,7 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
           <h2 style="margin:0 0 4px;">Home proxy (your residential IP)</h2>
           <div style="font-size:13px;color:#6b7280;">${p.url ? escapeHtml(p.url) : 'no URL set'} · checked ${fmtDate(p.checkedAt)}</div>
         </div>
-        <span style="padding:5px 14px;border-radius:99px;font-size:14px;font-weight:700;color:${proxyMeta.color};background:${proxyMeta.bg};border:1px solid ${proxyMeta.border};">${proxyMeta.label}</span>
+        <span class="badge" style="font-size:14px;padding:5px 14px;color:${proxyMeta.color};background:${proxyMeta.bg};border-color:${proxyMeta.border};">${proxyMeta.label}</span>
       </div>
       ${p.error ? `<div style="margin-top:12px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:13px;color:#991b1b;">${escapeHtml(p.error)}</div>` : ''}
       ${!p.configured ? `<div style="margin-top:12px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1d4ed8;line-height:1.6;">
@@ -1934,15 +1882,15 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
       ? { label: 'Blocked (Cloudflare)', color: '#b45309', bg: '#fffbeb', border: '#fde68a' }
       : STATUS_META[s.status] ?? STATUS_META.error;
     const proxyTag = s.usesProxy
-      ? `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#f5f3ff;color:#6d28d9;border:1px solid #ddd6fe;">via proxy</span>`
+      ? `<span class="badge" style="margin-left:6px;background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe;">via proxy</span>`
       : '';
     const failTag = s.consecutiveFailures > 1
-      ? `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;background:#fef2f2;color:#b91c1c;">×${s.consecutiveFailures}</span>`
+      ? `<span class="badge badge-danger" style="margin-left:6px;">×${s.consecutiveFailures}</span>`
       : '';
     return `
       <tr style="background:${m.bg};">
         <td style="padding:11px 14px;font-weight:600;font-size:14px;">${escapeHtml(s.source)}${proxyTag}${failTag}</td>
-        <td style="padding:11px 14px;"><span style="padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700;color:${m.color};background:white;border:1px solid ${m.border};">${m.label}</span></td>
+        <td style="padding:11px 14px;"><span class="badge" style="color:${m.color};background:white;border-color:${m.border};">${m.label}</span></td>
         <td style="padding:11px 14px;text-align:center;font-weight:600;font-size:14px;color:${s.jobsFound > 0 ? '#15803d' : '#9ca3af'};">${s.jobsFound}</td>
         <td style="padding:11px 14px;font-size:13px;color:#6b7280;">${(s.durationMs / 1000).toFixed(1)}s</td>
         <td style="padding:11px 14px;font-size:12px;color:#6b7280;">${fmtDate(s.lastSuccessAt)}</td>
@@ -1960,13 +1908,13 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
 
     const bodyRows = groupSources.map((s) => makeRow(s)).join('');
     const comingSoon = (key === 'BE' || key === 'NL')
-      ? `<tr><td colspan="6" style="padding:16px 14px;font-size:13px;color:#9ca3af;font-style:italic;">No scrapers yet — coming soon</td></tr>`
+      ? `<tr><td colspan="6"><div class="empty" style="padding:16px 14px;font-style:italic;">No scrapers yet — coming soon</div></td></tr>`
       : '';
     const totalJobs = groupSources.reduce((n, s) => n + s.jobsFound, 0);
 
     const runBtn = runEndpoint
       ? `<form method="post" action="${runEndpoint}" style="display:inline;">
-           <button type="submit" style="padding:4px 12px;font-size:12px;font-weight:600;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;">▶ Run</button>
+           <button type="submit" class="btn btn-primary btn-sm">▶ Run</button>
          </form>`
       : '';
 
@@ -2011,24 +1959,8 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Platform Status — Job Search Bot</title>
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
-      .page { max-width: 1100px; margin: 0 auto; }
-      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
-      h2 { margin: 0; font-size: 16px; font-weight: 600; }
-      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 20px; }
-      .nav { margin-bottom: 20px; } .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
-      .card { background: white; border-radius: 14px; padding: 22px 24px;
-              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 18px; }
-      table { width: 100%; border-collapse: collapse; }
-      thead th { background:#f8fafc; padding:10px 14px; text-align:left; font-size:11px; font-weight:700;
-                 color:#6b7280; text-transform:uppercase; letter-spacing:.05em; border-bottom:2px solid #e5e7eb; }
+    <style>${DESIGN_SYSTEM_CSS}
       thead th:nth-child(3){ text-align:center; }
-      tbody td { border-bottom:1px solid #f3f4f6; vertical-align:middle; }
-      tbody tr:last-child td { border-bottom:0; }
-      .table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #e5e7eb; }
       code { background:#f1f5f9; padding:1px 5px; border-radius:4px; font-size:12px; }
       .pills span { display:inline-block; padding:4px 12px; border-radius:99px; font-size:13px; font-weight:600; margin-right:8px; }
     </style>
@@ -2041,19 +1973,19 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
 
       <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
         <form method="post" action="/run-now">
-          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#2563eb;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run all (excl. APEC &amp; Indeed)</button>
+          <button type="submit" class="btn btn-primary">▶ Run all (excl. APEC &amp; Indeed)</button>
         </form>
         <form method="post" action="/run/apec">
-          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run APEC</button>
+          <button type="submit" class="btn btn-secondary">▶ Run APEC</button>
         </form>
         <form method="post" action="/run/indeed">
-          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run Indeed</button>
+          <button type="submit" class="btn btn-secondary">▶ Run Indeed</button>
         </form>
         <form method="post" action="/run/talentio">
-          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run Talent.io</button>
+          <button type="submit" class="btn btn-secondary">▶ Run Talent.io</button>
         </form>
         <form method="post" action="/run/eures">
-          <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run EURES</button>
+          <button type="submit" class="btn btn-secondary">▶ Run EURES</button>
         </form>
       </div>
 
@@ -2167,25 +2099,25 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                 : `<span style="color:#9ca3af;font-size:12px;">not listed</span>`;
 
             const visaBadge = match.visaFriendly === true
-              ? `<span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#d1fae5;color:#065f46;">visa ok</span>`
+              ? `<span class="badge badge-success" style="margin-top:4px;">visa ok</span>`
               : match.visaFriendly === false
-                ? `<span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fee2e2;color:#991b1b;">no visa</span>`
+                ? `<span class="badge badge-danger" style="margin-top:4px;">no visa</span>`
                 : '';
 
             const hnBadge = isHN
-              ? `<span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;">HN</span>`
+              ? `<span class="badge badge-warning" style="margin-top:3px;">HN</span>`
               : '';
 
             const emailBadge = hasEmail
-              ? `<span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;">email</span>`
+              ? `<span class="badge badge-info" style="margin-top:3px;">email</span>`
               : '';
 
             const detBtnLabel = hasEmail ? 'Email + Analysis' : 'Full Analysis';
 
             // Apply button: for HN/email jobs open mail client, else open URL
             const applyBtn = hasEmail
-              ? `<button type="button" onclick="openEmail(${idx})" style="display:block;width:100%;text-align:center;padding:6px 12px;background:#1d4ed8;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Send Email</button>`
-              : `<a href="${escapeHtml(match.job.applyUrl)}" target="_blank" rel="noreferrer" style="display:block;text-align:center;padding:6px 12px;background:#2563eb;color:white;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">${isHN ? 'View Post' : 'Apply'}</a>`;
+              ? `<button type="button" onclick="openEmail(${idx})" class="btn btn-primary btn-block">Send Email</button>`
+              : `<a href="${escapeHtml(match.job.applyUrl)}" target="_blank" rel="noreferrer" class="btn btn-primary btn-block">${isHN ? 'View Post' : 'Apply'}</a>`;
 
             // ─── Details panel ────────────────────────────────────────────────
             const bd = match.scoreBreakdown;
@@ -2337,7 +2269,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             </tr>`;
 
             const agingBorder = isAging ? 'border-left:3px solid #f59e0b;' : '';
-            const agingTag = isAging ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3c7;color:#92400e;">48h+</span>` : '';
+            const agingTag = isAging ? `<span class="badge badge-warning" style="margin-left:6px;">48h+</span>` : '';
 
             return `
               <tr data-country="${countryTab}" data-job-id="${jobId}" style="${agingBorder}">
@@ -2350,17 +2282,17 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                 <td>${workModeBadge(match.job.workMode)}</td>
                 <td style="font-size:13px;white-space:nowrap;">${salaryDisplay}</td>
                 <td>
-                  <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;color:${scoreColor(sc)};background:${scoreBg(sc)};">${sc}%</span>
+                  <span class="badge" style="font-size:13px;padding:3px 10px;color:${scoreColor(sc)};background:${scoreBg(sc)};">${sc}%</span>
                   ${match.relevanceScore != null ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;">AI: ${match.relevanceScore}/100</div>` : ''}
                 </td>
                 <td>
                   <div style="display:flex;flex-direction:column;gap:6px;min-width:120px;">
                     ${applyBtn}
-                    <button type="button" class="btn-job-applied" data-job-id="${jobId}" data-title="${escapeHtml(match.job.title)}" data-company="${escapeHtml(match.job.company)}" data-score="${sc}" data-source="${escapeHtml(match.job.source ?? '')}" style="width:100%;padding:6px 12px;background:#15803d;color:white;border:0;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Applied</button>
-                    <button type="button" class="btn-job-dismiss" data-job-id="${jobId}" style="width:100%;padding:6px 12px;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">Dismiss</button>
-                    <button type="button" onclick="toggleDet('${detId}')" style="width:100%;padding:6px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;">${detBtnLabel}</button>
-                    <a href="/jobs/tailored-cv?hash=${cvHash}" target="_blank" style="display:block;text-align:center;padding:6px 12px;background:#faf5ff;color:#6d28d9;border:1px solid #ddd6fe;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Tailored CV</a>
-                    <a href="/jobs/answer-questions?hash=${cvHash}" style="display:block;text-align:center;padding:6px 12px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">Answer Questions</a>
+                    <button type="button" class="btn-job-applied btn btn-success btn-block" data-job-id="${jobId}" data-title="${escapeHtml(match.job.title)}" data-company="${escapeHtml(match.job.company)}" data-score="${sc}" data-source="${escapeHtml(match.job.source ?? '')}">Applied</button>
+                    <button type="button" class="btn-job-dismiss btn btn-neutral btn-block" data-job-id="${jobId}">Dismiss</button>
+                    <button type="button" onclick="toggleDet('${detId}')" class="btn btn-secondary btn-block">${detBtnLabel}</button>
+                    <a href="/jobs/tailored-cv?hash=${cvHash}" target="_blank" class="btn btn-block" style="background:#faf5ff;color:#6d28d9;border:1px solid #ddd6fe;">Tailored CV</a>
+                    <a href="/jobs/answer-questions?hash=${cvHash}" class="btn btn-block" style="background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;">Answer Questions</a>
                   </div>
                 </td>
               </tr>
@@ -2368,9 +2300,9 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             `;
           })
           .join('\n')
-      : `<tr><td colspan="7" style="text-align:center;padding:40px;color:#6b7280;">
+      : `<tr><td colspan="7"><div class="empty-state">
            No current matches. The bot will check again at the next scheduled run.
-         </td></tr>`;
+         </div></td></tr>`;
 
   const statusLabel = state.lastRunStatus === 'running' ? 'Running…'
     : state.lastRunStatus === 'gemini_waiting'
@@ -2383,82 +2315,36 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Job Search: Uman Mushtaq</title>
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        margin: 0;
-        padding: 24px 20px;
-        background: #f1f5f9;
-        color: #111827;
-        min-height: 100vh;
-      }
-      .page { max-width: 1280px; margin: 0 auto; }
-      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
-      h2 { margin: 0 0 16px; font-size: 17px; font-weight: 600; color: #111827; }
-      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 20px; }
-      .card {
-        background: white;
-        border-radius: 14px;
-        padding: 24px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
-        margin-bottom: 20px;
-      }
-      .meta-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 12px 20px;
-        margin: 16px 0 20px;
-      }
-      .meta-item label { display:block; font-size:11px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:3px; }
-      .meta-item span { font-size:14px; color:#111827; font-weight:500; }
+    <style>${DESIGN_SYSTEM_CSS}
       .sources-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
       .source-chip {
         display:inline-block; padding:3px 9px; border-radius:99px;
         font-size:11px; font-weight:500;
-        background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0;
+        background:var(--color-success-bg); color:var(--color-success); border:1px solid var(--color-success-border);
       }
       .blocked-chip {
-        background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;
+        background:var(--color-danger-bg); color:var(--color-danger); border:1px solid var(--color-danger-border);
       }
       .actions-row { display:flex; align-items:center; gap:10px; margin-top:20px; flex-wrap:wrap; }
-      .btn {
-        display:inline-flex; align-items:center; gap:6px;
-        padding:9px 18px; border-radius:8px; font-size:14px; font-weight:600;
-        border:0; cursor:pointer; text-decoration:none; line-height:1;
-      }
-      .btn-primary { background:#2563eb; color:white; }
-      .btn-primary:hover { background:#1d4ed8; }
-      .error-box {
-        background:#fef2f2; border:1px solid #fecaca; border-radius:8px;
-        padding:12px 16px; font-size:13px; color:#991b1b; margin:16px 0 0;
-      }
-      table { width:100%; border-collapse:collapse; }
-      thead th {
-        background:#f8fafc; padding:11px 14px; text-align:left;
-        font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase;
-        letter-spacing:.06em; border-bottom:2px solid #e5e7eb; white-space:nowrap;
-      }
-      tbody tr { transition:background .1s; }
-      tbody tr:hover { background:#f8fafc; }
-      tbody td { padding:14px 14px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
-      tbody tr:last-child td { border-bottom:0; }
-      .table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #e5e7eb; }
-      a { color:#2563eb; }
-      @media (max-width: 700px) {
-        body { padding: 12px; }
-        .card { padding: 16px; }
-      }
     </style>
   </head>
   <body>
     <div class="page">
 
       <div class="card">
+        <div class="navbar" style="margin-bottom:0;">
+          <a class="navbar-brand" href="/">Job Search Bot</a>
+          <div class="navbar-links">
+            <a href="/history">Application History →</a>
+            <a href="/jobs/answer-questions">Answer Questions →</a>
+            <a href="/platform-status">Platform Status →</a>
+            <a href="/analytics">Sources &amp; Applications →</a>
+            <a href="/admin">Admin →</a>
+          </div>
+        </div>
         <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
-            <h1>Job Search Bot</h1>
-            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/jobs/answer-questions" style="color:#2563eb;text-decoration:none;">Answer Questions →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a> &nbsp;·&nbsp; <a href="/analytics" style="color:#2563eb;text-decoration:none;">Sources &amp; Applications →</a> &nbsp;·&nbsp; <a href="/admin" style="color:#2563eb;text-decoration:none;">Admin →</a></p>
+            <p class="subtitle" style="margin:0;">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris</p>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
             <div style="display:flex;align-items:center;gap:8px;">
@@ -2519,7 +2405,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
           <div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
             <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">
-              Indeed (separate timer)${indeedStatus?.via === 'scraperapi' ? ' <span style="font-size:11px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:4px;padding:1px 6px;vertical-align:middle;text-transform:none;letter-spacing:0;">via ScraperAPI proxy</span>' : indeedStatus?.via === 'direct' ? ' <span style="font-size:11px;font-weight:600;background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:4px;padding:1px 6px;vertical-align:middle;text-transform:none;letter-spacing:0;">direct (no proxy)</span>' : ''}
+              Indeed (separate timer)${indeedStatus?.via === 'scraperapi' ? ' <span class="badge badge-info" style="vertical-align:middle;text-transform:none;letter-spacing:0;">via ScraperAPI proxy</span>' : indeedStatus?.via === 'direct' ? ' <span class="badge badge-warning" style="vertical-align:middle;text-transform:none;letter-spacing:0;">direct (no proxy)</span>' : ''}
             </div>
             <table style="font-size:13px;color:#374151;border-collapse:collapse;width:100%;">
               <tr>
@@ -2541,12 +2427,12 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
               <tr>
                 <td style="padding:3px 0;color:#6b7280;">Status</td>
                 <td style="padding:3px 0;">${indeedStatus
-                  ? `<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;${
-                      indeedStatus.status === 'success' ? 'background:#dcfce7;color:#166534;'
-                      : indeedStatus.status === 'failed' ? 'background:#fee2e2;color:#991b1b;'
-                      : 'background:#fef9c3;color:#854d0e;'
+                  ? `<span class="badge ${
+                      indeedStatus.status === 'success' ? 'badge-success'
+                      : indeedStatus.status === 'failed' ? 'badge-danger'
+                      : 'badge-warning'
                     }">${escapeHtml(indeedStatus.status)}</span>`
-                  : '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#fef9c3;color:#854d0e;">pending</span>'
+                  : '<span class="badge badge-warning">pending</span>'
                 }</td>
               </tr>
             </table>
@@ -2556,7 +2442,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
           <!-- APEC status panel -->
           <div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
             <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">
-              APEC (separate timer)${apecRunStatus?.playwrightEnabled ? ' <span style="font-size:11px;font-weight:600;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:4px;padding:1px 6px;vertical-align:middle;text-transform:none;letter-spacing:0;">Playwright stealth</span>' : ' <span style="font-size:11px;font-weight:600;background:#fef9c3;color:#854d0e;border:1px solid #fde68a;border-radius:4px;padding:1px 6px;vertical-align:middle;text-transform:none;letter-spacing:0;">RSS / API fallback</span>'}
+              APEC (separate timer)${apecRunStatus?.playwrightEnabled ? ' <span class="badge badge-info" style="vertical-align:middle;text-transform:none;letter-spacing:0;">Playwright stealth</span>' : ' <span class="badge badge-warning" style="vertical-align:middle;text-transform:none;letter-spacing:0;">RSS / API fallback</span>'}
             </div>
             <table style="font-size:13px;color:#374151;border-collapse:collapse;width:100%;">
               <tr>
@@ -2579,20 +2465,20 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
                 <td style="padding:3px 0;color:#6b7280;">Playwright</td>
                 <td style="padding:3px 0;">${apecRunStatus
                   ? apecRunStatus.playwrightEnabled
-                    ? '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#eff6ff;color:#1d4ed8;">enabled</span>'
-                    : '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#fef9c3;color:#854d0e;">disabled</span>'
+                    ? '<span class="badge badge-info">enabled</span>'
+                    : '<span class="badge badge-warning">disabled</span>'
                   : '—'
                 }</td>
               </tr>
               <tr>
                 <td style="padding:3px 0;color:#6b7280;">Status</td>
                 <td style="padding:3px 0;">${apecRunStatus
-                  ? `<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;${
-                      apecRunStatus.status === 'success' ? 'background:#dcfce7;color:#166534;'
-                      : apecRunStatus.status === 'blocked' ? 'background:#fee2e2;color:#991b1b;'
-                      : 'background:#f1f5f9;color:#64748b;'
+                  ? `<span class="badge ${
+                      apecRunStatus.status === 'success' ? 'badge-success'
+                      : apecRunStatus.status === 'blocked' ? 'badge-danger'
+                      : 'badge-neutral'
                     }">${escapeHtml(apecRunStatus.status)}</span>`
-                  : '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:#f1f5f9;color:#64748b;">never run</span>'
+                  : '<span class="badge badge-neutral">never run</span>'
                 }</td>
               </tr>
             </table>
@@ -2603,16 +2489,16 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             <button class="btn btn-primary" type="submit">▶ Run all (excl. APEC &amp; Indeed)</button>
           </form>
           <form method="post" action="/run/apec">
-            <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run APEC</button>
+            <button type="submit" class="btn btn-secondary">▶ Run APEC</button>
           </form>
           <form method="post" action="/run/indeed">
-            <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run Indeed</button>
+            <button type="submit" class="btn btn-secondary">▶ Run Indeed</button>
           </form>
           <form method="post" action="/run/talentio">
-            <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run Talent.io</button>
+            <button type="submit" class="btn btn-secondary">▶ Run Talent.io</button>
           </form>
           <form method="post" action="/run/eures">
-            <button type="submit" style="padding:8px 18px;font-size:14px;font-weight:600;background:#0e7490;color:white;border:none;border-radius:8px;cursor:pointer;">▶ Run EURES</button>
+            <button type="submit" class="btn btn-secondary">▶ Run EURES</button>
           </form>
         </div>
       </div>

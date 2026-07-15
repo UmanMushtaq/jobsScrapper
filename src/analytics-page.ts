@@ -1,4 +1,5 @@
 import { AnalyticsData, CountBucket, WindowDays } from './job-search/analytics';
+import { DESIGN_SYSTEM_CSS } from './design-system';
 
 // No charting library is installed anywhere in this project (checked package.json before
 // writing this) — every chart here is plain HTML/CSS bars or a hand-built inline SVG
@@ -140,18 +141,8 @@ export function renderAnalyticsPage(data: AnalyticsData): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Sources &amp; Applications — Job Search Bot</title>
-    <style>
-      *, *::before, *::after { box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-             margin: 0; padding: 24px 20px; background: #f1f5f9; color: #111827; min-height: 100vh; }
-      .page { max-width: 1100px; margin: 0 auto; }
-      h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
-      h2 { margin: 0 0 14px; font-size: 16px; font-weight: 600; }
-      .subtitle { color: #6b7280; font-size: 14px; margin: 0 0 4px; }
-      .nav { margin-bottom: 20px; } .nav a { color: #2563eb; text-decoration: none; font-size: 14px; }
-      .card { background: white; border-radius: 14px; padding: 22px 24px;
-              box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 18px; }
-      .empty { color: #9ca3af; font-size: 13px; margin: 0; }
+    <style>${DESIGN_SYSTEM_CSS}
+      .subtitle { margin: 0 0 4px; }
       .window-selector { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
       .window-opt { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 999px;
                     background: white; border: 1px solid #e5e7eb; color: #374151; text-decoration: none; }
@@ -172,9 +163,11 @@ export function renderAnalyticsPage(data: AnalyticsData): string {
   <body>
     <div class="page">
       <div class="card">
-        <h1>Sources &amp; Applications</h1>
+        <div class="navbar" style="margin-bottom:var(--space-2);">
+          <h1>Sources &amp; Applications</h1>
+          <div class="navbar-links"><a href="/">← Back to Dashboard</a></div>
+        </div>
         <p class="subtitle">Where jobs are coming from and where you're actually applying — read-only, updates independently of the main dashboard.</p>
-        <div class="nav"><a href="/">← Back to Dashboard</a></div>
         ${renderWindowSelector(data.windowDays)}
         <p class="data-note">${escapeHtml(data.dataNote)}</p>
       </div>
