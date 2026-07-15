@@ -1,75 +1,79 @@
 // Shared visual design system for every server-rendered HTML page in this app.
 // Pure CSS — no logic, no data, no behavior. Injected via ${DESIGN_SYSTEM_CSS} at the
 // top of each page's <style> block so every page shares one color palette, type scale,
-// spacing scale, and component set (buttons, badges, nav bar, tables, empty states)
+// spacing scale, and component set (header bar, buttons, badges, tables, empty states)
 // instead of each page re-declaring its own slightly-different copy of the same rules.
 //
-// Palette/scale choices are additive over what individual pages already used (most
-// pages already leaned on #2563eb blue / green-success / red-danger / amber-warning
-// fairly consistently) — this formalizes that into custom properties and reusable
-// classes rather than inventing a new look from scratch.
+// Modeled on modern professional SaaS admin dashboards (Linear/Vercel/Stripe/Notion):
+// restrained, information-dense but organized — near-white page background with white
+// cards lifting off it, a single indigo/blue accent used consistently rather than
+// scattered, muted (not saturated) status colors, and a real top header bar instead of
+// nav links buried in a page's first card.
 export const DESIGN_SYSTEM_CSS = `
       :root {
         /* Color palette */
-        --color-primary: #2563eb;
-        --color-primary-dark: #1d4ed8;
-        --color-primary-bg: #eff6ff;
-        --color-primary-border: #bfdbfe;
+        --color-primary: #4f46e5;
+        --color-primary-dark: #4338ca;
+        --color-primary-bg: #eef2ff;
+        --color-primary-border: #c7d2fe;
 
-        --color-bg: #f1f5f9;
+        --color-bg: #fafafa;
         --color-surface: #ffffff;
-        --color-surface-alt: #f8fafc;
-        --color-border: #e5e7eb;
-        --color-border-strong: #d1d5db;
+        --color-surface-alt: #f8f8f9;
+        --color-border: #e4e4e7;
+        --color-border-strong: #d4d4d8;
 
-        --color-text: #111827;
-        --color-text-muted: #6b7280;
-        --color-text-faint: #9ca3af;
+        --color-text: #18181b;
+        --color-text-muted: #71717a;
+        --color-text-faint: #a1a1aa;
 
-        /* Semantic status colors */
-        --color-success: #15803d;
-        --color-success-bg: #dcfce7;
+        /* Semantic status colors — muted, not saturated */
+        --color-success: #16a34a;
+        --color-success-bg: #f0fdf4;
         --color-success-border: #bbf7d0;
 
-        --color-warning: #92400e;
-        --color-warning-bg: #fef3c7;
+        --color-warning: #d97706;
+        --color-warning-bg: #fffbeb;
         --color-warning-border: #fde68a;
 
-        --color-danger: #b91c1c;
-        --color-danger-bg: #fee2e2;
+        --color-danger: #dc2626;
+        --color-danger-bg: #fef2f2;
         --color-danger-border: #fecaca;
 
-        --color-neutral: #6b7280;
-        --color-neutral-bg: #f3f4f6;
-        --color-neutral-border: #d1d5db;
+        --color-neutral: #71717a;
+        --color-neutral-bg: #f4f4f5;
+        --color-neutral-border: #d4d4d8;
 
-        /* Spacing scale (4/8/16/24/32/40px) */
+        /* Spacing scale (strict 4px base) */
         --space-1: 4px;
         --space-2: 8px;
-        --space-3: 16px;
-        --space-4: 24px;
-        --space-5: 32px;
-        --space-6: 40px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-5: 24px;
+        --space-6: 32px;
+        --space-7: 48px;
 
         /* Type scale */
-        --font-size-xs: 11px;
+        --font-size-xs: 12px;
         --font-size-sm: 13px;
         --font-size-base: 14px;
         --font-size-lg: 17px;
-        --font-size-xl: 22px;
-        --font-size-2xl: 26px;
+        --font-size-xl: 26px;
 
-        --radius: 8px;
-        --radius-lg: 14px;
+        --radius: 6px;
+        --radius-lg: 10px;
         --radius-pill: 999px;
+
+        --header-height: 60px;
+        --content-max-width: 1280px;
       }
 
       *, *::before, *::after { box-sizing: border-box; }
 
+      html, body { margin: 0; padding: 0; }
+
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        margin: 0;
-        padding: var(--space-4) var(--space-3);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
         background: var(--color-bg);
         color: var(--color-text);
         min-height: 100vh;
@@ -77,48 +81,68 @@ export const DESIGN_SYSTEM_CSS = `
         line-height: 1.5;
       }
 
-      .page { max-width: 1280px; margin: 0 auto; }
+      /* ── Top header bar — full-bleed, sits outside the content container ─── */
+      .app-header {
+        height: var(--header-height);
+        display: flex;
+        align-items: center;
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .app-header-inner {
+        width: 100%;
+        max-width: var(--content-max-width);
+        margin: 0 auto;
+        padding: 0 var(--space-5);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+        flex-wrap: wrap;
+      }
+      .app-header-brand {
+        font-size: var(--font-size-base);
+        font-weight: 600;
+        color: var(--color-text);
+        text-decoration: none;
+        white-space: nowrap;
+      }
+      .app-header-links { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; }
+      .app-header-links a {
+        color: var(--color-text-muted);
+        text-decoration: none;
+        font-size: var(--font-size-sm);
+        font-weight: 500;
+        padding: var(--space-1) var(--space-3);
+        border-radius: var(--radius);
+        transition: background .15s, color .15s;
+      }
+      .app-header-links a:hover { background: var(--color-surface-alt); color: var(--color-text); }
+      .app-header-links a.active { color: var(--color-primary); background: var(--color-primary-bg); }
 
-      h1 { margin: 0; font-size: var(--font-size-xl); font-weight: 700; }
-      h2 { margin: 0 0 var(--space-3); font-size: var(--font-size-lg); font-weight: 600; color: var(--color-text); }
-      .subtitle { color: var(--color-text-muted); font-size: var(--font-size-base); margin: 0 0 var(--space-4); }
+      /* ── Page content container ─────────────────────────────────────────── */
+      .page { max-width: var(--content-max-width); margin: 0 auto; padding: var(--space-5) var(--space-5) var(--space-7); }
+
+      h1 { margin: 0; font-size: var(--font-size-xl); font-weight: 600; letter-spacing: -.01em; }
+      h2 { margin: 0 0 var(--space-4); font-size: var(--font-size-lg); font-weight: 600; color: var(--color-text); }
+      .subtitle { color: var(--color-text-muted); font-size: var(--font-size-base); margin: 0 0 var(--space-5); }
       .empty { color: var(--color-text-faint); font-size: var(--font-size-sm); margin: 0; }
 
       a { color: var(--color-primary); }
 
-      /* ── Nav bar ─────────────────────────────────────────────────────────── */
-      .navbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: var(--space-2) var(--space-3);
-        margin-bottom: var(--space-4);
-      }
-      .navbar-brand { font-size: var(--font-size-lg); font-weight: 700; color: var(--color-text); text-decoration: none; }
-      .navbar-links { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: center; }
-      .navbar-links a {
-        color: var(--color-text-muted);
-        text-decoration: none;
-        font-size: var(--font-size-sm);
-        font-weight: 600;
-        padding: var(--space-1) var(--space-2);
-        border-radius: var(--radius);
-      }
-      .navbar-links a:hover { background: var(--color-surface-alt); color: var(--color-primary); }
-      .navbar-links a.active { color: var(--color-primary); background: var(--color-primary-bg); }
-
-      /* Legacy simple "← Back to Dashboard" nav, kept for pages that only need one link */
-      .nav { margin-bottom: var(--space-4); }
+      /* Legacy simple "← Back to Dashboard" nav — kept for the rare page rendered
+         standalone (outside the standard .app-header layout), e.g. error/fallback
+         states that don't go through the full header markup. */
+      .nav { margin-bottom: var(--space-5); }
       .nav a { color: var(--color-primary); text-decoration: none; font-size: var(--font-size-base); font-weight: 600; }
 
       /* ── Cards ───────────────────────────────────────────────────────────── */
       .card {
         background: var(--color-surface);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius-lg);
-        padding: var(--space-4);
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
-        margin-bottom: var(--space-4);
+        padding: var(--space-5);
+        margin-bottom: var(--space-5);
       }
 
       /* ── Buttons ─────────────────────────────────────────────────────────── */
@@ -127,38 +151,39 @@ export const DESIGN_SYSTEM_CSS = `
         align-items: center;
         justify-content: center;
         gap: var(--space-1);
-        padding: var(--space-2) var(--space-3);
+        height: 38px;
+        padding: 0 var(--space-4);
         border-radius: var(--radius);
         font-size: var(--font-size-sm);
         font-weight: 600;
         border: 1px solid transparent;
         cursor: pointer;
         text-decoration: none;
-        line-height: 1.2;
-        transition: background .12s, border-color .12s, opacity .12s;
+        line-height: 1;
+        transition: background .15s, border-color .15s, opacity .15s;
       }
       .btn:disabled { opacity: .5; cursor: not-allowed; }
       .btn-primary { background: var(--color-primary); color: white; }
       .btn-primary:hover:not(:disabled) { background: var(--color-primary-dark); }
-      .btn-secondary { background: var(--color-surface-alt); color: var(--color-primary-dark); border-color: var(--color-primary-border); }
-      .btn-secondary:hover:not(:disabled) { background: var(--color-primary-bg); }
-      .btn-neutral { background: var(--color-neutral-bg); color: #374151; border-color: var(--color-border-strong); }
-      .btn-neutral:hover:not(:disabled) { background: #e5e7eb; }
+      .btn-secondary { background: var(--color-surface); color: var(--color-text); border-color: var(--color-border-strong); }
+      .btn-secondary:hover:not(:disabled) { background: var(--color-surface-alt); }
+      .btn-neutral { background: var(--color-neutral-bg); color: #3f3f46; border-color: var(--color-border-strong); }
+      .btn-neutral:hover:not(:disabled) { background: #e4e4e7; }
       .btn-success { background: var(--color-success); color: white; }
-      .btn-success:hover:not(:disabled) { background: #166534; }
+      .btn-success:hover:not(:disabled) { background: #15803d; }
       .btn-danger { background: var(--color-danger-bg); color: var(--color-danger); border-color: var(--color-danger-border); }
-      .btn-danger:hover:not(:disabled) { background: #fecaca; }
+      .btn-danger:hover:not(:disabled) { background: #fee2e2; }
       .btn-block { display: flex; width: 100%; }
-      .btn-sm { padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs); }
+      .btn-sm { height: 30px; padding: 0 var(--space-3); font-size: var(--font-size-xs); }
 
       /* ── Badges / status pills ───────────────────────────────────────────── */
       .badge {
         display: inline-flex;
         align-items: center;
-        padding: 2px var(--space-2);
+        padding: 2px var(--space-3);
         border-radius: var(--radius-pill);
         font-size: var(--font-size-xs);
-        font-weight: 700;
+        font-weight: 600;
         border: 1px solid transparent;
         white-space: nowrap;
       }
@@ -172,44 +197,45 @@ export const DESIGN_SYSTEM_CSS = `
       .meta-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: var(--space-2) var(--space-4);
-        margin: var(--space-3) 0 var(--space-4);
+        gap: var(--space-4) var(--space-5);
+        margin: var(--space-4) 0 var(--space-5);
       }
       .meta-item label {
         display: block; font-size: var(--font-size-xs); font-weight: 600;
-        color: var(--color-text-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px;
+        color: var(--color-text-faint); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
       }
       .meta-item span { font-size: var(--font-size-base); color: var(--color-text); font-weight: 500; }
 
       .error-box {
         background: var(--color-danger-bg); border: 1px solid var(--color-danger-border);
-        border-radius: var(--radius); padding: var(--space-2) var(--space-3);
-        font-size: var(--font-size-sm); color: var(--color-danger); margin: var(--space-3) 0 0;
+        border-radius: var(--radius); padding: var(--space-3) var(--space-4);
+        font-size: var(--font-size-sm); color: var(--color-danger); margin: var(--space-4) 0 0;
       }
 
       /* ── Tables ──────────────────────────────────────────────────────────── */
       table { width: 100%; border-collapse: collapse; }
       thead th {
-        background: var(--color-surface-alt); padding: var(--space-3) var(--space-3);
-        text-align: left; font-size: var(--font-size-xs); font-weight: 700;
-        color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .06em;
-        border-bottom: 2px solid var(--color-border); white-space: nowrap;
+        padding: var(--space-3) var(--space-4);
+        text-align: left; font-size: var(--font-size-xs); font-weight: 600;
+        color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .02em;
+        border-bottom: 1px solid var(--color-border); white-space: nowrap;
       }
-      tbody tr { transition: background .1s; }
-      tbody tr:nth-child(even) { background: var(--color-surface-alt); }
-      tbody tr:hover { background: var(--color-primary-bg) !important; }
-      tbody td { padding: var(--space-3); border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+      thead th.num, tbody td.num { text-align: right; }
+      thead th.center, tbody td.center { text-align: center; }
+      tbody tr { transition: background .12s; }
+      tbody tr:hover { background: var(--color-surface-alt); }
+      tbody td { padding: var(--space-4); border-bottom: 1px solid var(--color-border); vertical-align: middle; }
       tbody tr:last-child td { border-bottom: 0; }
-      .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--color-border); }
+      .table-wrap { overflow-x: auto; border-radius: var(--radius-lg); border: 1px solid var(--color-border); }
 
       /* ── Loading / empty states ──────────────────────────────────────────── */
       .empty-state {
-        text-align: center; padding: var(--space-6) var(--space-3);
+        text-align: center; padding: var(--space-7) var(--space-4);
         color: var(--color-text-muted); font-size: var(--font-size-base);
       }
       .loading-state {
         display: flex; align-items: center; justify-content: center; gap: var(--space-2);
-        padding: var(--space-5) var(--space-3); color: var(--color-text-faint); font-size: var(--font-size-sm);
+        padding: var(--space-6) var(--space-4); color: var(--color-text-faint); font-size: var(--font-size-sm);
       }
       .spinner {
         width: 14px; height: 14px; border-radius: 50%;
@@ -219,7 +245,8 @@ export const DESIGN_SYSTEM_CSS = `
       @keyframes ds-spin { to { transform: rotate(360deg); } }
 
       @media (max-width: 700px) {
-        body { padding: var(--space-2); }
-        .card { padding: var(--space-3); }
+        .page { padding: var(--space-4) var(--space-3) var(--space-6); }
+        .card { padding: var(--space-4); }
+        .app-header-inner { padding: 0 var(--space-4); }
       }
 `;

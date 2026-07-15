@@ -1131,15 +1131,15 @@ function escapeHtml(value: string): string {
 }
 
 function scoreColor(score: number): string {
-  if (score >= 80) return '#15803d';
-  if (score >= 65) return '#b45309';
-  return '#b91c1c';
+  if (score >= 80) return '#16a34a';
+  if (score >= 65) return '#d97706';
+  return '#dc2626';
 }
 
 function scoreBg(score: number): string {
-  if (score >= 80) return '#dcfce7';
-  if (score >= 65) return '#fef3c7';
-  return '#fee2e2';
+  if (score >= 80) return '#f0fdf4';
+  if (score >= 65) return '#fffbeb';
+  return '#fef2f2';
 }
 
 function workModeBadge(mode: string): string {
@@ -1179,8 +1179,8 @@ function renderHistoryHtml(entries: JobHistoryEntry[]): string {
         ? `<span class="badge badge-success">APPLIED</span>`
         : `<span class="badge badge-neutral">DISMISSED</span>`;
       const sc = e.score;
-      const scColor = sc >= 80 ? '#15803d' : sc >= 60 ? '#d97706' : '#6b7280';
-      const scBg = sc >= 80 ? '#dcfce7' : sc >= 60 ? '#fef3c7' : '#f3f4f6';
+      const scColor = sc >= 80 ? '#16a34a' : sc >= 60 ? '#d97706' : '#71717a';
+      const scBg = sc >= 80 ? '#f0fdf4' : sc >= 60 ? '#fffbeb' : '#f4f4f5';
       return `
         <tr>
           <td style="padding:10px 14px;font-size:13px;color:#6b7280;">${fmtDate(e.date)}</td>
@@ -2329,19 +2329,21 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
     </style>
   </head>
   <body>
+    <header class="app-header">
+      <div class="app-header-inner">
+        <a class="app-header-brand" href="/">Job Search Bot</a>
+        <div class="app-header-links">
+          <a href="/history">Application History →</a>
+          <a href="/jobs/answer-questions">Answer Questions →</a>
+          <a href="/platform-status">Platform Status →</a>
+          <a href="/analytics">Sources &amp; Applications →</a>
+          <a href="/admin">Admin →</a>
+        </div>
+      </div>
+    </header>
     <div class="page">
 
       <div class="card">
-        <div class="navbar" style="margin-bottom:0;">
-          <a class="navbar-brand" href="/">Job Search Bot</a>
-          <div class="navbar-links">
-            <a href="/history">Application History →</a>
-            <a href="/jobs/answer-questions">Answer Questions →</a>
-            <a href="/platform-status">Platform Status →</a>
-            <a href="/analytics">Sources &amp; Applications →</a>
-            <a href="/admin">Admin →</a>
-          </div>
-        </div>
         <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
             <p class="subtitle" style="margin:0;">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris</p>

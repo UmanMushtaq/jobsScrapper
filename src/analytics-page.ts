@@ -145,28 +145,38 @@ export function renderAnalyticsPage(data: AnalyticsData): string {
       .subtitle { margin: 0 0 4px; }
       .window-selector { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
       .window-opt { padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 999px;
-                    background: white; border: 1px solid #e5e7eb; color: #374151; text-decoration: none; }
-      .window-opt.active { background: #2563eb; color: white; border-color: #2563eb; }
+                    background: white; border: 1px solid var(--color-border-strong); color: var(--color-text); text-decoration: none; }
+      .window-opt.active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
       .bar-chart { display: flex; flex-direction: column; gap: 10px; }
       .bar-row { display: grid; grid-template-columns: 140px 1fr 44px; align-items: center; gap: 10px; }
-      .bar-label { font-size: 13px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .bar-track { background: #f1f5f9; border-radius: 6px; height: 16px; overflow: hidden; }
+      .bar-label { font-size: 13px; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .bar-track { background: var(--color-surface-alt); border-radius: 6px; height: 16px; overflow: hidden; }
       .bar-fill { height: 100%; border-radius: 6px; }
-      .bar-count { font-size: 13px; font-weight: 600; color: #374151; text-align: right; }
-      .stacked-bar { display: flex; height: 22px; border-radius: 8px; overflow: hidden; background: #f1f5f9; }
+      .bar-count { font-size: 13px; font-weight: 600; color: var(--color-text); text-align: right; }
+      .stacked-bar { display: flex; height: 22px; border-radius: 8px; overflow: hidden; background: var(--color-surface-alt); }
       .legend { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
-      .legend-item { font-size: 13px; color: #374151; display: flex; align-items: center; gap: 6px; }
+      .legend-item { font-size: 13px; color: var(--color-text); display: flex; align-items: center; gap: 6px; }
       .legend-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-      .data-note { color: #9ca3af; font-size: 12px; line-height: 1.6; margin: 0; }
+      .data-note { color: var(--color-text-faint); font-size: 12px; line-height: 1.6; margin: 0; }
     </style>
   </head>
   <body>
+    <header class="app-header">
+      <div class="app-header-inner">
+        <a class="app-header-brand" href="/">Job Search Bot</a>
+        <div class="app-header-links">
+          <a href="/history">Application History →</a>
+          <a href="/jobs/answer-questions">Answer Questions →</a>
+          <a href="/platform-status">Platform Status →</a>
+          <a href="/analytics" class="active">Sources &amp; Applications →</a>
+          <a href="/admin">Admin →</a>
+        </div>
+      </div>
+    </header>
     <div class="page">
       <div class="card">
-        <div class="navbar" style="margin-bottom:var(--space-2);">
-          <h1>Sources &amp; Applications</h1>
-          <div class="navbar-links"><a href="/">← Back to Dashboard</a></div>
-        </div>
+        <div class="nav"><a href="/">← Back to Dashboard</a></div>
+        <h1>Sources &amp; Applications</h1>
         <p class="subtitle">Where jobs are coming from and where you're actually applying — read-only, updates independently of the main dashboard.</p>
         ${renderWindowSelector(data.windowDays)}
         <p class="data-note">${escapeHtml(data.dataNote)}</p>
