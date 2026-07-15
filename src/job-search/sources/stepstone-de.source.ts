@@ -56,6 +56,7 @@ export class StepstoneGermanySource implements JobSource {
     const jobs = new Map<string, JobPosting>();
     const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
     let requestsUsed = 0;
+    let totalFetched = 0;
 
     for (const query of SEARCH_QUERIES) {
       if (requestsUsed >= MAX_SCRAPERAPI_REQUESTS_PER_RUN) {
@@ -63,8 +64,9 @@ export class StepstoneGermanySource implements JobSource {
         break;
       }
       try {
-        const { jobs: fetched, requestsMade } = await fetchPage(query, cutoff, MAX_SCRAPERAPI_REQUESTS_PER_RUN - requestsUsed);
+        const { jobs: fetched, requestsMade, rawCount } = await fetchPage(query, cutoff, MAX_SCRAPERAPI_REQUESTS_PER_RUN - requestsUsed);
         requestsUsed += requestsMade;
+        totalFetched += rawCount;
         for (const job of fetched) {
           jobs.set(job.canonicalUrl, job);
         }
@@ -82,22 +84,27 @@ export class StepstoneGermanySource implements JobSource {
     } else {
       console.log(`[stepstone-de] ${jobs.size} unique jobs fetched (${requestsUsed} ScraperAPI requests)`);
     }
+    console.log(`[stepstone-de] fetched=${totalFetched}, passed_filters=${jobs.size}`);
     return Array.from(jobs.values());
   }
+}
+
+export function buildSearchUrl(query: string): string {
+  return `${BASE_URL}${encodeURIComponent(query)}?radius=30&sort=2`;
 }
 
 async function fetchPage(
   query: string,
   cutoff: number,
   requestBudget: number,
-): Promise<{ jobs: JobPosting[]; requestsMade: number }> {
-  const targetUrl = `${BASE_URL}${encodeURIComponent(query)}?radius=30&sort=2`;
+): Promise<{ jobs: JobPosting[]; requestsMade: number; rawCount: number }> {
+  const targetUrl = buildSearchUrl(query);
   const apiKey = await getNextKey();
   if (!apiKey) {
     console.log('[stepstone-de] ScraperAPI keys exhausted or unconfigured — disabling cleanly for this run');
-    return { jobs: [], requestsMade: 0 };
+    return { jobs: [], requestsMade: 0, rawCount: 0 };
   }
-  if (requestBudget <= 0) return { jobs: [], requestsMade: 0 };
+  if (requestBudget <= 0) return { jobs: [], requestsMade: 0, rawCount: 0 };
 
   let requestsMade = 0;
 
@@ -123,7 +130,7 @@ async function fetchPage(
     .map(mapJob)
     .filter((j): j is JobPosting => j !== null);
 
-  return { jobs: mapped, requestsMade };
+  return { jobs: mapped, requestsMade, rawCount: jobs.length };
 }
 
 async function fetchViaScraperApi(targetUrl: string, apiKey: string, render: boolean): Promise<string | null> {

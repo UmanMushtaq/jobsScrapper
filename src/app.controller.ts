@@ -120,6 +120,12 @@ export class AppController {
     response.redirect('/');
   }
 
+  @Post('run/stepstone-de')
+  async runStepstoneDe(@Res() response: Response): Promise<void> {
+    void this.appService.runSource('stepstone-de');
+    response.redirect('/');
+  }
+
   // Main dashboard actions — no gate of any kind, fire immediately on click, exactly as
   // before the password-gate experiment (which was reverted after Uman clarified the
   // actual requirement was a destination picker on the History page's Revert only).

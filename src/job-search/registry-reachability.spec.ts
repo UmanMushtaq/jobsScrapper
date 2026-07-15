@@ -34,6 +34,10 @@ describe('source registry reachability', () => {
     expect(FAST_SOURCES.includes('eures.europa.eu')).toBe(true);
   });
 
+  it('stepstone.de has a manual runner (▶ Run StepStone dashboard button, July 15 2026)', () => {
+    expect(MANUAL_ONLY_SOURCES.has('stepstone.de')).toBe(true);
+  });
+
   it('a source cannot be silently reachable-by-omission: every allSources name maps to exactly one primary classification', () => {
     // Not a hard requirement that categories are mutually exclusive (a source CAN
     // legitimately have more than one path, e.g. apec.fr has both a Playwright slot and

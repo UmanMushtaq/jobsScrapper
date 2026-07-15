@@ -168,11 +168,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     await this.safeRunFast();
   }
 
-  async runSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures'): Promise<void> {
+  async runSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures' | 'stepstone-de'): Promise<void> {
     await this.safeRunSource(sourceName);
   }
 
-  private async safeRunSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures'): Promise<void> {
+  private async safeRunSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures' | 'stepstone-de'): Promise<void> {
     const key = `source:${sourceName}`;
     if (this.activeRun) {
       this.logger.warn(`Skipping ${key} run because a full scan is already active.`);
@@ -1987,6 +1987,9 @@ function renderPlatformStatusHtml(health: PlatformHealth | null): string {
         <form method="post" action="/run/eures">
           <button type="submit" class="btn btn-secondary">▶ Run EURES</button>
         </form>
+        <form method="post" action="/run/stepstone-de">
+          <button type="submit" class="btn btn-secondary">▶ Run StepStone</button>
+        </form>
       </div>
 
       ${proxyCard}
@@ -2514,6 +2517,9 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
           </form>
           <form method="post" action="/run/eures">
             <button type="submit" class="btn btn-secondary btn-sm">▶ Run EURES</button>
+          </form>
+          <form method="post" action="/run/stepstone-de">
+            <button type="submit" class="btn btn-secondary btn-sm">▶ Run StepStone</button>
           </form>
         </div>
         </div>

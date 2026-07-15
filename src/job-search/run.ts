@@ -209,7 +209,7 @@ export const PLAYWRIGHT_SOURCES = new Set([
 // Sources with a dedicated on-demand runner (runSingleSource in this file), reachable
 // via a dashboard button independent of any scheduler interval. Keep in sync with
 // runSingleSource's parameter type.
-export const MANUAL_ONLY_SOURCES = new Set(['apec.fr', 'indeed.com', 'eu.talent.io', 'eures.europa.eu']);
+export const MANUAL_ONLY_SOURCES = new Set(['apec.fr', 'indeed.com', 'eu.talent.io', 'eures.europa.eu', 'stepstone.de']);
 
 // July 12 2026 orphaned-source audit: every source NOT in FAST_SOURCES,
 // PLAYWRIGHT_SOURCES, or MANUAL_ONLY_SOURCES falls back to the SLOW scheduler's default
@@ -887,12 +887,13 @@ export interface JobDecisionMeta {
   source?: string;
 }
 
-export async function runSingleSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures'): Promise<void> {
+export async function runSingleSource(sourceName: 'apec' | 'indeed' | 'talentio' | 'eures' | 'stepstone-de'): Promise<void> {
   const profile = await loadSearchProfile();
   const source =
     sourceName === 'apec' ? new ApecPlaywrightSource()
     : sourceName === 'indeed' ? new IndeedJobsSource()
     : sourceName === 'talentio' ? new TalentioJobsSource()
+    : sourceName === 'stepstone-de' ? new StepstoneGermanySource()
     : new EuresSource();
   console.log(`[manual] running single source: ${source.name}`);
   try {

@@ -1,4 +1,4 @@
-import { mapJob, RawJob } from './stepstone-de.source';
+import { buildSearchUrl, mapJob, RawJob } from './stepstone-de.source';
 
 function buildRaw(overrides: Partial<RawJob> = {}): RawJob {
   return {
@@ -42,5 +42,19 @@ describe('stepstone-de mapJob', () => {
   it('resolves company from a nested object shape', () => {
     const job = mapJob(buildRaw({ company: undefined, employer: { name: 'Nested Employer GmbH' } }));
     expect(job?.company).toBe('Nested Employer GmbH');
+  });
+});
+
+describe('stepstone-de buildSearchUrl', () => {
+  it('URL-encodes a single-word query onto the base search path', () => {
+    expect(buildSearchUrl('NestJS')).toBe('https://www.stepstone.de/jobs/NestJS?radius=30&sort=2');
+  });
+
+  it('URL-encodes a multi-word query with spaces and dots', () => {
+    expect(buildSearchUrl('Node.js Entwickler')).toBe('https://www.stepstone.de/jobs/Node.js%20Entwickler?radius=30&sort=2');
+  });
+
+  it('URL-encodes special characters in the query (e.g. slashes)', () => {
+    expect(buildSearchUrl('TypeScript/Backend')).toBe('https://www.stepstone.de/jobs/TypeScript%2FBackend?radius=30&sort=2');
   });
 });
