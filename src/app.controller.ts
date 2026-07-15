@@ -35,6 +35,14 @@ export class AppController {
     return this.appService.getPlatformStatusPage();
   }
 
+  // Ops/diagnostics page — Sources/Schedulers/System status/Gemini panels, moved off
+  // the home dashboard (July 15 2026) so the homepage is just job listings.
+  @Get('system')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async systemPage(): Promise<string> {
+    return this.appService.getSystemPage();
+  }
+
   // Read-only Sources & Applications analytics page — separate route, separate data
   // fetch from the home dashboard (see AppService.getAnalyticsPage).
   @Get('analytics')

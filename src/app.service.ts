@@ -31,7 +31,6 @@ import {
 } from './job-search/telegram';
 import { ApecRunStatus, AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGet, redisGetApecStatus, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob, redisSetEx } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
-import { ApecPlaywrightStatus, getApecPlaywrightStatus } from './job-search/sources/apec.playwright';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 import { buildAnalyticsData, fetchAnalyticsRows, WindowDays } from './job-search/analytics';
 import { renderAnalyticsPage } from './analytics-page';
@@ -47,9 +46,11 @@ const RECOVERY_EMAIL = 'umanmushtaq72@gmail.com';
 let _dashboardCache: { html: string; ts: number } | null = null;
 let _healthCache: { data: Record<string, unknown>; ts: number } | null = null;
 let _platformStatusCache: { html: string; ts: number } | null = null;
+let _systemPageCache: { html: string; ts: number } | null = null;
 const DASHBOARD_CACHE_TTL_MS = 60_000;   // 60 s
 const HEALTH_CACHE_TTL_MS    = 60_000;   // 60 s
 const PLATFORM_CACHE_TTL_MS  = 60_000;   // 60 s
+const SYSTEM_PAGE_CACHE_TTL_MS = 60_000; // 60 s
 
 @Injectable()
 export class AppService implements OnModuleInit, OnModuleDestroy {
@@ -183,6 +184,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         await runSingleSource(sourceName);
         _dashboardCache = null;
         _healthCache = null;
+        _systemPageCache = null;
         this.logger.log(`[manual] ${sourceName} source run complete.`);
       } catch (error) {
         this.logger.error(`[manual] ${sourceName} source run failed`, error instanceof Error ? error.stack : String(error));
@@ -550,19 +552,11 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     if (_dashboardCache && Date.now() - _dashboardCache.ts < DASHBOARD_CACHE_TTL_MS) {
       return _dashboardCache.html;
     }
-    const [state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus, schedulerRuns] = await Promise.all([
+    const [state, dashboardJobs] = await Promise.all([
       readJobSearchState(),
-      redisGetIndeedLastRun(),
       redisGetDashboardJobs(),
-      getApecPlaywrightStatus(),
-      redisGetApecStatus(),
-      Promise.all([
-        redisGet('scheduler:last_run:slow'),
-        redisGet('scheduler:last_run:fast'),
-        redisGet('scheduler:last_run:apec'),
-      ]).then(([slow, fast, apec]) => ({ slow, fast, apec })),
     ]);
-    const html = renderHtml(state, indeedStatus, dashboardJobs, apecStatus, apecRunStatus, schedulerRuns);
+    const html = renderHtml(state, dashboardJobs);
     _dashboardCache = { html, ts: Date.now() };
     return html;
   }
@@ -588,6 +582,31 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
     const health = await getPlatformHealth();
     const html = renderPlatformStatusHtml(health);
     _platformStatusCache = { html, ts: Date.now() };
+    return html;
+  }
+
+  // Ops/diagnostics page — Sources/Schedulers/System status/Gemini panels, moved off
+  // the home dashboard (July 15 2026) so the homepage is just job listings. Fetches its
+  // own data independently, same pattern as getAnalyticsPage/getPlatformStatusPage —
+  // this is exactly the data renderHtml used to fetch for those same panels before the
+  // move, just relocated to its own cache/route instead of piggybacking on the
+  // dashboard's Promise.all.
+  async getSystemPage(): Promise<string> {
+    if (_systemPageCache && Date.now() - _systemPageCache.ts < SYSTEM_PAGE_CACHE_TTL_MS) {
+      return _systemPageCache.html;
+    }
+    const [state, indeedStatus, apecRunStatus, schedulerRuns] = await Promise.all([
+      readJobSearchState(),
+      redisGetIndeedLastRun(),
+      redisGetApecStatus(),
+      Promise.all([
+        redisGet('scheduler:last_run:slow'),
+        redisGet('scheduler:last_run:fast'),
+        redisGet('scheduler:last_run:apec'),
+      ]).then(([slow, fast, apec]) => ({ slow, fast, apec })),
+    ]);
+    const html = renderSystemPageHtml(state, indeedStatus, apecRunStatus, schedulerRuns);
+    _systemPageCache = { html, ts: Date.now() };
     return html;
   }
 
@@ -676,6 +695,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         const summary = await runJobSearchOnce(undefined, excludeSources);
         _dashboardCache = null; // new jobs available — next load rebuilds from Redis
         _healthCache = null;
+        _systemPageCache = null;
         this.logger.log(
           `[${trigger}] fetched ${summary.allJobsCount} jobs, ${summary.freshJobsCount} fresh, ${summary.matchCount} matched.`,
         );
@@ -708,6 +728,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         const summary = await runJobSearchOnce(undefined, undefined, FAST_SOURCES);
         _dashboardCache = null;
         _healthCache = null;
+        _systemPageCache = null;
         this.logger.log(`[fast-scheduler] Done — ${summary.allJobsCount} fetched, ${summary.freshJobsCount} fresh, ${summary.matchCount} matched.`);
       } catch (error) {
         this.logger.error('[fast-scheduler] run failed', error instanceof Error ? error.stack : String(error));
@@ -730,6 +751,7 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
         const summary = await runJobSearchOnce(undefined, undefined, ['apec.fr']);
         _dashboardCache = null;
         _healthCache = null;
+        _systemPageCache = null;
         this.logger.log(`[apec-scheduler] Done — ${summary.allJobsCount} fetched, ${summary.freshJobsCount} fresh, ${summary.matchCount} matched.`);
       } catch (error) {
         this.logger.error('[apec-scheduler] run failed', error instanceof Error ? error.stack : String(error));
@@ -2022,7 +2044,7 @@ function escapeBr(value: string): string {
   return escapeHtml(value).replace(/\n/g, '<br>');
 }
 
-function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, dashboardJobs?: DashboardJobEntry[], apecStatus?: ApecPlaywrightStatus | null, apecRunStatus?: ApecRunStatus | null, schedulerRuns?: { slow: string | null; fast: string | null; apec: string | null } | null): string {
+function renderHtml(state: JobSearchState, dashboardJobs?: DashboardJobEntry[]): string {
   // Use persistent dashboard jobs if available, fall back to state.latestMatches
   const now = Date.now();
   const displayMatches: Array<{ match: MatchResult; foundAt?: number }> =
@@ -2307,6 +2329,342 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
            No current matches. The bot will check again at the next scheduled run.
          </div></td></tr>`;
 
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Job Search: Uman Mushtaq</title>
+    <style>${DESIGN_SYSTEM_CSS}
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      ${renderSidebar('/')}
+      <div class="main-area">
+        <div class="page">
+
+        <div class="content-topbar">
+          <div>
+            <div class="breadcrumb">Overview</div>
+            <h1>Job Search Bot</h1>
+            <p class="subtitle" style="margin:4px 0 0;">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div class="avatar" title="Uman Mushtaq">UM</div>
+          </div>
+        </div>
+
+      <div class="card" id="matches-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+          <div style="display:flex;gap:8px;">
+            <button id="tab-matches-btn" onclick="switchDashTab('matches')"
+              style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:#2563eb;color:white;">
+              Matches <span id="tab-matches-count" style="font-weight:400;opacity:0.8;">(${displayMatches.length})</span>
+            </button>
+            <button id="tab-applied-btn" onclick="switchDashTab('applied')"
+              style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:#f3f4f6;color:#374151;">
+              Applied <span id="tab-applied-count" style="font-weight:400;opacity:0.8;"></span>
+            </button>
+          </div>
+        </div>
+
+        <div id="tab-matches-panel">
+          <div id="country-tab-bar" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;z-index:10;background:white;padding:10px 0 10px;border-bottom:1px solid #e5e7eb;">
+            ${[
+              { key: 'all',    label: '🌍 All',          hash: '' },
+              { key: 'fr',     label: '🇫🇷 FR',          hash: 'france' },
+              { key: 'de',     label: '🇩🇪 DE',          hash: 'germany' },
+              { key: 'be',     label: '🇧🇪 BE',          hash: 'belgium' },
+              { key: 'nl',     label: '🇳🇱 NL',          hash: 'netherlands' },
+              { key: 'it',     label: '🇮🇹 IT',          hash: 'italy' },
+              { key: 'lu',     label: '🇱🇺 LU',          hash: 'luxembourg' },
+              { key: 'pl',     label: '🇵🇱 PL',          hash: 'poland' },
+              { key: 'se',     label: '🇸🇪 SE',          hash: 'sweden' },
+              { key: 'remote', label: '🌐 Remote',       hash: 'remote' },
+            ].map(({ key, label, hash }) => {
+              const count = countryCounts[key] ?? 0;
+              return `<button
+                id="ctab-${key}"
+                data-ctab="${key}"
+                data-hash="${hash}"
+                onclick="switchCountryTab('${key}')"
+                style="padding:6px 14px;border-radius:99px;font-size:13px;font-weight:600;border:2px solid #e5e7eb;cursor:pointer;background:#f9fafb;color:#6b7280;transition:all .15s;">
+                ${label} <span style="font-weight:400;font-size:12px;">(${count})</span>
+              </button>`;
+            }).join('')}
+          </div>
+          <div class="table-wrap-fixed">
+            <table class="table-fixed">
+              <colgroup>
+                <col style="width:24%" /><col style="width:15%" /><col style="width:14%" />
+                <col style="width:9%" /><col style="width:12%" /><col style="width:10%" /><col style="width:16%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Company</th>
+                  <th>Location</th>
+                  <th>Mode</th>
+                  <th>Salary</th>
+                  <th>Score</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tab-applied-panel" style="display:none;">
+          <div id="applied-loading" style="color:#9ca3af;font-size:13px;padding:20px 0;">Loading…</div>
+          <div id="applied-table-wrap" class="table-wrap-fixed" style="display:none;">
+            <table class="table-fixed">
+              <colgroup>
+                <col style="width:22%" /><col style="width:16%" /><col style="width:16%" />
+                <col style="width:10%" /><col style="width:14%" /><col style="width:12%" /><col style="width:10%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Company</th>
+                  <th>Location</th>
+                  <th>Score</th>
+                  <th>Applied date</th>
+                  <th>Days since</th>
+                  <th>Follow-up</th>
+                </tr>
+              </thead>
+              <tbody id="applied-tbody"></tbody>
+            </table>
+          </div>
+          <div id="applied-empty" style="display:none;text-align:center;padding:40px;color:#6b7280;">
+            No applied jobs in the last 10 days.
+          </div>
+        </div>
+      </div>
+
+    </div>
+        </div>
+      </div>
+    <script>
+      function toggleDet(id) {
+        var row = document.getElementById(id);
+        if (!row) return;
+        row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+      }
+
+      // Applied/Dismiss — background fetch instead of a <form> submit, so the click
+      // never navigates the page (that navigation was the cause of the scroll jump:
+      // Applied went to /history?tab=applied, Dismiss reloaded / from the top).
+      document.addEventListener('click', function(e) {
+        var appliedBtn = e.target.closest('.btn-job-applied');
+        var dismissBtn = e.target.closest('.btn-job-dismiss');
+        var btn = appliedBtn || dismissBtn;
+        if (!btn) return;
+        var jobId = btn.getAttribute('data-job-id');
+        var url = appliedBtn ? '/jobs/' + jobId + '/applied' : '/jobs/' + jobId + '/dismiss';
+        var body = appliedBtn ? {
+          title: btn.getAttribute('data-title'),
+          company: btn.getAttribute('data-company'),
+          score: btn.getAttribute('data-score'),
+          source: btn.getAttribute('data-source'),
+        } : {};
+        btn.disabled = true;
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then(function(res) {
+          if (res.ok) {
+            document.querySelectorAll('tr[data-job-id="' + jobId + '"]').forEach(function(row) { row.remove(); });
+            return;
+          }
+          btn.disabled = false;
+          alert('Could not update this job — please try again.');
+        }).catch(function() {
+          btn.disabled = false;
+          alert('Network error — please try again.');
+        });
+      });
+
+      function copyTxt(idx, part) {
+        var el;
+        if (part === 'body') el = document.getElementById('eb-' + idx + '-rawbody');
+        else if (part === 'subject') el = document.getElementById('eb-' + idx + '-subject');
+        else if (part === 'email') el = document.getElementById('eb-' + idx + '-email');
+        else if (part === 'cl') el = document.getElementById('eb-' + idx + '-cl');
+        if (!el) return;
+        var txt = el.textContent || '';
+        navigator.clipboard.writeText(txt).catch(function() {
+          var ta = document.createElement('textarea');
+          ta.value = txt;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        });
+      }
+
+      function openEmail(idx) {
+        var eEl = document.getElementById('eb-' + idx + '-email');
+        var sEl = document.getElementById('eb-' + idx + '-subject');
+        var bEl = document.getElementById('eb-' + idx + '-rawbody');
+        if (!eEl) return;
+        var email = eEl.textContent || '';
+        var subject = encodeURIComponent(sEl ? (sEl.textContent || '') : '');
+        var body = encodeURIComponent(bEl ? (bEl.textContent || '') : '');
+        window.location.href = 'mailto:' + email + '?subject=' + subject + '&body=' + body;
+      }
+
+      // ── Applied jobs tab ────────────────────────────────────────────
+      var _appliedLoaded = false;
+
+      function switchDashTab(tab) {
+        var isMatches = tab === 'matches';
+        document.getElementById('tab-matches-panel').style.display = isMatches ? '' : 'none';
+        document.getElementById('tab-applied-panel').style.display = isMatches ? 'none' : '';
+        document.getElementById('tab-matches-btn').style.cssText = 'padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:' + (isMatches ? '#2563eb;color:white' : '#f3f4f6;color:#374151') + ';';
+        document.getElementById('tab-applied-btn').style.cssText  = 'padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:' + (isMatches ? '#f3f4f6;color:#374151' : '#15803d;color:white') + ';';
+        if (!isMatches && !_appliedLoaded) loadAppliedJobs();
+      }
+
+      // ── Country tabs ─────────────────────────────────────────────────
+      var _activeCountryTab = 'all';
+
+      function switchCountryTab(key) {
+        _activeCountryTab = key;
+
+        // Update URL hash
+        var btn = document.getElementById('ctab-' + key);
+        var hash = btn ? btn.getAttribute('data-hash') : '';
+        if (hash) {
+          history.replaceState(null, '', '#' + hash);
+        } else {
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+
+        // Style all tab buttons
+        document.querySelectorAll('[data-ctab]').forEach(function(b) {
+          var active = b.getAttribute('data-ctab') === key;
+          b.style.background = active ? '#2563eb' : '#f9fafb';
+          b.style.color = active ? 'white' : '#6b7280';
+          b.style.borderColor = active ? '#2563eb' : '#e5e7eb';
+        });
+
+        // Show/hide rows
+        document.querySelectorAll('tr[data-country]').forEach(function(row) {
+          var country = row.getAttribute('data-country');
+          // details rows (det-N) follow their parent; keep them hidden unless already open
+          var isDet = row.id && row.id.startsWith('det-');
+          if (isDet) {
+            // only show details rows that were already open AND match the filter
+            if (row.style.display !== 'none') {
+              row.style.display = (key === 'all' || country === key) ? '' : 'none';
+            }
+          } else {
+            row.style.display = (key === 'all' || country === key) ? '' : 'none';
+          }
+        });
+      }
+
+      // Recompute count badges from actual DOM rows (handles any server-side count drift)
+      (function() {
+        var counts = { all: 0, fr: 0, de: 0, be: 0, nl: 0, remote: 0 };
+        document.querySelectorAll('tr[data-country]').forEach(function(row) {
+          if (row.id && row.id.startsWith('det-')) return; // skip details rows
+          var c = row.getAttribute('data-country');
+          if (c && counts[c] !== undefined) counts[c]++;
+          counts.all++;
+        });
+        Object.keys(counts).forEach(function(key) {
+          var btn = document.getElementById('ctab-' + key);
+          if (!btn) return;
+          var span = btn.querySelector('span');
+          if (span) span.textContent = '(' + counts[key] + ')';
+        });
+      })();
+
+      // Apply hash on load
+      (function() {
+        var hashMap = { france: 'fr', germany: 'de', belgium: 'be', netherlands: 'nl', remote: 'remote' };
+        var h = (window.location.hash || '').replace('#', '');
+        var key = hashMap[h] || 'all';
+        switchCountryTab(key);
+      })();
+
+      function workModeBadge(mode) {
+        if (mode === 'remote')  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#d1fae5;color:#065f46;">remote</span>';
+        if (mode === 'hybrid')  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e;">hybrid</span>';
+        return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#f3f4f6;color:#374151;">on-site</span>';
+      }
+
+      function daysBadge(days) {
+        if (days > 10) return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#fee2e2;color:#991b1b;">Overdue</span>';
+        if (days > 7)  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#fef3c7;color:#92400e;">Follow up</span>';
+        return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#f3f4f6;color:#6b7280;">Waiting</span>';
+      }
+
+      function loadAppliedJobs() {
+        _appliedLoaded = true;
+        var loading = document.getElementById('applied-loading');
+        var tableWrap = document.getElementById('applied-table-wrap');
+        var empty = document.getElementById('applied-empty');
+        var tbody = document.getElementById('applied-tbody');
+        if (loading) loading.style.display = '';
+        if (tableWrap) tableWrap.style.display = 'none';
+        if (empty) empty.style.display = 'none';
+
+        fetch('/api/applied')
+          .then(function(r) { return r.json(); })
+          .then(function(jobs) {
+            if (loading) loading.style.display = 'none';
+            var countEl = document.getElementById('tab-applied-count');
+            if (countEl) countEl.textContent = '(' + jobs.length + ')';
+            if (!jobs.length) { if (empty) empty.style.display = ''; return; }
+            var now = Date.now();
+            var html = '';
+            jobs.forEach(function(j) {
+              var days = Math.floor((now - j.appliedAt) / 86400000);
+              var appliedDate = new Date(j.appliedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+              html += '<tr>' +
+                '<td style="font-weight:600;font-size:14px;">' + escHtml(j.title) + '</td>' +
+                '<td>' + escHtml(j.company) + '</td>' +
+                '<td style="font-size:13px;color:#374151;">' + escHtml(j.locationLabel || '') + (j.countryCode ? ' (' + escHtml(j.countryCode) + ')' : '') + '</td>' +
+                '<td><span style="padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;background:#eff6ff;color:#1d4ed8;">' + j.score + '%</span></td>' +
+                '<td style="font-size:13px;white-space:nowrap;">' + appliedDate + '</td>' +
+                '<td style="font-size:13px;">' + days + ' day' + (days === 1 ? '' : 's') + '</td>' +
+                '<td>' + daysBadge(days) + '</td>' +
+                '</tr>';
+            });
+            if (tbody) tbody.innerHTML = html;
+            if (tableWrap) tableWrap.style.display = '';
+          })
+          .catch(function() {
+            if (loading) loading.textContent = 'Could not load applied jobs.';
+          });
+      }
+
+      function escHtml(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+    </script>
+  </body>
+</html>`;
+}
+
+// Ops/diagnostics page — Sources, Schedulers, System status, and Gemini API keys
+// panels, moved off the home dashboard (July 15 2026) so the homepage is just job
+// listings. This is a straight relocation of renderHtml's former content: same markup,
+// same embedded scripts, same data shapes — only the page shell and route changed.
+function renderSystemPageHtml(
+  state: JobSearchState,
+  indeedStatus?: IndeedRunData | null,
+  apecRunStatus?: ApecRunStatus | null,
+  schedulerRuns?: { slow: string | null; fast: string | null; apec: string | null } | null,
+): string {
   const statusLabel = state.lastRunStatus === 'running' ? 'Running…'
     : state.lastRunStatus === 'gemini_waiting'
       ? `Waiting for Gemini (retry ${state.geminiRetry?.count ?? '?'}/${state.geminiRetry?.max ?? 12})`
@@ -2317,7 +2675,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Job Search: Uman Mushtaq</title>
+    <title>System — Job Search Bot</title>
     <style>${DESIGN_SYSTEM_CSS}
       .sources-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
       .source-chip {
@@ -2333,15 +2691,15 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
   </head>
   <body>
     <div class="app-shell">
-      ${renderSidebar('/')}
+      ${renderSidebar('/system')}
       <div class="main-area">
         <div class="page">
 
         <div class="content-topbar">
           <div>
-            <div class="breadcrumb">Overview</div>
-            <h1>Job Search Bot</h1>
-            <p class="subtitle" style="margin:4px 0 0;">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris</p>
+            <div class="breadcrumb">Operations</div>
+            <h1>System</h1>
+            <p class="subtitle" style="margin:4px 0 0;">Sources, schedulers, system status, and Gemini API keys — operational diagnostics, separate from the job listings.</p>
           </div>
           <div style="display:flex;align-items:center;gap:12px;">
             <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
@@ -2594,100 +2952,9 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
         <div id="key-status" style="color:#9ca3af;font-size:13px;">Loading key status…</div>
       </div>
 
-      <div class="card" id="matches-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
-          <div style="display:flex;gap:8px;">
-            <button id="tab-matches-btn" onclick="switchDashTab('matches')"
-              style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:#2563eb;color:white;">
-              Matches <span id="tab-matches-count" style="font-weight:400;opacity:0.8;">(${displayMatches.length})</span>
-            </button>
-            <button id="tab-applied-btn" onclick="switchDashTab('applied')"
-              style="padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:#f3f4f6;color:#374151;">
-              Applied <span id="tab-applied-count" style="font-weight:400;opacity:0.8;"></span>
-            </button>
-          </div>
-        </div>
-
-        <div id="tab-matches-panel">
-          <div id="country-tab-bar" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;position:sticky;top:0;z-index:10;background:white;padding:10px 0 10px;border-bottom:1px solid #e5e7eb;">
-            ${[
-              { key: 'all',    label: '🌍 All',          hash: '' },
-              { key: 'fr',     label: '🇫🇷 FR',          hash: 'france' },
-              { key: 'de',     label: '🇩🇪 DE',          hash: 'germany' },
-              { key: 'be',     label: '🇧🇪 BE',          hash: 'belgium' },
-              { key: 'nl',     label: '🇳🇱 NL',          hash: 'netherlands' },
-              { key: 'it',     label: '🇮🇹 IT',          hash: 'italy' },
-              { key: 'lu',     label: '🇱🇺 LU',          hash: 'luxembourg' },
-              { key: 'pl',     label: '🇵🇱 PL',          hash: 'poland' },
-              { key: 'se',     label: '🇸🇪 SE',          hash: 'sweden' },
-              { key: 'remote', label: '🌐 Remote',       hash: 'remote' },
-            ].map(({ key, label, hash }) => {
-              const count = countryCounts[key] ?? 0;
-              return `<button
-                id="ctab-${key}"
-                data-ctab="${key}"
-                data-hash="${hash}"
-                onclick="switchCountryTab('${key}')"
-                style="padding:6px 14px;border-radius:99px;font-size:13px;font-weight:600;border:2px solid #e5e7eb;cursor:pointer;background:#f9fafb;color:#6b7280;transition:all .15s;">
-                ${label} <span style="font-weight:400;font-size:12px;">(${count})</span>
-              </button>`;
-            }).join('')}
-          </div>
-          <div class="table-wrap-fixed">
-            <table class="table-fixed">
-              <colgroup>
-                <col style="width:24%" /><col style="width:15%" /><col style="width:14%" />
-                <col style="width:9%" /><col style="width:12%" /><col style="width:10%" /><col style="width:16%" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Role</th>
-                  <th>Company</th>
-                  <th>Location</th>
-                  <th>Mode</th>
-                  <th>Salary</th>
-                  <th>Score</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rows}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="tab-applied-panel" style="display:none;">
-          <div id="applied-loading" style="color:#9ca3af;font-size:13px;padding:20px 0;">Loading…</div>
-          <div id="applied-table-wrap" class="table-wrap-fixed" style="display:none;">
-            <table class="table-fixed">
-              <colgroup>
-                <col style="width:22%" /><col style="width:16%" /><col style="width:16%" />
-                <col style="width:10%" /><col style="width:14%" /><col style="width:12%" /><col style="width:10%" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Role</th>
-                  <th>Company</th>
-                  <th>Location</th>
-                  <th>Score</th>
-                  <th>Applied date</th>
-                  <th>Days since</th>
-                  <th>Follow-up</th>
-                </tr>
-              </thead>
-              <tbody id="applied-tbody"></tbody>
-            </table>
-          </div>
-          <div id="applied-empty" style="display:none;text-align:center;padding:40px;color:#6b7280;">
-            No applied jobs in the last 10 days.
-          </div>
         </div>
       </div>
-
     </div>
-        </div>
-      </div>
     <script>
       document.querySelectorAll('.ts[data-utc]').forEach(function(el) {
         var utc = el.getAttribute('data-utc');
@@ -2863,75 +3130,6 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       updateGeminiCountdown();
       setInterval(updateGeminiCountdown, 60000);
 
-      function toggleDet(id) {
-        var row = document.getElementById(id);
-        if (!row) return;
-        row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
-      }
-
-      // Applied/Dismiss — background fetch instead of a <form> submit, so the click
-      // never navigates the page (that navigation was the cause of the scroll jump:
-      // Applied went to /history?tab=applied, Dismiss reloaded / from the top).
-      document.addEventListener('click', function(e) {
-        var appliedBtn = e.target.closest('.btn-job-applied');
-        var dismissBtn = e.target.closest('.btn-job-dismiss');
-        var btn = appliedBtn || dismissBtn;
-        if (!btn) return;
-        var jobId = btn.getAttribute('data-job-id');
-        var url = appliedBtn ? '/jobs/' + jobId + '/applied' : '/jobs/' + jobId + '/dismiss';
-        var body = appliedBtn ? {
-          title: btn.getAttribute('data-title'),
-          company: btn.getAttribute('data-company'),
-          score: btn.getAttribute('data-score'),
-          source: btn.getAttribute('data-source'),
-        } : {};
-        btn.disabled = true;
-        fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        }).then(function(res) {
-          if (res.ok) {
-            document.querySelectorAll('tr[data-job-id="' + jobId + '"]').forEach(function(row) { row.remove(); });
-            return;
-          }
-          btn.disabled = false;
-          alert('Could not update this job — please try again.');
-        }).catch(function() {
-          btn.disabled = false;
-          alert('Network error — please try again.');
-        });
-      });
-
-      function copyTxt(idx, part) {
-        var el;
-        if (part === 'body') el = document.getElementById('eb-' + idx + '-rawbody');
-        else if (part === 'subject') el = document.getElementById('eb-' + idx + '-subject');
-        else if (part === 'email') el = document.getElementById('eb-' + idx + '-email');
-        else if (part === 'cl') el = document.getElementById('eb-' + idx + '-cl');
-        if (!el) return;
-        var txt = el.textContent || '';
-        navigator.clipboard.writeText(txt).catch(function() {
-          var ta = document.createElement('textarea');
-          ta.value = txt;
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        });
-      }
-
-      function openEmail(idx) {
-        var eEl = document.getElementById('eb-' + idx + '-email');
-        var sEl = document.getElementById('eb-' + idx + '-subject');
-        var bEl = document.getElementById('eb-' + idx + '-rawbody');
-        if (!eEl) return;
-        var email = eEl.textContent || '';
-        var subject = encodeURIComponent(sEl ? (sEl.textContent || '') : '');
-        var body = encodeURIComponent(bEl ? (bEl.textContent || '') : '');
-        window.location.href = 'mailto:' + email + '?subject=' + subject + '&body=' + body;
-      }
-
       function fmtDate(iso) {
         if (!iso) return 'n/a';
         var d = new Date(iso);
@@ -3056,138 +3254,6 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
       loadHealth();
       setInterval(loadHealth, 300000); // 5 min — /health is cached 60s server-side; polling faster wastes Redis calls
-
-      // ── Applied jobs tab ────────────────────────────────────────────
-      var _appliedLoaded = false;
-
-      function switchDashTab(tab) {
-        var isMatches = tab === 'matches';
-        document.getElementById('tab-matches-panel').style.display = isMatches ? '' : 'none';
-        document.getElementById('tab-applied-panel').style.display = isMatches ? 'none' : '';
-        document.getElementById('tab-matches-btn').style.cssText = 'padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:' + (isMatches ? '#2563eb;color:white' : '#f3f4f6;color:#374151') + ';';
-        document.getElementById('tab-applied-btn').style.cssText  = 'padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;border:0;cursor:pointer;background:' + (isMatches ? '#f3f4f6;color:#374151' : '#15803d;color:white') + ';';
-        if (!isMatches && !_appliedLoaded) loadAppliedJobs();
-      }
-
-      // ── Country tabs ─────────────────────────────────────────────────
-      var _activeCountryTab = 'all';
-
-      function switchCountryTab(key) {
-        _activeCountryTab = key;
-
-        // Update URL hash
-        var btn = document.getElementById('ctab-' + key);
-        var hash = btn ? btn.getAttribute('data-hash') : '';
-        if (hash) {
-          history.replaceState(null, '', '#' + hash);
-        } else {
-          history.replaceState(null, '', window.location.pathname + window.location.search);
-        }
-
-        // Style all tab buttons
-        document.querySelectorAll('[data-ctab]').forEach(function(b) {
-          var active = b.getAttribute('data-ctab') === key;
-          b.style.background = active ? '#2563eb' : '#f9fafb';
-          b.style.color = active ? 'white' : '#6b7280';
-          b.style.borderColor = active ? '#2563eb' : '#e5e7eb';
-        });
-
-        // Show/hide rows
-        document.querySelectorAll('tr[data-country]').forEach(function(row) {
-          var country = row.getAttribute('data-country');
-          // details rows (det-N) follow their parent; keep them hidden unless already open
-          var isDet = row.id && row.id.startsWith('det-');
-          if (isDet) {
-            // only show details rows that were already open AND match the filter
-            if (row.style.display !== 'none') {
-              row.style.display = (key === 'all' || country === key) ? '' : 'none';
-            }
-          } else {
-            row.style.display = (key === 'all' || country === key) ? '' : 'none';
-          }
-        });
-      }
-
-      // Recompute count badges from actual DOM rows (handles any server-side count drift)
-      (function() {
-        var counts = { all: 0, fr: 0, de: 0, be: 0, nl: 0, remote: 0 };
-        document.querySelectorAll('tr[data-country]').forEach(function(row) {
-          if (row.id && row.id.startsWith('det-')) return; // skip details rows
-          var c = row.getAttribute('data-country');
-          if (c && counts[c] !== undefined) counts[c]++;
-          counts.all++;
-        });
-        Object.keys(counts).forEach(function(key) {
-          var btn = document.getElementById('ctab-' + key);
-          if (!btn) return;
-          var span = btn.querySelector('span');
-          if (span) span.textContent = '(' + counts[key] + ')';
-        });
-      })();
-
-      // Apply hash on load
-      (function() {
-        var hashMap = { france: 'fr', germany: 'de', belgium: 'be', netherlands: 'nl', remote: 'remote' };
-        var h = (window.location.hash || '').replace('#', '');
-        var key = hashMap[h] || 'all';
-        switchCountryTab(key);
-      })();
-
-      function workModeBadge(mode) {
-        if (mode === 'remote')  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#d1fae5;color:#065f46;">remote</span>';
-        if (mode === 'hybrid')  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e;">hybrid</span>';
-        return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#f3f4f6;color:#374151;">on-site</span>';
-      }
-
-      function daysBadge(days) {
-        if (days > 10) return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#fee2e2;color:#991b1b;">Overdue</span>';
-        if (days > 7)  return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#fef3c7;color:#92400e;">Follow up</span>';
-        return '<span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#f3f4f6;color:#6b7280;">Waiting</span>';
-      }
-
-      function loadAppliedJobs() {
-        _appliedLoaded = true;
-        var loading = document.getElementById('applied-loading');
-        var tableWrap = document.getElementById('applied-table-wrap');
-        var empty = document.getElementById('applied-empty');
-        var tbody = document.getElementById('applied-tbody');
-        if (loading) loading.style.display = '';
-        if (tableWrap) tableWrap.style.display = 'none';
-        if (empty) empty.style.display = 'none';
-
-        fetch('/api/applied')
-          .then(function(r) { return r.json(); })
-          .then(function(jobs) {
-            if (loading) loading.style.display = 'none';
-            var countEl = document.getElementById('tab-applied-count');
-            if (countEl) countEl.textContent = '(' + jobs.length + ')';
-            if (!jobs.length) { if (empty) empty.style.display = ''; return; }
-            var now = Date.now();
-            var html = '';
-            jobs.forEach(function(j) {
-              var days = Math.floor((now - j.appliedAt) / 86400000);
-              var appliedDate = new Date(j.appliedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-              html += '<tr>' +
-                '<td style="font-weight:600;font-size:14px;">' + escHtml(j.title) + '</td>' +
-                '<td>' + escHtml(j.company) + '</td>' +
-                '<td style="font-size:13px;color:#374151;">' + escHtml(j.locationLabel || '') + (j.countryCode ? ' (' + escHtml(j.countryCode) + ')' : '') + '</td>' +
-                '<td><span style="padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;background:#eff6ff;color:#1d4ed8;">' + j.score + '%</span></td>' +
-                '<td style="font-size:13px;white-space:nowrap;">' + appliedDate + '</td>' +
-                '<td style="font-size:13px;">' + days + ' day' + (days === 1 ? '' : 's') + '</td>' +
-                '<td>' + daysBadge(days) + '</td>' +
-                '</tr>';
-            });
-            if (tbody) tbody.innerHTML = html;
-            if (tableWrap) tableWrap.style.display = '';
-          })
-          .catch(function() {
-            if (loading) loading.textContent = 'Could not load applied jobs.';
-          });
-      }
-
-      function escHtml(s) {
-        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      }
     </script>
   </body>
 </html>`;

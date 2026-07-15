@@ -382,19 +382,22 @@ const ICON_SERVER = '<svg width="16" height="16" viewBox="0 0 16 16" fill="curre
 const ICON_CLOCK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l3 2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_MESSAGE = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2h14v9H5l-3 3v-3H1V2z"/></svg>';
 const ICON_GEAR = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm6.4 3a5.4 5.4 0 0 0-.1-1.1l1.4-1.1-1.4-2.4-1.6.6a5.6 5.6 0 0 0-1.9-1.1L10.4 1H6.6l-.4 1.9a5.6 5.6 0 0 0-1.9 1.1l-1.6-.6-1.4 2.4L2.7 6.9A5.4 5.4 0 0 0 2.6 8c0 .4 0 .7.1 1.1L1.3 10.2l1.4 2.4 1.6-.6c.6.5 1.2.8 1.9 1.1l.4 1.9h3.8l.4-1.9c.7-.3 1.3-.6 1.9-1.1l1.6.6 1.4-2.4-1.4-1.1c.1-.4.1-.7.1-1.1z"/></svg>';
+const ICON_ACTIVITY = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8h3l2-5 3 10 2-5h4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 interface SidebarNavItem { href: string; label: string; icon: string; }
 
-// Same 6 destinations as the previous .app-header-links bar — nothing added or
-// removed, just restructured vertically with icons. Labels/arrows kept exactly
-// as they were on the pages that already had them; "Dashboard" is a new label
-// for the home link, which previously had no separate nav-item text at all
-// (it was only reachable via the brand link) — introducing it is what the
-// sidebar spec explicitly asks for, not a change to pre-existing copy.
+// Started as the same 6 destinations as the previous .app-header-links bar,
+// restructured vertically with icons; "Dashboard" is a new label for the home link,
+// which previously had no separate nav-item text at all (it was only reachable via the
+// brand link) — introducing it is what the sidebar spec explicitly asked for, not a
+// change to pre-existing copy. "/system" added July 15 2026 when the Sources/
+// Schedulers/System status/Gemini panels moved off the home dashboard onto their own
+// page.
 const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
   { href: '/', label: 'Dashboard', icon: ICON_HOME },
   { href: '/analytics', label: 'Sources &amp; Applications →', icon: ICON_CHART },
   { href: '/platform-status', label: 'Platform Status →', icon: ICON_SERVER },
+  { href: '/system', label: 'System →', icon: ICON_ACTIVITY },
   { href: '/history', label: 'Application History →', icon: ICON_CLOCK },
   { href: '/jobs/answer-questions', label: 'Answer Questions →', icon: ICON_MESSAGE },
   { href: '/admin', label: 'Admin →', icon: ICON_GEAR },
