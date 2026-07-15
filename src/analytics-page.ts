@@ -1,5 +1,5 @@
 import { AnalyticsData, CountBucket, WindowDays } from './job-search/analytics';
-import { DESIGN_SYSTEM_CSS } from './design-system';
+import { DESIGN_SYSTEM_CSS, renderSidebar } from './design-system';
 
 // No charting library is installed anywhere in this project (checked package.json before
 // writing this) — every chart here is plain HTML/CSS bars or a hand-built inline SVG
@@ -161,23 +161,21 @@ export function renderAnalyticsPage(data: AnalyticsData): string {
     </style>
   </head>
   <body>
-    <header class="app-header">
-      <div class="app-header-inner">
-        <a class="app-header-brand" href="/">Job Search Bot</a>
-        <div class="app-header-links">
-          <a href="/history">Application History →</a>
-          <a href="/jobs/answer-questions">Answer Questions →</a>
-          <a href="/platform-status">Platform Status →</a>
-          <a href="/analytics" class="active">Sources &amp; Applications →</a>
-          <a href="/admin">Admin →</a>
+    <div class="app-shell">
+      ${renderSidebar('/analytics')}
+      <div class="main-area">
+        <div class="page">
+
+        <div class="content-topbar">
+          <div>
+            <div class="breadcrumb">Overview</div>
+            <h1>Sources &amp; Applications</h1>
+            <p class="subtitle" style="margin:4px 0 0;">Where jobs are coming from and where you're actually applying — read-only, updates independently of the main dashboard.</p>
+          </div>
         </div>
-      </div>
-    </header>
-    <div class="page">
+
       <div class="card">
         <div class="nav"><a href="/">← Back to Dashboard</a></div>
-        <h1>Sources &amp; Applications</h1>
-        <p class="subtitle">Where jobs are coming from and where you're actually applying — read-only, updates independently of the main dashboard.</p>
         ${renderWindowSelector(data.windowDays)}
         <p class="data-note">${escapeHtml(data.dataNote)}</p>
       </div>
@@ -187,6 +185,8 @@ export function renderAnalyticsPage(data: AnalyticsData): string {
       ${renderBarChart('Jobs by country', data.jobsByCountry, '#7c3aed')}
       ${renderStatusBreakdown(data.statusBreakdown)}
       ${renderTrendChart(data.trend)}
+        </div>
+      </div>
     </div>
   </body>
 </html>`;

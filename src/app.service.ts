@@ -35,7 +35,7 @@ import { ApecPlaywrightStatus, getApecPlaywrightStatus } from './job-search/sour
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 import { buildAnalyticsData, fetchAnalyticsRows, WindowDays } from './job-search/analytics';
 import { renderAnalyticsPage } from './analytics-page';
-import { DESIGN_SYSTEM_CSS } from './design-system';
+import { DESIGN_SYSTEM_CSS, renderSidebar } from './design-system';
 
 // Hardcoded recovery contact. Password recovery delivers to Telegram (already
 // configured); this address is shown on the login page so you always know where
@@ -2274,11 +2274,11 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             return `
               <tr data-country="${countryTab}" data-job-id="${jobId}" style="${agingBorder}">
                 <td>
-                  <div style="font-weight:600;font-size:14px;line-height:1.4;">${escapeHtml(match.job.title)}${agingTag}</div>
-                  <div style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}&nbsp;${hnBadge}${emailBadge}</div>
+                  <div class="truncate" title="${escapeHtml(match.job.title)}" style="font-weight:600;font-size:14px;line-height:1.4;">${escapeHtml(match.job.title)}${agingTag}</div>
+                  <div class="truncate" style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}&nbsp;${hnBadge}${emailBadge}</div>
                 </td>
-                <td style="font-weight:500;">${escapeHtml(match.job.company)}</td>
-                <td style="color:#374151;font-size:13px;">${escapeHtml(match.job.locationLabel)}${visaBadge}</td>
+                <td class="truncate" title="${escapeHtml(match.job.company)}" style="font-weight:500;">${escapeHtml(match.job.company)}</td>
+                <td class="truncate" title="${escapeHtml(match.job.locationLabel)}" style="color:#374151;font-size:13px;">${escapeHtml(match.job.locationLabel)}${visaBadge}</td>
                 <td>${workModeBadge(match.job.workMode)}</td>
                 <td style="font-size:13px;white-space:nowrap;">${salaryDisplay}</td>
                 <td>
@@ -2329,36 +2329,51 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
     </style>
   </head>
   <body>
-    <header class="app-header">
-      <div class="app-header-inner">
-        <a class="app-header-brand" href="/">Job Search Bot</a>
-        <div class="app-header-links">
-          <a href="/history">Application History →</a>
-          <a href="/jobs/answer-questions">Answer Questions →</a>
-          <a href="/platform-status">Platform Status →</a>
-          <a href="/analytics">Sources &amp; Applications →</a>
-          <a href="/admin">Admin →</a>
+    <div class="app-shell">
+      ${renderSidebar('/')}
+      <div class="main-area">
+        <div class="page">
+
+        <div class="content-topbar">
+          <div>
+            <div class="breadcrumb">Overview</div>
+            <h1>Job Search Bot</h1>
+            <p class="subtitle" style="margin:4px 0 0;">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                ${statusDot(state.lastRunStatus)}
+                <span style="font-size:13px;font-weight:600;color:#374151;">${escapeHtml(statusLabel)}</span>
+              </div>
+              ${state.lastRunStatus === 'gemini_waiting' && state.geminiRetry
+                ? `<span style="font-size:11px;color:#7c3aed;">Next retry: ${state.geminiRetry.nextAt.slice(11, 16)} UTC &nbsp;·&nbsp; will try up to ${state.geminiRetry.max} times</span>`
+                : ''}
+            </div>
+            <div class="avatar" title="Uman Mushtaq">UM</div>
+          </div>
         </div>
-      </div>
-    </header>
-    <div class="page">
+
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-card-label">Current matches</div>
+            <div class="metric-card-value" style="color:var(--color-primary);">${state.stats.matchCount}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-card-label">Fresh jobs scanned</div>
+            <div class="metric-card-value">${state.stats.freshJobsCount ?? 'n/a'}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-card-label">Active sources</div>
+            <div class="metric-card-value">${state.activeSources.filter((s) => s !== 'indeed.com').length}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-card-label">Blocked sources</div>
+            <div class="metric-card-value">${state.blockedSources.length}</div>
+          </div>
+        </div>
 
       <div class="card">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-          <div>
-            <p class="subtitle" style="margin:0;">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris</p>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${statusDot(state.lastRunStatus)}
-              <span style="font-size:13px;font-weight:600;color:#374151;">${escapeHtml(statusLabel)}</span>
-            </div>
-            ${state.lastRunStatus === 'gemini_waiting' && state.geminiRetry
-              ? `<span style="font-size:11px;color:#7c3aed;">Next retry: ${state.geminiRetry.nextAt.slice(11, 16)} UTC &nbsp;·&nbsp; will try up to ${state.geminiRetry.max} times</span>`
-              : ''}
-          </div>
-        </div>
-
         <div class="meta-grid">
           <div class="meta-item">
             <label>Last run</label>
@@ -2375,14 +2390,6 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
           <div class="meta-item">
             <label>Interval</label>
             <span>${state.intervalMinutes} min</span>
-          </div>
-          <div class="meta-item">
-            <label>Current matches</label>
-            <span style="font-size:18px;font-weight:700;color:#2563eb;">${state.stats.matchCount}</span>
-          </div>
-          <div class="meta-item">
-            <label>Fresh jobs scanned</label>
-            <span>${state.stats.freshJobsCount ?? 'n/a'}</span>
           </div>
         </div>
 
@@ -2405,8 +2412,17 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             ${state.blockedSources.map((s) => `<span class="source-chip blocked-chip">${escapeHtml(s)}</span>`).join('')}
           </div>` : ''}
 
-          <div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
-            <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Sources</div>
+            <form method="post" action="/run-now" style="margin:0;">
+              <button class="btn btn-primary btn-sm" type="submit">▶ Run all (excl. APEC &amp; Indeed)</button>
+            </form>
+          </div>
+
+          <div style="margin-top:2px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+            <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+              <span class="status-dot-sm ${indeedStatus?.status === 'success' ? 'status-dot-success' : indeedStatus?.status === 'failed' ? 'status-dot-danger' : 'status-dot-neutral'}"></span>
               Indeed (separate timer)${indeedStatus?.via === 'scraperapi' ? ' <span class="badge badge-info" style="vertical-align:middle;text-transform:none;letter-spacing:0;">via ScraperAPI proxy</span>' : indeedStatus?.via === 'direct' ? ' <span class="badge badge-warning" style="vertical-align:middle;text-transform:none;letter-spacing:0;">direct (no proxy)</span>' : ''}
             </div>
             <table style="font-size:13px;color:#374151;border-collapse:collapse;width:100%;">
@@ -2439,11 +2455,11 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
               </tr>
             </table>
           </div>
-        </div>
 
           <!-- APEC status panel -->
           <div style="margin-top:14px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
-            <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">
+            <div style="font-size:12px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+              <span class="status-dot-sm ${apecRunStatus?.status === 'success' ? 'status-dot-success' : apecRunStatus?.status === 'blocked' ? 'status-dot-danger' : 'status-dot-neutral'}"></span>
               APEC (separate timer)${apecRunStatus?.playwrightEnabled ? ' <span class="badge badge-info" style="vertical-align:middle;text-transform:none;letter-spacing:0;">Playwright stealth</span>' : ' <span class="badge badge-warning" style="vertical-align:middle;text-transform:none;letter-spacing:0;">RSS / API fallback</span>'}
             </div>
             <table style="font-size:13px;color:#374151;border-collapse:collapse;width:100%;">
@@ -2486,22 +2502,21 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
             </table>
           </div>
 
-        <div class="actions-row" style="display:flex;gap:10px;flex-wrap:wrap;">
-          <form method="post" action="/run-now">
-            <button class="btn btn-primary" type="submit">▶ Run all (excl. APEC &amp; Indeed)</button>
-          </form>
+        <div class="actions-row" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
           <form method="post" action="/run/apec">
-            <button type="submit" class="btn btn-secondary">▶ Run APEC</button>
+            <button type="submit" class="btn btn-secondary btn-sm">▶ Run APEC</button>
           </form>
           <form method="post" action="/run/indeed">
-            <button type="submit" class="btn btn-secondary">▶ Run Indeed</button>
+            <button type="submit" class="btn btn-secondary btn-sm">▶ Run Indeed</button>
           </form>
           <form method="post" action="/run/talentio">
-            <button type="submit" class="btn btn-secondary">▶ Run Talent.io</button>
+            <button type="submit" class="btn btn-secondary btn-sm">▶ Run Talent.io</button>
           </form>
           <form method="post" action="/run/eures">
-            <button type="submit" class="btn btn-secondary">▶ Run EURES</button>
+            <button type="submit" class="btn btn-secondary btn-sm">▶ Run EURES</button>
           </form>
+        </div>
+        </div>
         </div>
       </div>
 
@@ -2612,8 +2627,12 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
               </button>`;
             }).join('')}
           </div>
-          <div class="table-wrap">
-            <table>
+          <div class="table-wrap-fixed">
+            <table class="table-fixed">
+              <colgroup>
+                <col style="width:24%" /><col style="width:15%" /><col style="width:14%" />
+                <col style="width:9%" /><col style="width:12%" /><col style="width:10%" /><col style="width:16%" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Role</th>
@@ -2634,8 +2653,12 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
 
         <div id="tab-applied-panel" style="display:none;">
           <div id="applied-loading" style="color:#9ca3af;font-size:13px;padding:20px 0;">Loading…</div>
-          <div id="applied-table-wrap" class="table-wrap" style="display:none;">
-            <table>
+          <div id="applied-table-wrap" class="table-wrap-fixed" style="display:none;">
+            <table class="table-fixed">
+              <colgroup>
+                <col style="width:22%" /><col style="width:16%" /><col style="width:16%" />
+                <col style="width:10%" /><col style="width:14%" /><col style="width:12%" /><col style="width:10%" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Role</th>
@@ -2657,6 +2680,8 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
       </div>
 
     </div>
+        </div>
+      </div>
     <script>
       document.querySelectorAll('.ts[data-utc]').forEach(function(el) {
         var utc = el.getAttribute('data-utc');
