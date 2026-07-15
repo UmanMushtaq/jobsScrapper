@@ -109,6 +109,45 @@ export interface PgDecisionRow {
   country: string | null;
 }
 
+export interface AnalyticsDecisionRow {
+  source: string;
+  country: string | null;
+  decision: 'applied' | 'dismissed';
+  decidedAt: string; // ISO
+}
+
+// Broader than getJobDecisionHistory below (which caps at 20/50 rows specifically for
+// Gemini calibration prompt size) — this powers the /analytics page's historical charts,
+// so it needs the full decided-jobs population within a bounded cap, not just the most
+// recent handful. No new table: same job_decisions rows, a different SELECT.
+export async function getAllJobDecisionsForAnalytics(limit = 5000): Promise<AnalyticsDecisionRow[]> {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const result = await p.query<{
+      source: string | null;
+      country: string | null;
+      decision: 'applied' | 'dismissed';
+      decided_at: string;
+    }>(
+      `SELECT source, country, decision, decided_at
+       FROM job_decisions
+       ORDER BY decided_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((r) => ({
+      source: r.source ?? 'unknown',
+      country: r.country,
+      decision: r.decision,
+      decidedAt: new Date(r.decided_at).toISOString(),
+    }));
+  } catch (err) {
+    console.error('[postgres] getAllJobDecisionsForAnalytics failed:', (err as Error).message);
+    return [];
+  }
+}
+
 export async function getJobDecisionHistory(appliedLimit = 20, dismissedLimit = 50): Promise<{
   applied: PgDecisionRow[];
   dismissed: PgDecisionRow[];

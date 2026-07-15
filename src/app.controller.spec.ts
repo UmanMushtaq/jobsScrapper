@@ -106,3 +106,20 @@ describe('AppController — read-only endpoints are unaffected', () => {
     expect(result).toEqual([{ jobId: '1' }]);
   });
 });
+
+describe('AppController — /analytics (Sources & Applications page)', () => {
+  it('renders the page via getAnalyticsPage, independent of the home dashboard', async () => {
+    const appService = { getAnalyticsPage: jest.fn().mockResolvedValue('<html>analytics</html>') };
+    const controller = new AppController(appService as unknown as AppService);
+    const html = await controller.analyticsPage('30');
+    expect(html).toBe('<html>analytics</html>');
+    expect(appService.getAnalyticsPage).toHaveBeenCalledWith('30');
+  });
+
+  it('passes an undefined days query through unchanged, letting the service apply the default', async () => {
+    const appService = { getAnalyticsPage: jest.fn().mockResolvedValue('<html></html>') };
+    const controller = new AppController(appService as unknown as AppService);
+    await controller.analyticsPage(undefined);
+    expect(appService.getAnalyticsPage).toHaveBeenCalledWith(undefined);
+  });
+});

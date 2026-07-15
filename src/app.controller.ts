@@ -35,6 +35,14 @@ export class AppController {
     return this.appService.getPlatformStatusPage();
   }
 
+  // Read-only Sources & Applications analytics page — separate route, separate data
+  // fetch from the home dashboard (see AppService.getAnalyticsPage).
+  @Get('analytics')
+  @Header('content-type', 'text/html; charset=utf-8')
+  async analyticsPage(@Query('days') days?: string): Promise<string> {
+    return this.appService.getAnalyticsPage(days);
+  }
+
   @Get('logs')
   @Header('content-type', 'text/html; charset=utf-8')
   async logsPage(): Promise<string> {

@@ -33,6 +33,8 @@ import { ApecRunStatus, AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedR
 import { getPlatformHealth } from './job-search/platform-health';
 import { ApecPlaywrightStatus, getApecPlaywrightStatus } from './job-search/sources/apec.playwright';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
+import { buildAnalyticsData, fetchAnalyticsRows, WindowDays } from './job-search/analytics';
+import { renderAnalyticsPage } from './analytics-page';
 
 // Hardcoded recovery contact. Password recovery delivers to Telegram (already
 // configured); this address is shown on the login page so you always know where
@@ -567,6 +569,15 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
   async getHistoryPage(): Promise<string> {
     const entries = await redisGetJobHistory();
     return renderHistoryHtml(entries);
+  }
+
+  // Read-only reporting page, deliberately separate from renderDashboard() — fetches
+  // its own data independently so it can never slow down or break the home page.
+  async getAnalyticsPage(daysParam?: string): Promise<string> {
+    const windowDays = parseWindowDays(daysParam);
+    const rows = await fetchAnalyticsRows();
+    const data = buildAnalyticsData(rows, windowDays);
+    return renderAnalyticsPage(data);
   }
 
   async getPlatformStatusPage(): Promise<string> {
@@ -1136,6 +1147,13 @@ function renderAnswerQuestionsResultHtml(
     </script>
   </body>
 </html>`;
+}
+
+function parseWindowDays(raw: string | undefined): WindowDays {
+  if (raw === 'all') return 'all';
+  const n = Number(raw);
+  if (n === 7 || n === 90) return n;
+  return 30; // default, including any unrecognized/missing value
 }
 
 function escapeHtml(value: string): string {
@@ -2440,7 +2458,7 @@ function renderHtml(state: JobSearchState, indeedStatus?: IndeedRunData | null, 
         <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
           <div>
             <h1>Job Search Bot</h1>
-            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/jobs/answer-questions" style="color:#2563eb;text-decoration:none;">Answer Questions →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a> &nbsp;·&nbsp; <a href="/admin" style="color:#2563eb;text-decoration:none;">Admin →</a></p>
+            <p class="subtitle">Uman Mushtaq, Node.js / NestJS Backend Engineer, Paris &nbsp;·&nbsp; <a href="/history" style="color:#2563eb;text-decoration:none;">Application History →</a> &nbsp;·&nbsp; <a href="/jobs/answer-questions" style="color:#2563eb;text-decoration:none;">Answer Questions →</a> &nbsp;·&nbsp; <a href="/platform-status" style="color:#2563eb;text-decoration:none;">Platform Status →</a> &nbsp;·&nbsp; <a href="/analytics" style="color:#2563eb;text-decoration:none;">Sources &amp; Applications →</a> &nbsp;·&nbsp; <a href="/admin" style="color:#2563eb;text-decoration:none;">Admin →</a></p>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">
             <div style="display:flex;align-items:center;gap:8px;">
