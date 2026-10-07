@@ -6,7 +6,6 @@ import { isFrontendPrimaryStack, isMarketingEngineeringRole } from './stack-filt
 import { evaluateLanguageRequirement } from './language-requirement-filter';
 import { isRejectedCompany } from './rejected-companies';
 import { hasNoAiApplicationPolicy } from './no-ai-policy-filter';
-import { extractRequiredMinimumYears } from './experience-parser';
 import { FINTECH_KEYWORDS } from './sources/shared-scraper';
 import { MatchResult, JobPosting, SearchProfile, ScoreBreakdown } from './types';
 
@@ -108,6 +107,14 @@ export function scoreJob(
   const matchedTitleExcl = profile.search.excludedTitleKeywords.find((keyword) => normalizedTitle.includes(keyword));
   if (matchedTitleExcl) {
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: titleExcl (matched: "${matchedTitleExcl}")`);
+    return null;
+  }
+
+  // Hard reject: lead/principal/staff/architect/manager-level titles. "Senior" alone is fine.
+  const seniorityTitle = job.title.match(SENIORITY_TITLE_PATTERN);
+  if (seniorityTitle) {
+    console.log(`[scorer] FILTERED: ${job.company}, title-seniority ("${seniorityTitle[0]}" in "${job.title}")`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: title-seniority (matched: "${seniorityTitle[0]}")`);
     return null;
   }
 
@@ -229,18 +236,12 @@ export function scoreJob(
     return null;
   }
 
-  const effectiveExperience =
-    job.experienceLevelMinimum !== null
-      ? job.experienceLevelMinimum
-      : inferExperienceFromText(text);
-
-  if (effectiveExperience !== null) {
-    if (
-      effectiveExperience < profile.search.experience.min ||
-      effectiveExperience > profile.search.experience.max
-    ) {
-      return null;
-    }
+  // The single experience rule: reject when the minimum years required is 5 or more.
+  const experience = evaluateExperienceRequirement(text, job.experienceLevelMinimum);
+  if (experience.decision === 'reject') {
+    console.log(`[scorer] FILTERED: ${job.company}, years>=5 (minimum ${experience.minYears} years required)`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: years>=5 (minimum ${experience.minYears} years required)`);
+    return null;
   }
 
   // Hard reject: absolute salary floor (logged explicitly)
@@ -284,14 +285,6 @@ export function scoreJob(
         return null;
       }
     }
-  }
-
-  // Experience year text scan — penalty/reject for high-year requirements in required section
-  const { penalty: expPenalty, hardReject: expHardReject } = detectExperiencePenalty(text, profile.search.experience.max);
-  if (expHardReject) {
-    console.log(`[scorer] FILTERED: ${job.company}, ${profile.search.experience.max + 1}+ years required — exceeds the ${profile.search.experience.max}-year experience cap`);
-    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: exp>max (${profile.search.experience.max + 1}+ years required)`);
-    return null;
   }
 
   const mandatoryScore = BASE_REQUIRED_WEIGHTS.reduce((sum, check) => {
@@ -358,7 +351,7 @@ export function scoreJob(
     0,
     Math.min(
       100,
-      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + tier2Score + fintechScore + preference.delta - expPenalty - tier1Penalty,
+      mandatoryScore + kwScore + preferredGroupScore + titleScore + locScore + startupScore + sponsorScore + tier2Score + fintechScore + preference.delta - tier1Penalty,
     ),
   );
 
@@ -397,7 +390,6 @@ export function scoreJob(
     tier2: tier2Score || undefined,
     fintech: fintechScore || undefined,
     preference: preference.delta,
-    expPenalty: expPenalty || undefined,
     tier1Penalty: tier1Penalty || undefined,
   };
 
@@ -410,6 +402,8 @@ export function scoreJob(
     `Location fit: ${locationScore.reason}`,
     ...buildPreferredReasons(text, profile),
   ].slice(0, 5);
+  // Appended after the cut so the tag is never dropped and never becomes reasons[0].
+  if (experience.decision === 'borderline') reasons.push(BORDERLINE_YEARS_TAG);
 
   return {
     job: {
@@ -450,53 +444,98 @@ function isLanguageFit(job: JobPosting, profile: SearchProfile, text: string): b
   return true;
 }
 
-function inferExperienceFromText(text: string): number | null {
-  // "5+ years" — treat as exactly the stated number (companies routinely inflate requirements)
-  const plusMatch = text.match(/(\d+)\+\s*years?/i);
-  if (plusMatch) {
-    return parseInt(plusMatch[1], 10);
-  }
+// ── Experience rule ────────────────────────────────────────────────────────────
+// One rule for years of experience: extract every stated MINIMUM requirement (a range's
+// lower bound: "3-5 years" = 3, "5-7 years" = 5) in EN/FR/DE/NL/SV/DA/NO/FI and reject when
+// any is 5 or more. A 5+ requirement qualified as ideal/preferred/nice-to-have is kept and
+// tagged "borderline-years". No number found, or fewer than 2 years asked: keep.
+export const EXPERIENCE_REJECT_MIN_YEARS = 5;
+export const BORDERLINE_YEARS_TAG = 'borderline-years';
 
-  // "5 to 10 years" or "5-10 years" — use the lower bound of the range
-  const rangeMatch = text.match(/(\d+)\s*(?:to|-)\s*\d+\s+years?/i);
-  if (rangeMatch) {
-    return parseInt(rangeMatch[1], 10);
-  }
+const SENIORITY_TITLE_PATTERN =
+  /\b(?:lead|principal|staff|head\s+of|engineering\s+manager|team\s+lead|architect)\b/i;
 
-  const patterns: RegExp[] = [
-    /(?:minimum|at\s+least|min\.?)\s+(\d+)\s+years?/i,
-    /(\d+)\s+years?\s+(?:of\s+)?(?:professional\s+)?experience/i,
-    /experience\s*(?:of\s+)?(\d+)\s+years?/i,
-  ];
+const NUM = String.raw`(?<!\d)(\d{1,2})`;
+// years / ans / années / Jahre / jaar / jaren / år / års / vuotta / vuoden
+const UNIT = String.raw`(?:years?|yrs?|ann[ée]es?|ans|jahren|jahre|jaren|jaar|års|år|vuotta|vuoden)(?![a-zà-ÿ])`;
+const EXPERIENCE_WORD = String.raw`(?:experience|exp[ée]rience|berufserfahrung|erfahrung|werkervaring|ervaring|erfarenhet|erfaring|kokemus)`;
+const MINIMUM_WORD = String.raw`(?:minimum|min\.|at\s+least|au\s+moins|mindestens|mind\.|minimaal|ten\s+minste|minstens|minst|mindst|vähintään)`;
 
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
-  }
+const RANGE_PATTERN = new RegExp(
+  String.raw`${NUM}\s*(?:-|–|—|to|à|a|bis|tot|till|til)\s*\d{1,2}\s*\+?\s*${UNIT}`, 'gi');
+const REQUIREMENT_PATTERNS: RegExp[] = [
+  // "5+ years" / "5+ Jahre" / "5+ jaar" / "5+ år" / "around 5+ years"
+  new RegExp(String.raw`${NUM}\s*\+\s*${UNIT}`, 'gi'),
+  // "at least 5 years" / "minimum of 5 years" / "minimum 5 ans" / "mindestens 5 Jahre" /
+  // "minst 5 år" / "mindst 5 års" / "vähintään 5 vuotta"
+  new RegExp(String.raw`${MINIMUM_WORD}\s*(?:of\s+|de\s+)?${NUM}\s*\+?\s*${UNIT}`, 'gi'),
+  // "5 ans minimum" / "5 years minimum"
+  new RegExp(String.raw`${NUM}\s*${UNIT}\s*${MINIMUM_WORD}`, 'gi'),
+  // "5 years of experience" / "5 Jahre Berufserfahrung" / "5 jaar ervaring" / "5 vuoden kokemus"
+  new RegExp(String.raw`${NUM}\s*${UNIT}[^.\n]{0,40}?${EXPERIENCE_WORD}`, 'gi'),
+  // "experience of 5 years" / "expérience de 5 ans"
+  new RegExp(String.raw`${EXPERIENCE_WORD}[^.\n]{0,40}?${NUM}\s*${UNIT}`, 'gi'),
+];
 
-  return null;
+// Qualifiers that make a 5+ requirement soft: before the number, in the same sentence...
+const SOFT_BEFORE = /(?:ideally|preferably|preferred|nice[\s-]to[\s-]have|bonus|a\s+plus|idéalement|de\s+préférence|idealerweise|vorzugsweise|wünschenswert|bij\s+voorkeur|idealiter|helst|gärna|gerne|gjerne|mieluiten|ihanteellisesti)/i;
+// ...or right after it ("5+ years preferred", "5+ years is a plus").
+const SOFT_AFTER = /^[^.;\n]{0,40}?(?:preferred|is\s+a\s+plus|would\s+be\s+a\s+plus|nice[\s-]to[\s-]have|is\s+a\s+bonus|souhaité|wünschenswert|von\s+vorteil)/i;
+// A requirement heading between the qualifier and the number resets the context.
+const HARD_CONTEXT = /(?:requirements?|required|must|requis|exigences|anforderungen|vereisten|krav|vaatimukset)/gi;
+
+export interface ExperienceRequirement {
+  decision: 'reject' | 'borderline' | 'keep';
+  // The minimum years behind the decision; for 'keep' the lowest requirement found, or null.
+  minYears: number | null;
 }
 
+function isSoftRequirement(text: string, start: number, end: number): boolean {
+  let before = text.slice(Math.max(0, start - 100), start);
+  const lastStop = Math.max(before.lastIndexOf('.'), before.lastIndexOf(';'), before.lastIndexOf('!'), before.lastIndexOf('?'));
+  if (lastStop >= 0) before = before.slice(lastStop + 1);
+  let lastHard = -1;
+  for (const m of before.matchAll(HARD_CONTEXT)) lastHard = m.index + m[0].length;
+  if (lastHard >= 0) before = before.slice(lastHard);
+  return SOFT_BEFORE.test(before) || SOFT_AFTER.test(text.slice(end));
+}
 
-function detectExperiencePenalty(text: string, maxYears: number): { penalty: number; hardReject: boolean } {
-  // Only scan required section — ignore nice-to-have context
-  const niceIdx = text.search(/(?:nice[- ]to[- ]have|bonus|preferred|would be a plus|optionnel|bon à avoir)/i);
-  const required = niceIdx > 0 ? text.slice(0, niceIdx) : text;
+export function evaluateExperienceRequirement(
+  rawText: string,
+  structuredMinimum: number | null = null,
+): ExperienceRequirement {
+  const text = rawText.toLowerCase();
+  const found: Array<{ years: number; soft: boolean }> = [];
 
-  // Hard reject: more than `maxYears` explicitly required, in English, French, or German
-  // (driven by profile.search.experience.max — see the comment on that field in
-  // types.ts). Anything above must never surface, regardless of stack fit or other
-  // scoring, so this can't be compensated by a soft penalty. A stated range's lower bound
-  // is used (see extractRequiredMinimumYears), so "5 to 10 years" / "5 à 10 ans" is NOT
-  // rejected when maxYears is 5 (lower bound 5, at the cap, not over it).
-  const minYears = extractRequiredMinimumYears(required);
-  if (minYears !== null && minYears > maxYears) {
-    return { penalty: 0, hardReject: true };
+  // Ranges first, then blank them out so "3-5 years" is never re-read as "5 years".
+  let masked = text;
+  for (const m of text.matchAll(RANGE_PATTERN)) {
+    const end = m.index + m[0].length;
+    found.push({ years: parseInt(m[1], 10), soft: isSoftRequirement(text, m.index, end) });
+    masked = masked.slice(0, m.index) + ' '.repeat(m[0].length) + masked.slice(end);
+  }
+  for (const pattern of REQUIREMENT_PATTERNS) {
+    for (const m of masked.matchAll(pattern)) {
+      const end = m.index + m[0].length;
+      found.push({ years: parseInt(m[1], 10), soft: isSoftRequirement(text, m.index, end) });
+    }
+  }
+  if (structuredMinimum !== null && structuredMinimum !== undefined) {
+    found.push({ years: structuredMinimum, soft: false });
   }
 
-  return { penalty: 0, hardReject: false };
+  const high = found.filter((f) => f.years >= EXPERIENCE_REJECT_MIN_YEARS);
+  const hard = high.filter((f) => !f.soft);
+  if (hard.length > 0) {
+    return { decision: 'reject', minYears: Math.max(...hard.map((f) => f.years)) };
+  }
+  if (high.length > 0) {
+    return { decision: 'borderline', minYears: Math.min(...high.map((f) => f.years)) };
+  }
+  return {
+    decision: 'keep',
+    minYears: found.length > 0 ? Math.min(...found.map((f) => f.years)) : null,
+  };
 }
 
 function containsAny(text: string, tokens: string[]): boolean {

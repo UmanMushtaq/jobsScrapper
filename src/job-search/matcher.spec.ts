@@ -1,4 +1,4 @@
-import { scoreJob } from './matcher';
+import { BORDERLINE_YEARS_TAG, evaluateExperienceRequirement, scoreJob } from './matcher';
 import { SearchProfile, JobPosting } from './types';
 
 const profile: SearchProfile = {
@@ -101,19 +101,18 @@ describe('scoreJob', () => {
     expect(result).toBeNull();
   });
 
-  it('accepts a job requiring exactly 5 years (at the hard cap)', () => {
+  it('rejects a job requiring exactly 5 years (minimum >= 5)', () => {
     const result = scoreJob(
       buildJob({ experienceLevelMinimum: 5 }),
       profile,
     );
 
-    expect(result).not.toBeNull();
+    expect(result).toBeNull();
   });
 
   it('rejects a job with no structured experienceLevelMinimum but "6 ans d\'expérience minimum" in the description', () => {
-    // experienceLevelMinimum is null so the numeric pre-filter can't catch this — only the
-    // text-scan hard reject in detectExperiencePenalty can. This is the exact bypass that
-    // used to only apply a soft -10 penalty instead of a hard reject.
+    // experienceLevelMinimum is null, so only the text scan in evaluateExperienceRequirement
+    // can catch this.
     const result = scoreJob(
       buildJob({
         experienceLevelMinimum: null,
@@ -220,7 +219,7 @@ describe('scoreJob — rejected-companies blocklist (Rule 1)', () => {
   });
 });
 
-describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
+describe('scoreJob — experience text parsing, real JD examples (minimum >= 5 rejects)', () => {
   it('rejects "Around 6+ years of experience" (Air Apps example)', () => {
     const result = scoreJob(
       buildJob({
@@ -233,7 +232,7 @@ describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
     expect(result).toBeNull();
   });
 
-  it('accepts "5+ years"', () => {
+  it('rejects "5+ years"', () => {
     const result = scoreJob(
       buildJob({
         experienceLevelMinimum: null,
@@ -241,10 +240,10 @@ describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
       }),
       profile,
     );
-    expect(result).not.toBeNull();
+    expect(result).toBeNull();
   });
 
-  it('accepts "5 à 10 ans" (French range, lower bound 5)', () => {
+  it('rejects "5 à 10 ans" (French range, lower bound 5)', () => {
     const result = scoreJob(
       buildJob({
         experienceLevelMinimum: null,
@@ -252,7 +251,7 @@ describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
       }),
       profile,
     );
-    expect(result).not.toBeNull();
+    expect(result).toBeNull();
   });
 
   it('rejects "7 Jahre Berufserfahrung" (German)', () => {
@@ -266,7 +265,7 @@ describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
     expect(result).toBeNull();
   });
 
-  it('accepts "5+ years professional software engineering experience" (Avenga example)', () => {
+  it('rejects "5+ years professional software engineering experience" (Avenga example)', () => {
     const result = scoreJob(
       buildJob({
         experienceLevelMinimum: null,
@@ -276,10 +275,10 @@ describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
       }),
       profile,
     );
-    expect(result).not.toBeNull();
+    expect(result).toBeNull();
   });
 
-  it('accepts "Deep Backend Expertise: 5+ years of commercial web development experience" (LionHires example)', () => {
+  it('rejects "Deep Backend Expertise: 5+ years of commercial web development experience" (LionHires example)', () => {
     const result = scoreJob(
       buildJob({
         experienceLevelMinimum: null,
@@ -289,10 +288,10 @@ describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
       }),
       profile,
     );
-    expect(result).not.toBeNull();
+    expect(result).toBeNull();
   });
 
-  it('accepts "solide expérience de 5 ans minimum" (Dougs example, French, minimum after the number)', () => {
+  it('rejects "solide expérience de 5 ans minimum" (Dougs example, French, minimum after the number)', () => {
     const result = scoreJob(
       buildJob({
         experienceLevelMinimum: null,
@@ -302,7 +301,7 @@ describe('scoreJob — experience-cap text parsing, EN/FR/DE (Rule 3)', () => {
       }),
       profile,
     );
-    expect(result).not.toBeNull();
+    expect(result).toBeNull();
   });
 
   it('rejects "minimum of 6 years experience required" (filler word between minimum and the number)', () => {
@@ -406,4 +405,141 @@ describe('scoreJob — German internship/training title rejection (Germany-cover
     const result = scoreJob(buildJob({ title: 'Backend Entwickler (Node.js)' }), germanProfile);
     expect(result).not.toBeNull();
   });
+});
+
+describe('evaluateExperienceRequirement — one rule: minimum years >= 5 rejects', () => {
+  it.each([
+    // English
+    ['5+ years of experience with Node.js', 5],
+    ['At least 5 years of backend experience', 5],
+    ['Minimum 5 years in a similar role', 5],
+    ['Minimum of 6 years experience required', 6],
+    ['Around 5+ years building APIs', 5],
+    ['5-7 years of experience', 5],
+    ['5 to 8 years in backend development', 5],
+    // German
+    ['Mindestens 5 Jahre Berufserfahrung', 5],
+    ['5+ Jahre Erfahrung mit Node.js', 5],
+    ['5 bis 7 Jahre Erfahrung', 5],
+    // French
+    ['5 ans minimum en développement backend', 5],
+    ['Minimum 5 ans d\'expérience', 5],
+    ['5 à 10 ans d\'expérience', 5],
+    // Dutch
+    ['5+ jaar ervaring met TypeScript', 5],
+    ['Minimaal 6 jaar werkervaring', 6],
+    // Swedish
+    ['Minst 5 år som backendutvecklare', 5],
+    // Danish
+    ['Mindst 5 års erfaring med Node.js', 5],
+    // Norwegian
+    ['Minst 5 års erfaring som utvikler', 5],
+    // Finnish
+    ['Vähintään 5 vuotta kokemusta', 5],
+    ['Vähintään 5 vuoden kokemus backend-kehityksestä', 5],
+  ])('rejects "%s" (minimum %i)', (text, years) => {
+    expect(evaluateExperienceRequirement(text)).toEqual({ decision: 'reject', minYears: years });
+  });
+
+  it.each([
+    ['3-5 years of experience', 3],
+    ['3 to 5 years of backend experience', 3],
+    ['3 bis 5 Jahre Berufserfahrung', 3],
+    ['3 à 5 ans d\'expérience', 3],
+    ['3-5 jaar ervaring', 3],
+    ['Minst 3 års erfarenhet', 3],
+    ['Mindst 4 års erfaring', 4],
+    ['Vähintään 3 vuoden kokemus', 3],
+    ['4 years of experience with NestJS', 4],
+  ])('keeps "%s" (range lower bound / minimum %i is below 5)', (text, years) => {
+    expect(evaluateExperienceRequirement(text)).toEqual({ decision: 'keep', minYears: years });
+  });
+
+  it('never re-reads the upper bound of a range as its own requirement', () => {
+    expect(evaluateExperienceRequirement('Experience: 2-5 years of experience with Node.js').decision).toBe('keep');
+  });
+
+  it('keeps a job with no years stated', () => {
+    expect(evaluateExperienceRequirement('Solid Node.js and TypeScript experience.')).toEqual({ decision: 'keep', minYears: null });
+  });
+
+  it('does not reject a job asking fewer than 2 years', () => {
+    expect(evaluateExperienceRequirement('1+ year of experience').decision).toBe('keep');
+    expect(evaluateExperienceRequirement('', 0).decision).toBe('keep');
+  });
+
+  it('rejects when any non-soft requirement is >= 5, even alongside a lower one', () => {
+    expect(evaluateExperienceRequirement('3+ years with NestJS. 5+ years of backend experience.').decision).toBe('reject');
+  });
+
+  it('rejects a structured minimum of 5 from the source', () => {
+    expect(evaluateExperienceRequirement('', 5)).toEqual({ decision: 'reject', minYears: 5 });
+  });
+
+  it.each([
+    'Ideally 5+ years of experience',
+    'Preferably 5+ years of backend experience',
+    'Nice to have: 5+ years with Kafka',
+    'Nice-to-have:\n- 6+ years in fintech',
+    '5+ years of experience preferred',
+  ])('marks "%s" as borderline instead of rejecting', (text) => {
+    expect(evaluateExperienceRequirement(text).decision).toBe('borderline');
+  });
+
+  it('a requirements heading after a nice-to-have list still rejects', () => {
+    expect(evaluateExperienceRequirement('Nice to have: Kafka\nRequirements:\n- 5+ years of experience').decision).toBe('reject');
+  });
+});
+
+describe('scoreJob — experience rule and title seniority', () => {
+  const openProfile: SearchProfile = { ...profile, search: { ...profile.search, excludedTitleKeywords: [] } };
+  const base = 'Node.js TypeScript backend API role with NestJS, PostgreSQL, Docker and AWS. ';
+
+  it('keeps a borderline 5+ requirement and tags it "borderline-years"', () => {
+    const result = scoreJob(
+      buildJob({ experienceLevelMinimum: null, description: `${base}Ideally 5+ years of experience.` }),
+      openProfile,
+    );
+    expect(result).not.toBeNull();
+    expect(result?.reasons).toContain(BORDERLINE_YEARS_TAG);
+    expect(result?.reasons[0]).not.toBe(BORDERLINE_YEARS_TAG);
+  });
+
+  it('does not tag a normal job', () => {
+    const result = scoreJob(buildJob({ description: `${base}3-5 years of experience.` }), openProfile);
+    expect(result).not.toBeNull();
+    expect(result?.reasons).not.toContain(BORDERLINE_YEARS_TAG);
+  });
+
+  it('accepts a job asking for 1 year (no lower experience bound)', () => {
+    expect(scoreJob(buildJob({ experienceLevelMinimum: 1 }), openProfile)).not.toBeNull();
+  });
+
+  it('rejects "5-7 years" via the range lower bound', () => {
+    const result = scoreJob(
+      buildJob({ experienceLevelMinimum: null, description: `${base}5-7 years of experience.` }),
+      openProfile,
+    );
+    expect(result).toBeNull();
+  });
+
+  it.each([
+    'Lead Backend Engineer',
+    'Tech Lead Node.js',
+    'Team Lead Backend',
+    'Principal Software Engineer',
+    'Staff Backend Engineer',
+    'Head of Engineering',
+    'Engineering Manager, Platform APIs',
+    'Backend Architect',
+  ])('rejects title "%s"', (title) => {
+    expect(scoreJob(buildJob({ title }), openProfile)).toBeNull();
+  });
+
+  it.each(['Senior Backend Engineer', 'Senior Node.js Developer', 'Backend Engineer (Leading fintech)'])(
+    'keeps title "%s"',
+    (title) => {
+      expect(scoreJob(buildJob({ title }), openProfile)).not.toBeNull();
+    },
+  );
 });
