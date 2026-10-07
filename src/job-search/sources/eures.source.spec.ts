@@ -212,7 +212,7 @@ describe('EuresSource.fetch — per-country search, dedup, and diagnostics', () 
     });
 
     const source = new EuresSource();
-    const fetchPromise = source.fetch([], buildSettings(['LU']));
+    const fetchPromise = source.fetch([], buildSettings(['SE']));
     // Flush every pending sleep(1500) between queries without a real wait.
     await jest.runAllTimersAsync();
     const jobs = await fetchPromise;
@@ -230,12 +230,12 @@ describe('EuresSource.fetch — per-country search, dedup, and diagnostics', () 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
 
     const source = new EuresSource();
-    const fetchPromise = source.fetch([], buildSettings(['LU', 'NL']));
+    const fetchPromise = source.fetch([], buildSettings(['SE', 'NL']));
     await jest.runAllTimersAsync();
     await fetchPromise;
 
     const lines = logSpy.mock.calls.map((c) => String(c[0]));
-    expect(lines.some((l) => /^\[eures\] country=LU fetched=\d+ passed_filters=\d+$/.test(l))).toBe(true);
+    expect(lines.some((l) => /^\[eures\] country=SE fetched=\d+ passed_filters=\d+$/.test(l))).toBe(true);
     expect(lines.some((l) => /^\[eures\] country=NL fetched=\d+ passed_filters=\d+$/.test(l))).toBe(true);
 
     logSpy.mockRestore();
@@ -250,30 +250,43 @@ describe('EuresSource.fetch — per-country search, dedup, and diagnostics', () 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const source = new EuresSource();
-    const fetchPromise = source.fetch([], buildSettings(['XX', 'LU']));
+    const fetchPromise = source.fetch([], buildSettings(['NO', 'SE']));
     await jest.runAllTimersAsync();
     const jobs = await fetchPromise;
 
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no EURES locationCode mapping for country "XX"'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no EURES locationCode mapping for country "NO"'));
     expect(jobs.some((j) => j.canonicalUrl.includes(encodeURIComponent('unmapped-country-check')))).toBe(true);
 
     warnSpy.mockRestore();
+  });
+
+  it('never queries a target country outside ALLOWED_COUNTRIES (e.g. LU, PL, BE)', async () => {
+    mockedAxios.post.mockResolvedValue({ status: 200, data: { numberRecords: 0, jvs: [] } });
+
+    const source = new EuresSource();
+    const fetchPromise = source.fetch([], buildSettings(['LU', 'PL', 'BE', 'NL']));
+    await jest.runAllTimersAsync();
+    await fetchPromise;
+
+    const codes = new Set(mockedAxios.post.mock.calls.map((c) => (c[1] as { locationCodes: string[] }).locationCodes[0]));
+    expect([...codes]).toEqual(['nl']);
   });
 
   it('uses only ENGLISH_KEYWORDS for a non-FR/DE country, but adds FRENCH_KEYWORDS for FR and GERMAN_KEYWORDS for DE', async () => {
     mockedAxios.post.mockResolvedValue({ status: 200, data: { numberRecords: 0, jvs: [] } });
 
     const source = new EuresSource();
-    const fetchPromise = source.fetch([], buildSettings(['LU', 'FR', 'DE']));
+    const fetchPromise = source.fetch([], buildSettings(['SE', 'FR', 'DE']));
     await jest.runAllTimersAsync();
     await fetchPromise;
 
     const bodies = mockedAxios.post.mock.calls.map((c) => c[1] as { locationCodes: string[] });
-    const luCalls = bodies.filter((b) => b.locationCodes[0] === 'lu').length;
+    const seCalls = bodies.filter((b) => b.locationCodes[0] === 'se').length;
     const frCalls = bodies.filter((b) => b.locationCodes[0] === 'fr').length;
     const deCalls = bodies.filter((b) => b.locationCodes[0] === 'de').length;
 
-    expect(frCalls).toBeGreaterThan(luCalls);
-    expect(deCalls).toBeGreaterThan(luCalls);
+    expect(seCalls).toBeGreaterThan(0);
+    expect(frCalls).toBeGreaterThan(seCalls);
+    expect(deCalls).toBeGreaterThan(seCalls);
   });
 });

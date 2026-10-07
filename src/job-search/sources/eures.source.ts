@@ -6,6 +6,7 @@ import { RELOCATION_KEYWORDS } from './shared-scraper';
 import { RequiredLanguage } from '../language-requirement-filter';
 import { extractRequiredMinimumYears } from '../experience-parser';
 import { ENGLISH_KEYWORDS, FRENCH_KEYWORDS, GERMAN_KEYWORDS } from '../keywords';
+import { ALLOWED_COUNTRIES } from '../allowed-countries';
 
 const SOURCE = 'eures.europa.eu';
 const API_URL = 'https://europa.eu/eures/api/jv-searchengine/public/jv-search/search';
@@ -120,7 +121,9 @@ export class EuresSource implements JobSource {
   priority = 4;
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
-    const targetCountries = settings.targetCountryCodes ?? [];
+    const targetCountries = (settings.targetCountryCodes ?? []).filter((c) =>
+      ALLOWED_COUNTRIES.includes(c.trim().toUpperCase()),
+    );
     if (targetCountries.length === 0) {
       console.warn('[eures] no targetCountryCodes configured on this profile — skipping EURES entirely');
       return [];

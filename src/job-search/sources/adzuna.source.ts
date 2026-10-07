@@ -3,6 +3,12 @@ import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
 import { CORE_KEYWORDS_MINIMAL } from '../keywords';
+import { ALLOWED_COUNTRIES } from '../allowed-countries';
+
+// Countries the Adzuna API serves. Sweden, Denmark, Norway and Finland are not among them.
+const ADZUNA_SUPPORTED_COUNTRIES = new Set([
+  'gb', 'us', 'at', 'au', 'be', 'br', 'ca', 'ch', 'de', 'es', 'fr', 'in', 'it', 'mx', 'nl', 'nz', 'pl', 'sg', 'za',
+]);
 
 const ADZUNA_BASE_URL = 'https://api.adzuna.com/v1/api/jobs';
 const SOURCE = 'adzuna.com';
@@ -48,13 +54,22 @@ export class AdzunaJobsSource implements JobSource {
       return [];
     }
 
-    const countries = (process.env.ADZUNA_COUNTRIES ?? 'fr,gb,de,nl,be,lu,ie,at,pl,it,es,se')
+    const requested = (process.env.ADZUNA_COUNTRIES ?? 'fr,de,nl')
       .split(',')
-      .map((c) => c.trim().toLowerCase());
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean);
+    // Only countries in ALLOWED_COUNTRIES that Adzuna actually covers (se, dk, no, fi are not).
+    const countries = requested.filter(
+      (c) => ALLOWED_COUNTRIES.includes(c.toUpperCase()) && ADZUNA_SUPPORTED_COUNTRIES.has(c),
+    );
+    const droppedCountries = requested.filter((c) => !countries.includes(c));
+    if (droppedCountries.length) {
+      console.log(`[adzuna] skipped countries (not allowed or not supported by Adzuna): ${droppedCountries.join(',')}`);
+    }
     const maxPages = Number(process.env.ADZUNA_MAX_PAGES ?? 2);
     const jobs = new Map<string, JobPosting>();
 
-    // Rate-limited (12 countries x maxPages) — highest-signal minimal set only
+    // Rate-limited (countries x maxPages) — highest-signal minimal set only
     // (July 13 2026 keyword consolidation), not the passed-in profile queries.
     for (const country of countries) {
       for (const query of CORE_KEYWORDS_MINIMAL) {

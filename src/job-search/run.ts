@@ -73,6 +73,7 @@ import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef, hashJobUrl 
 import { JobPosting, JobSearchState, MatchResult, RunSummary, ScorerDiagnostic, SearchProfile } from './types';
 import { saveJobDecision } from '../database/database.service';
 import { logStatusChange } from './audit-log';
+import { isJobCountryAllowed, isSourceCountryAllowed, MULTI_COUNTRY_SOURCES } from './allowed-countries';
 
 const DEFAULT_SEEN_FILE = 'job_search_seen.json';
 const DEFAULT_APPLIED_FILE = 'job_search_applied.json';
@@ -165,7 +166,7 @@ export const allSources = [
   new EnglishJobsDeSource(),
 ];
 // Derived from allSources (see comment above) — never hand-maintained again.
-const ACTIVE_SOURCES = allSources.map((s) => s.name);
+const ACTIVE_SOURCES = allSources.filter((s) => isSourceCountryAllowed(s.name)).map((s) => s.name);
 // linkedin.com has no public API — requires a paid partner integration
 const BLOCKED_SOURCES = ['linkedin.com'];
 
@@ -312,11 +313,17 @@ export async function runJobSearchOnce(
     // instance is created once at module load, not per-run, since none of them hold
     // mutable per-run state (verified: no source class references `this.<field>` beyond
     // the `name`/`priority` set at declaration).
-    const sources = onlySources?.length
+    const requestedSources = onlySources?.length
       ? allSources.filter((s) => onlySources.includes(s.name))
       : excludeSources?.length
         ? allSources.filter((s) => !excludeSources.includes(s.name))
         : allSources;
+    // Single-country sources outside ALLOWED_COUNTRIES stay registered but never run.
+    const sources = requestedSources.filter((s) => {
+      if (isSourceCountryAllowed(s.name)) return true;
+      console.log(`[registry] ${s.name} skipped: country not allowed`);
+      return false;
+    });
     // Split sources into Playwright (memory-heavy) and non-Playwright (safe to parallelize)
     // — PLAYWRIGHT_SOURCES is defined at module scope above.
     const playwrightSources = sources.filter((s) => PLAYWRIGHT_SOURCES.has(s.name));
@@ -397,7 +404,14 @@ export async function runJobSearchOnce(
       } else {
         console.log(`[source] ${result.source}: 0 jobs — ${result.error ? `crash: ${result.error.message}` : 'blocked or no results'}`);
       }
-      for (const job of result.jobs) {
+      // Multi-country sources: drop jobs located in a specific country outside ALLOWED_COUNTRIES.
+      let countryAllowedJobs = result.jobs;
+      if (MULTI_COUNTRY_SOURCES.has(result.source)) {
+        countryAllowedJobs = result.jobs.filter(isJobCountryAllowed);
+        const dropped = result.jobs.length - countryAllowedJobs.length;
+        if (dropped > 0) console.log(`[country-filter] ${result.source}: dropped ${dropped} job(s) located outside allowed countries`);
+      }
+      for (const job of countryAllowedJobs) {
         // Primary dedup: normalized canonical URL
         const normUrl = safeNorm(job.canonicalUrl);
         if (jobMap.has(normUrl)) continue;
@@ -1249,15 +1263,15 @@ function checkLocationEligibility(job: JobPosting): boolean {
     return true;
   }
 
-  // Rule 2: BE, DE, LU, NL, IE — need remote/relocation/visa/hybrid signal
-  if (['BE','DE','LU','NL','IE'].includes(cc)) {
+  // Rule 2: BE, DE, LU, NL, IE, SE, DK, NO, FI — need remote/relocation/visa/hybrid signal
+  if (['BE','DE','LU','NL','IE','SE','DK','NO','FI'].includes(cc)) {
     const pass = TIER2_SIGNALS.some((s) => combined.includes(s));
     if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${cc}), no remote/relocation/visa signal`);
     return pass;
   }
 
   // Rule 3: Other EU
-  const OTHER_EU = ['ES','IT','PT','PL','SE','DK','NO','AT','CZ','RO','FI','HR','SK','HU','BG','EE','LV','LT','SI','CY','MT'];
+  const OTHER_EU = ['ES','IT','PT','PL','AT','CZ','RO','HR','SK','HU','BG','EE','LV','LT','SI','CY','MT'];
   if (OTHER_EU.includes(cc)) {
     const pass = TIER3_SIGNALS.some((s) => combined.includes(s));
     if (!pass) console.log(`[loc-filter] FILTERED: ${job.company} (${cc}), no remote or relocation signal`);
