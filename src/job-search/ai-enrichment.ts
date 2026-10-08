@@ -4,10 +4,14 @@ import { getJobDecisionHistory } from '../database/database.service';
 import { resolveWorkAuth } from './profile';
 import { evaluateLanguageRequirement } from './language-requirement-filter';
 import { JobPosting, MatchResult, SearchProfile } from './types';
+import { UNSCORED_TAG } from './reconciliation';
 
 // Free tier: 15 RPM, 1500 req/day per key. One combined call per job.
-// gemini-2.0-flash free tier limit was set to 0 by Google in 2026 — use 2.5.
-const MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-8b', 'gemini-2.0-flash-exp'];
+// Tried in order until one works. gemini-2.5-flash is deprecated but still served to
+// projects that already use it; the 3.x models are the current GA Flash / Flash-Lite
+// (Oct 2026). Replaced gemini-2.5-flash-8b (never existed) and gemini-2.0-flash-exp
+// (2.0 family shut down June 2026).
+export const MODELS = ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 
 interface ApiKeyEntry { key: string; source: string; }
 let _cachedKeyEntries: ApiKeyEntry[] | null = null;
@@ -383,16 +387,24 @@ export interface AiEnrichment {
   emailBody: string | null;
 }
 
+// Returns null when the job could not be scored (no keys, every key/model failed, or an
+// empty/malformed reply). The job then passes unscored (see reconciliation.ts) and gets the
+// "unscored" tag — unless Gemini is overloaded, in which case run.ts retries it later.
 export async function enrichMatch(
   match: MatchResult,
   profile: SearchProfile,
   preferenceContext = '',
 ): Promise<AiEnrichment | null> {
-  if (!getApiKeys().length) return null;
-  return callWithRotation(
-    (ai, model) => enrichSingle(ai, model, match.job, profile, match.reasons, preferenceContext),
-    match.job.company,
-  );
+  const result = getApiKeys().length
+    ? await callWithRotation(
+        (ai, model) => enrichSingle(ai, model, match.job, profile, match.reasons, preferenceContext),
+        match.job.company,
+      )
+    : null;
+  if (result === null && !isGeminiOverloaded() && !match.reasons.includes(UNSCORED_TAG)) {
+    match.reasons.push(UNSCORED_TAG);
+  }
+  return result;
 }
 
 export async function generateTailoredCv(
@@ -507,8 +519,8 @@ const CANDIDATE_TECH_STACK =
   `  Languages:  TypeScript, JavaScript\n` +
   `  Frameworks: Node.js, NestJS, Express.js\n` +
   `  Databases:  PostgreSQL, MongoDB, Redis\n` +
-  `  Messaging:  RabbitMQ, Kafka\n` +
-  `  Cloud:      AWS, Docker\n` +
+  `  Messaging:  Kafka, RabbitMQ (design level)\n` +
+  `  Cloud:      AWS (EC2, S3), Docker\n` +
   `  CI/CD:      GitHub Actions\n` +
   `  Frontend:   React (basic)\n` +
   `  Patterns:   Microservices, Event-Driven Architecture, Clean Architecture, DDD, Saga pattern\n` +
@@ -533,12 +545,12 @@ const TARGET_COUNTRIES = [
 // the actual disqualifying criteria — this is what was causing a job the code correctly
 // flagged to still get an unrelated high "quality" score from Gemini with no hard-skip
 // field to veto it.
-const HARD_SKIP_RULEBOOK =
+export const HARD_SKIP_RULEBOOK =
   `=== HARD SKIP RULEBOOK (authoritative — check every rule explicitly below, one by one; do not form a vague holistic impression) ===\n` +
   `Candidate profile: Backend Engineer, Node.js/NestJS/TypeScript, 4 years production experience, based in Paris, ` +
   `France, holding a French APS visa (no sponsorship needed for France-based roles), open to relocation across: ` +
   `${TARGET_COUNTRIES.join(', ')}.\n\n` +
-  `If ANY of the following 8 rules is true, the job is a HARD SKIP: set hardSkipTriggered=true, cite the specific ` +
+  `If ANY of the following 9 rules is true, the job is a HARD SKIP: set hardSkipTriggered=true, cite the specific ` +
   `rule number and reason in hardSkipReason, and force relevanceScore to exactly 0 — regardless of how strong the ` +
   `job otherwise looks on any other dimension.\n\n` +
   `1. WRONG PRIMARY STACK: Python, Go, PHP, Java, .NET, Scala, or C++ is the PRIMARY backend language and Node.js ` +
@@ -546,9 +558,10 @@ const HARD_SKIP_RULEBOOK =
   `2. REQUIRED NON-ENGLISH LANGUAGE: French, Dutch, or German is stated as a REQUIRED working language with no ` +
   `English alternative or signal anywhere in the posting or reasonably inferable company context (see the language ` +
   `note below for how to check this).\n` +
-  `3. EXPERIENCE FLOOR OF 6+: a stated MINIMUM experience requirement of 6 or more years. "5 years", "5+", ` +
-  `"5 a 10 ans", or any phrasing where 5 is the lower bound of a range is NOT a skip — only a stated floor of 6 or ` +
-  `more years triggers this.\n` +
+  `3. EXPERIENCE FLOOR OF 5+: the stated MINIMUM required experience is 5 years or more. This includes "5 years", ` +
+  `"5+ years", "at least 5", "minimum 5", "5 a 10 ans", "mindestens 5 Jahre", and any range whose LOWER bound is 5 ` +
+  `or more ("5-7 years" is a skip, "3-5 years" is not). A 5+ figure framed as ideally / preferably / nice to have ` +
+  `is NOT a stated minimum and is NOT a skip.\n` +
   `4. PEOPLE-MANAGEMENT PRIMARY ROLE: the role's PRIMARY responsibility is team/people management (hiring, ` +
   `performance reviews, headcount ownership) rather than individual technical contribution. A "Tech Lead" title ` +
   `alone is NOT automatically this — but explicit language like "piloter une equipe" (lead/manage a team of ` +
@@ -562,11 +575,15 @@ const HARD_SKIP_RULEBOOK =
   `7. NON-PROFESSIONAL CONTRACT: internship, working-student (Werkstudent/stagiaire), apprenticeship, or ` +
   `graduate-program-only contracts.\n` +
   `8. BLOCKLISTED COMPANY: the company is "Theodo" (grandes ecoles filter) or "Transparent Hiring" (paid service, ` +
-  `not a real employer).\n\n` +
+  `not a real employer).\n` +
+  `9. ENGLISH NOT ACCEPTED AS A WORKING LANGUAGE: the posting states or clearly implies that the team, the company ` +
+  `or the role does not work in English (e.g. "the working language is German only", "English is not sufficient", ` +
+  `"no English-speaking positions"), in any language.\n\n` +
   `The following look concerning but are NEVER hard skips on their own — report them as informational notes only, ` +
   `never as a disqualifying reason:\n` +
   `- Salary below the candidate's target (informational only — report the gap in experienceNote or reasoning).\n` +
-  `- Stated experience above 4 years but below the 6-year hard cap (informational only).\n` +
+  `- A 5+ years figure framed as ideally / preferably / nice to have rather than a stated minimum (informational ` +
+  `only — mention it in experienceNote).\n` +
   `- Fullstack roles requiring React alongside Node.js/NestJS (the candidate has real but lighter React experience ` +
   `— a genuine partial-fit note, not a skip).\n` +
   `- Unconfirmed/unknown working language when nothing explicit is stated and no clear non-English signal exists ` +
@@ -574,8 +591,17 @@ const HARD_SKIP_RULEBOOK =
   `- Small/early-stage startup risk, equity-heavy comp, non-standard compensation structure (informational only).\n` +
   `=== END HARD SKIP RULEBOOK ===\n`;
 
-const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null, visaContext: string, statusLine: string, jobSource = '') =>
+export const CANDIDATE_PROFILE =
+  `=== CANDIDATE PROFILE (authoritative) ===\n` +
+  `  Experience: 4 years production backend engineering\n` +
+  `  Hands-on:   Node.js, NestJS, TypeScript, PostgreSQL, MongoDB, Redis, Docker, GitHub Actions, AWS EC2 and S3\n` +
+  `  Design level: Kafka and RabbitMQ\n` +
+  `  Languages:  English fluent, French A1\n` +
+  `=== END CANDIDATE PROFILE ===\n`;
+
+export const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, workMode: string, countryCode: string | null, visaContext: string, statusLine: string, jobSource = '') =>
   `You are acting as a senior recruiter scanning a job for ${name}.\n\n` +
+  CANDIDATE_PROFILE + `\n` +
   `TECHNOLOGY CONSTRAINT: Only mention technologies, frameworks, tools, and integrations that appear in the candidate's CV or tech stack below. Never invent or assume experience with technologies not listed. If the job requires a technology not in the candidate's stack, do not claim the candidate has experience with it. You may mention willingness to learn it if relevant.\n\n` +
   `=== CANDIDATE CV ===\n${cvText}\n=== END CV ===\n\n` +
   CANDIDATE_TECH_STACK + `\n` +
@@ -596,24 +622,22 @@ const SYSTEM_INSTRUCTION = (name: string, expYears: number, cvText: string, work
   `  - Company is multinational or has offices in multiple countries\n` +
   `  - Role involves international partners or clients\n\n` +
   `  If ANY of these signals are present, do NOT trigger rule 2. Record what you found in languageAssessment (e.g. "JD mentions international team, no language requirement stated").\n\n` +
-  `  If NONE of these signals are present, use web search to check the company. Search: [company name] working language OR langue de travail OR company culture\n\n` +
-  `  If web search shows the company works in English or is international, do NOT trigger rule 2 — note this in languageAssessment.\n\n` +
-  `  Only trigger rule 2 if both the JD AND web search confirm the role requires French/Dutch/German fluency with no English alternative. In that case set hardSkipTriggered=true, hardSkipReason citing rule 2, relevanceScore=0, and describe what was found in languageAssessment.\n\n` +
-  `  If nothing explicit is stated and no clear non-English signal exists either way, do NOT trigger rule 2 — instead set confidence to "low" or "medium" and explain the uncertainty in languageAssessment.\n\n` +
+  `  Judge from the posting text only. Trigger rule 2 only if the JD itself states that French/Dutch/German fluency is required with no English alternative, and rule 9 only if the JD itself says English is not accepted. In that case set hardSkipTriggered=true, hardSkipReason citing the rule, relevanceScore=0, and describe what was found in languageAssessment.\n\n` +
+  `  If nothing explicit is stated and no clear non-English signal exists either way, do NOT trigger rule 2 or 9 — instead set confidence to "low" or "medium" and explain the uncertainty in languageAssessment.\n\n` +
   `Analyse the job posting and return ONE JSON object with ALL fields below. No markdown, no extra text.\n\n` +
   `FIELD DEFINITIONS:\n` +
-  `  hardSkipTriggered: true/false. true if ANY of the 8 rules in the HARD SKIP RULEBOOK above applies. Check every ` +
+  `  hardSkipTriggered: true/false. true if ANY of the 9 rules in the HARD SKIP RULEBOOK above applies. Check every ` +
   `rule explicitly, one by one, before scoring anything else.\n` +
   `  hardSkipReason: if hardSkipTriggered is true, cite the specific rule number and a one-line reason (e.g. "Rule 1: ` +
   `primary stack is Python/Django, Node.js not mentioned"). null if hardSkipTriggered is false.\n` +
-  `  languageAssessment: what working-language signal you found and how (explicit JD field, body text, or company ` +
-  `research from web search). e.g. "JD states French required, no English alternative found in posting or company ` +
-  `site" or "No explicit language requirement, no non-English signal detected".\n` +
+  `  languageAssessment: what working-language signal you found in the posting and where (explicit JD field or body ` +
+  `text). e.g. "JD states French required, no English alternative in the posting" or "No explicit language ` +
+  `requirement, no non-English signal detected".\n` +
   `  stackMatch: brief assessment of how the job's primary stack compares to the candidate's Node.js/NestJS/` +
   `TypeScript stack (e.g. "Node.js and NestJS both explicitly required, strong match" or "Primary stack is Java/` +
   `Spring, Node.js not mentioned").\n` +
-  `  experienceNote: stated experience requirement vs the candidate's 4 years, informational only (e.g. "Requires ` +
-  `5+ years, candidate has 4 — within the accepted 5-year floor" or "No experience requirement stated").\n` +
+  `  experienceNote: stated experience requirement vs the candidate's 4 years (e.g. "Requires 3-5 years, minimum 3, ` +
+  `candidate has 4", "Ideally 5+ years, not a stated minimum" or "No experience requirement stated").\n` +
   `  confidence: "high"/"medium"/"low" — how confident you are in this assessment overall. Use "low" or "medium" ` +
   `when a working-language requirement is unconfirmed rather than guessing, or when key JD details are ambiguous.\n` +
   `  reasoning: 1-3 sentence plain explanation of the overall assessment.\n` +
@@ -721,6 +745,97 @@ function isEmailBodyComplete(body: string): boolean {
   return EMAIL_CLOSINGS.some((c) => tail.includes(c));
 }
 
+export interface HistoryEntry {
+  title: string;
+  company: string;
+  country?: string;
+  score: number;
+  stack?: string;
+  roleType?: string;
+  desc?: string;
+}
+
+// Calibration block for the prompt: the candidate's real apply/dismiss history plus how
+// to use it. Point values are the same as the CALIBRATION section of SYSTEM_INSTRUCTION
+// (-15 same stack as dismissed, -20 same role type as dismissed, +15 same stack and role
+// type as applied); no hardcoded conclusions about what the history contains.
+export function buildHistoryContext(appliedEntries: HistoryEntry[], dismissedEntries: HistoryEntry[]): string {
+  if (appliedEntries.length === 0 && dismissedEntries.length === 0) return '';
+  const lines: string[] = ['=== CANDIDATE JOB DECISION HISTORY ==='];
+  if (appliedEntries.length > 0) {
+    lines.push('Jobs this candidate APPLIED TO recently (good matches):');
+    appliedEntries.forEach((e) => {
+      let line = `  - ${e.title} @ ${e.company}${e.country ? ` (${e.country})` : ''} score:${e.score}`;
+      if (e.stack) line += ` stack:${e.stack}`;
+      if (e.roleType) line += ` type:${e.roleType}`;
+      if (e.desc) line += `\n    description preview: ${e.desc}`;
+      lines.push(line);
+    });
+  }
+  if (dismissedEntries.length > 0) {
+    lines.push('Jobs this candidate DISMISSED recently (bad matches):');
+    dismissedEntries.forEach((e) => {
+      let line = `  - ${e.title} @ ${e.company}${e.country ? ` (${e.country})` : ''} score:${e.score}`;
+      if (e.stack) line += ` stack:${e.stack}`;
+      if (e.roleType) line += ` type:${e.roleType}`;
+      if (e.desc) line += `\n    description preview: ${e.desc}`;
+      lines.push(line);
+    });
+  }
+  lines.push(
+    'HOW TO USE THIS HISTORY:',
+    'Look across the jobs above and infer what the applied ones have in common and what the dismissed ones ' +
+      'have in common (stack, role type, experience asked, language, domain). Base this only on the entries ' +
+      'listed, not on assumptions.',
+    'Apply the CALIBRATION point values from the system instruction, and only these:',
+    '  - Same primary stack as a dismissed job: reduce by 15 points',
+    '  - Same role type as a dismissed job (e.g. fullstack with Angular): reduce by 20 points',
+    '  - Same primary stack AND role type as an applied job: increase by 15 points',
+    'Similar means the same primary technology AND the same role type (backend vs fullstack vs frontend).',
+    '=== END HISTORY ===',
+  );
+  return lines.join('\n');
+}
+
+type GeminiRawReply = GeminiRawScoring & {
+  relevanceIssues?: string[];
+  visaFriendly?: boolean | null;
+  visaNote?: string | null;
+  languageRequirement?: string | null;
+  fraudScore?: number;
+  companyQualityScore?: number;
+  fraudReasons?: string[];
+  companyRedFlags?: string[];
+  coverLetter?: string;
+  atsMissingKeywords?: string[];
+  atsPlacementSuggestions?: string[];
+  hiringEmail?: string | null;
+  emailSubject?: string | null;
+  emailBody?: string | null;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  salaryCurrency?: string | null;
+};
+
+// Parses Gemini's JSON reply. Returns null for an empty, unparseable or non-object reply,
+// or one with neither a numeric relevanceScore nor a hard skip — the caller then treats
+// the job as unscored instead of falling back to a default score that would reject it.
+export function parseGeminiReply(text: string | null | undefined): GeminiRawReply | null {
+  const trimmed = (text ?? '').trim();
+  if (!trimmed) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const raw = parsed as GeminiRawReply;
+  const hasScore = typeof raw.relevanceScore === 'number' && Number.isFinite(raw.relevanceScore);
+  if (!hasScore && raw.hardSkipTriggered !== true) return null;
+  return raw;
+}
+
 async function enrichSingle(
   ai: GoogleGenAI,
   model: string,
@@ -728,7 +843,7 @@ async function enrichSingle(
   profile: SearchProfile,
   matchReasons: string[],
   preferenceContext = '',
-): Promise<AiEnrichment> {
+): Promise<AiEnrichment | null> {
   const isConsulting = /(consulting|conseil|agency|agence|ssii|outsourcing)/i.test(
     `${job.company} ${job.companySummary} ${job.description.slice(0, 300)}`,
   );
@@ -745,8 +860,8 @@ async function enrichSingle(
   const pgHistory = await getJobDecisionHistory(20, 50);
   const usePg = pgHistory.applied.length > 0 || pgHistory.dismissed.length > 0;
 
-  let appliedEntries: Array<{ title: string; company: string; country?: string; score: number; stack?: string; roleType?: string; desc?: string }>;
-  let dismissedEntries: typeof appliedEntries;
+  let appliedEntries: HistoryEntry[];
+  let dismissedEntries: HistoryEntry[];
 
   if (usePg) {
     const toEntry = (r: { job_title: string; company: string; country: string | null; ai_score: number; primary_stack: string | null; role_type: string | null; job_description: string | null }) => ({
@@ -765,93 +880,7 @@ async function enrichSingle(
     dismissedEntries = redisDismissed.map((e) => ({ title: e.title, company: e.company, country: e.countryCode ?? undefined, score: e.score, desc: buildHistoryDescExcerpt(e.jobDescription) }));
   }
 
-  let historyContext = '';
-  if (appliedEntries.length > 0 || dismissedEntries.length > 0) {
-    const lines: string[] = ['=== CANDIDATE JOB DECISION HISTORY ==='];
-    if (appliedEntries.length > 0) {
-      lines.push('Jobs this candidate APPLIED TO recently (good matches — calibrate higher if similar):');
-      appliedEntries.forEach((e) => {
-        let line = `  - ${e.title} @ ${e.company}${e.country ? ` (${e.country})` : ''} score:${e.score}`;
-        if (e.stack) line += ` stack:${e.stack}`;
-        if (e.roleType) line += ` type:${e.roleType}`;
-        if (e.desc) line += `\n    description preview: ${e.desc}`;
-        lines.push(line);
-      });
-    }
-    if (dismissedEntries.length > 0) {
-      lines.push('Jobs this candidate DISMISSED recently (bad matches — calibrate lower if similar):');
-      dismissedEntries.forEach((e) => {
-        let line = `  - ${e.title} @ ${e.company}${e.country ? ` (${e.country})` : ''} score:${e.score}`;
-        if (e.stack) line += ` stack:${e.stack}`;
-        if (e.roleType) line += ` type:${e.roleType}`;
-        if (e.desc) line += `\n    reason pattern: ${e.desc}`;
-        lines.push(line);
-      });
-    }
-    lines.push(
-      'DECISION HISTORY LEARNING — CRITICAL:',
-      'You have access to the candidate\'s full apply/dismiss history with job descriptions. Use it aggressively.',
-      '',
-      'PATTERN INFERENCE (do this before scoring): look across ALL dismissed jobs above and infer the ' +
-        'COMMON PATTERNS they share — e.g. frontend-primary stacks, 6+ year experience requirements, ' +
-        'French-only companies with no English signal, a specific unwanted domain, or a repeat company. ' +
-        'Reject or heavily penalize a NEW job that matches an inferred pattern even if it does not exactly ' +
-        'match any single dismissed job\'s stack. Do not limit yourself to exact stack matches below.',
-      '',
-      '=== DISMISS PATTERNS (never show these) ===',
-      '',
-      'AUTOMATIC SCORE BELOW 40 if job matches ANY of these:',
-      '- Angular or Vue as PRIMARY framework',
-      '- Fullstack role where React/Angular/Vue is 50%+ of work',
-      '- Python as primary backend language',
-      '- Java or .NET as primary language',
-      '- Title contains: Fullstack + Angular, Fullstack + Vue, Fullstack + React (when backend is secondary)',
-      '',
-      'SCORE REDUCTION from dismissed history:',
-      '- Same primary technology as dismissed job: -20 points',
-      '- Same role type as dismissed (fullstack+frontend): -15',
-      '- Same company type as dismissed: -10',
-      '- Job description similar to dismissed (70%+ overlap in responsibilities): -25 points',
-      '',
-      '=== APPLIED PATTERNS (show more of these) ===',
-      '',
-      'AUTOMATIC SCORE ABOVE 75 if job matches ALL of these:',
-      '- Pure backend role (no frontend responsibilities)',
-      '- Node.js OR NestJS as PRIMARY technology',
-      '- TypeScript explicitly required',
-      '- Senior level or 3-5 years experience required',
-      '- Located in France/Germany/Belgium/Netherlands/Luxembourg/Italy OR fully remote',
-      '',
-      'SCORE BOOST from applied history:',
-      '- Same primary technology as applied job (Node.js/NestJS): +20 points',
-      '- Same role type as applied (pure backend): +15 points',
-      '- Same domain as applied (fintech, SaaS, ESN): +10',
-      '- Similar salary range as applied jobs: +5 points',
-      '- Same source type as applied (APEC, ESN consulting): +5',
-      '',
-      '=== CALIBRATION RULES ===',
-      '',
-      '1. If a new job is more than 70% similar to a dismissed job in stack AND role type: score below 40, no exceptions',
-      '',
-      '2. If a new job matches the applied pattern perfectly (pure backend + Node.js/NestJS + TypeScript): score above 80, generate cover letter always',
-      '',
-      '3. For borderline jobs (score 50-70): check if the PRIMARY daily work is backend or frontend.',
-      '   If frontend dominates: score below 45. If backend dominates: keep score.',
-      '',
-      '4. Weight dismissed patterns 2x more than applied patterns when in doubt.',
-      '',
-      '5. A job with Node.js mentioned once as nice-to-have but Python/Java/.NET as primary: score below 35.',
-      '',
-      'KEY LEARNINGS FROM HISTORY:',
-      'Applied jobs are ALL: pure backend, Node.js/NestJS primary, TypeScript, microservices, senior level, EU location.',
-      '',
-      'Dismissed jobs are ALL: Angular primary, Vue primary, fullstack with heavy frontend, Python primary, wrong location, or wrong stack.',
-      '',
-      'Never show the candidate a job that matches dismissed patterns even if the overall score would be high.',
-      '=== END HISTORY ===',
-    );
-    historyContext = lines.join('\n');
-  }
+  const historyContext = buildHistoryContext(appliedEntries, dismissedEntries);
 
   console.log(
     `[scoring] calibration_applied=${historyContext.length > 0} applied_count=${appliedEntries.length} ` +
@@ -902,30 +931,13 @@ async function enrichSingle(
     contents: prompt,
   });
 
-  let raw: GeminiRawScoring & {
-    relevanceIssues?: string[];
-    visaFriendly?: boolean | null;
-    visaNote?: string | null;
-    languageRequirement?: string | null;
-    fraudScore?: number;
-    companyQualityScore?: number;
-    fraudReasons?: string[];
-    companyRedFlags?: string[];
-    coverLetter?: string;
-    atsMissingKeywords?: string[];
-    atsPlacementSuggestions?: string[];
-    hiringEmail?: string | null;
-    emailSubject?: string | null;
-    emailBody?: string | null;
-    salaryMin?: number | null;
-    salaryMax?: number | null;
-    salaryCurrency?: string | null;
-  };
-  try {
-    raw = JSON.parse(response.text ?? '{}');
-  } catch {
-    console.warn(`[gemini] malformed JSON response for "${job.title}" @ ${job.company} — treating as empty`);
-    raw = {};
+  const raw = parseGeminiReply(response.text);
+  if (!raw) {
+    console.warn(
+      `[gemini] "${job.title}" @ ${job.company} — empty or malformed reply, passing job unscored ` +
+      `(model=${model}, reply starts: ${JSON.stringify((response.text ?? '').slice(0, 200))})`,
+    );
+    return null;
   }
   const scoring = evaluateGeminiScoring(raw);
   const relevanceScore = scoring.relevanceScore;

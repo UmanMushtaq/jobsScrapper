@@ -1,4 +1,18 @@
-import { buildGoogleGenAIOptions, evaluateGeminiScoring, GeminiRawScoring, buildHistoryDescExcerpt } from './ai-enrichment';
+import {
+  buildGoogleGenAIOptions,
+  buildHistoryContext,
+  buildHistoryDescExcerpt,
+  CANDIDATE_PROFILE,
+  enrichMatch,
+  evaluateGeminiScoring,
+  GeminiRawScoring,
+  HARD_SKIP_RULEBOOK,
+  MODELS,
+  parseGeminiReply,
+  SYSTEM_INSTRUCTION,
+} from './ai-enrichment';
+import { reconcileScores, UNSCORED_TAG } from './reconciliation';
+import { MatchResult, SearchProfile } from './types';
 
 describe('buildGoogleGenAIOptions', () => {
   const ORIGINAL_ENV = process.env;
@@ -131,5 +145,117 @@ describe('buildHistoryDescExcerpt', () => {
   it('returns undefined for null or undefined input (no JD text available)', () => {
     expect(buildHistoryDescExcerpt(null)).toBeUndefined();
     expect(buildHistoryDescExcerpt(undefined)).toBeUndefined();
+  });
+});
+
+describe('parseGeminiReply — malformed replies never reject a job', () => {
+  it.each([
+    ['empty string', ''],
+    ['undefined', undefined],
+    ['truncated JSON', '{"relevanceScore": 8'],
+    ['markdown-wrapped text', 'Here is the JSON: {"relevanceScore": 80}'],
+    ['a JSON array', '[1, 2, 3]'],
+    ['an empty object (no score)', '{}'],
+    ['a non-numeric score', '{"relevanceScore": "high"}'],
+  ])('returns null for %s', (_label, text) => {
+    expect(parseGeminiReply(text)).toBeNull();
+  });
+
+  it('returns the parsed object for a valid reply', () => {
+    expect(parseGeminiReply('{"relevanceScore": 72, "fraudScore": 5}')).toMatchObject({ relevanceScore: 72, fraudScore: 5 });
+  });
+
+  it('accepts a hard skip that omits relevanceScore (scored as 0 downstream)', () => {
+    const raw = parseGeminiReply('{"hardSkipTriggered": true, "hardSkipReason": "Rule 3: 6 years minimum"}');
+    expect(raw).not.toBeNull();
+    expect(evaluateGeminiScoring(raw as GeminiRawScoring).relevanceScore).toBe(0);
+  });
+
+  it('an unscored job (null score) passes reconciliation with reason "unscored"', () => {
+    const result = reconcileScores({ jobLabel: 'x', codeScore: 70, codeHardSkip: false, geminiScore: null, geminiHardSkip: false });
+    expect(result).toMatchObject({ relevant: true, reason: 'unscored' });
+  });
+});
+
+describe('enrichMatch — unscored tagging', () => {
+  const ORIGINAL_ENV = process.env;
+  beforeAll(() => {
+    process.env = { ...ORIGINAL_ENV };
+    delete process.env.GEMINI_API_KEY;
+    for (let i = 1; i <= 10; i++) delete process.env[`GEMINI_API_KEY_${i}`];
+  });
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it('returns null and tags the job "unscored" exactly once when Gemini cannot score it', async () => {
+    const match = { job: { company: 'Acme' }, reasons: ['Location fit: Paris'] } as unknown as MatchResult;
+    const profile = {} as SearchProfile;
+    expect(await enrichMatch(match, profile)).toBeNull();
+    await enrichMatch(match, profile);
+    expect(match.reasons).toEqual(['Location fit: Paris', UNSCORED_TAG]);
+  });
+});
+
+describe('Gemini prompt content', () => {
+  const prompt = SYSTEM_INSTRUCTION('Uman', 4, 'CV text', 'remote', 'FR', 'visa', 'status', 'apec.fr');
+
+  it('states the candidate profile', () => {
+    expect(prompt).toContain(CANDIDATE_PROFILE);
+    for (const fact of [
+      '4 years production backend',
+      'Node.js, NestJS, TypeScript, PostgreSQL, MongoDB, Redis, Docker, GitHub Actions, AWS EC2 and S3',
+      'Kafka and RabbitMQ',
+      'English fluent, French A1',
+    ]) {
+      expect(CANDIDATE_PROFILE).toContain(fact);
+    }
+  });
+
+  it('has the 5+ years and English-not-accepted hard-skip rules, and no 6-year cap', () => {
+    expect(HARD_SKIP_RULEBOOK).toContain('9 rules');
+    expect(HARD_SKIP_RULEBOOK).toContain('EXPERIENCE FLOOR OF 5+');
+    expect(HARD_SKIP_RULEBOOK).toContain('ENGLISH NOT ACCEPTED AS A WORKING LANGUAGE');
+    expect(HARD_SKIP_RULEBOOK).not.toMatch(/6\+|6-year/);
+  });
+
+  it('never asks Gemini to use web search', () => {
+    expect(prompt.toLowerCase()).not.toContain('web search');
+  });
+});
+
+describe('buildHistoryContext', () => {
+  const applied = [{ title: 'Backend Engineer', company: 'A', score: 80, stack: 'NestJS', roleType: 'backend' }];
+  const dismissed = [{ title: 'Fullstack Angular', company: 'B', score: 60, stack: 'Angular', roleType: 'fullstack' }];
+
+  it('returns an empty string when there is no history', () => {
+    expect(buildHistoryContext([], [])).toBe('');
+  });
+
+  it('has no hardcoded KEY LEARNINGS and only the system-instruction point values', () => {
+    const ctx = buildHistoryContext(applied, dismissed);
+    expect(ctx).not.toContain('KEY LEARNINGS');
+    expect(ctx).toContain('reduce by 15 points');
+    expect(ctx).toContain('reduce by 20 points');
+    expect(ctx).toContain('increase by 15 points');
+    const points = (ctx.match(/(?:reduce|increase) by (\d+) points/g) ?? []).sort();
+    expect(points).toEqual(['increase by 15 points', 'reduce by 15 points', 'reduce by 20 points']);
+    expect(ctx).toContain('Backend Engineer @ A');
+    expect(ctx).toContain('Fullstack Angular @ B');
+  });
+
+  it('uses the same point values as the system instruction CALIBRATION section', () => {
+    const prompt = SYSTEM_INSTRUCTION('Uman', 4, 'CV', 'remote', 'FR', 'visa', 'status');
+    expect(prompt).toContain('Same primary stack as dismissed -> reduce by 15 points');
+    expect(prompt).toContain('as dismissed -> reduce by 20 points');
+    expect(prompt).toContain('Same stack and role type -> increase by 15 points');
+  });
+});
+
+describe('MODELS', () => {
+  it('contains no retired or non-existent model IDs', () => {
+    expect(MODELS).not.toContain('gemini-2.5-flash-8b');
+    expect(MODELS).not.toContain('gemini-2.0-flash-exp');
+    expect(MODELS).toEqual(['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']);
   });
 });

@@ -111,7 +111,8 @@ describe('reconcileScores', () => {
       geminiHardSkip: false,
     });
     expect(result.relevant).toBe(true);
-    expect(result.reason).toBe('no_ai_data');
+    expect(result.reason).toBe('unscored');
+    expect(result.logLine).toContain('final=RELEVANT reason=unscored');
     expect(result.logLine).toContain('gemini_score=n/a');
   });
 

@@ -2,6 +2,11 @@
 // auditable final relevance decision. Extracted as a pure function (rather than left
 // inline in run.ts) specifically so the reconciliation rules can be unit tested without
 // mocking the whole enrichment pipeline.
+
+// Tag added to a job's reasons when Gemini could not score it (no keys, every call
+// failed, or an empty/malformed reply). Such a job passes rather than being rejected.
+export const UNSCORED_TAG = 'unscored';
+
 export interface ReconciliationInput {
   jobLabel: string;
   codeScore: number;
@@ -11,8 +16,8 @@ export interface ReconciliationInput {
   // is ever enriched. Kept as a real input (not hardcoded false) so this function stays
   // correct and testable independent of that architectural detail.
   codeHardSkip: boolean;
-  // null when Gemini enrichment did not run or failed (e.g. all API keys exhausted) —
-  // the job passes through unenriched, same as before this change.
+  // null when Gemini could not score the job (all API keys exhausted, or an empty or
+  // malformed reply) — the job passes through unscored.
   geminiScore: number | null;
   geminiHardSkip: boolean;
   geminiHardSkipReason?: string | null;
@@ -25,7 +30,7 @@ export type ReconciliationReason =
   | 'hard_skip'
   | 'below_threshold'
   | 'suspicious_fraud'
-  | 'no_ai_data'
+  | 'unscored'
   | 'relevant';
 
 export interface ReconciliationResult {
@@ -45,7 +50,7 @@ export function reconcileScores(input: ReconciliationInput): ReconciliationResul
 
   if (input.geminiScore === null) {
     relevant = !input.codeHardSkip;
-    reason = input.codeHardSkip ? 'hard_skip' : 'no_ai_data';
+    reason = input.codeHardSkip ? 'hard_skip' : 'unscored';
   } else if (hardSkip) {
     relevant = false;
     reason = 'hard_skip';
