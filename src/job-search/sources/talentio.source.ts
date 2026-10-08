@@ -5,6 +5,7 @@ import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
 import { ENGLISH_KEYWORDS } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'eu.talent.io';
 const API_BASE = 'https://api.eu.talent.io/api/backend/search/positions';
@@ -138,8 +139,8 @@ export function mapPosition(pos: TalentioPosition): JobPosting | null {
 
   const description = pos.description ?? '';
   const text = `${pos.name} ${description}`.toLowerCase();
-  const dateStr = pos.publicationDate ?? pos.createdAt ?? new Date().toISOString();
-  const publishedAt = new Date(dateStr);
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(pos.publicationDate ?? pos.createdAt);
 
   return {
     source: SOURCE,
@@ -162,8 +163,7 @@ export function mapPosition(pos: TalentioPosition): JobPosting | null {
     salaryMinimum: pos.salaryMin ?? null,
     salaryMaximum: pos.salaryMax ?? null,
     salaryYearlyMinimum: pos.salaryMin ?? null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

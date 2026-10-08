@@ -293,3 +293,33 @@ export function resultCardPostDate(
     parseIsoDate(card.datetime, now) ?? parsePostedText(card.cardText, now)
   );
 }
+
+// A source's raw date value → PostDate, or null fields when it is missing or unparseable
+// (never the scrape time). Accepts ISO / RFC 2822 strings, "dd.mm.yyyy" / "dd/mm/yyyy",
+// "posted" phrases ("3 days ago", "Publiée le 06/10/2026", "vor 2 Tagen"), epoch numbers
+// (seconds or ms) and Date objects. An old but valid date is kept as is (it then fails the
+// freshness check); only garbage (0, negative, more than a day ahead) becomes null.
+export function postDateFrom(value: unknown, now = Date.now()): PostDate {
+  const valid = (ms: number): number | null => (Number.isFinite(ms) && ms > 0 && ms <= now + DAY_MS ? ms : null);
+  if (value instanceof Date) return toPostDate(valid(value.getTime()));
+  if (typeof value === 'number') return toPostDate(valid(value < 1e12 ? value * 1000 : value));
+  if (typeof value !== 'string' || !value.trim()) return toPostDate(null);
+  const text = value.trim();
+
+  // Unambiguous machine formats: ISO 8601 and RFC 2822 ("Mon, 05 Oct 2026 10:00:00 +0000").
+  if (/^\d{4}-\d{2}-\d{2}/.test(text) || /^(?:[a-z]{3},?\s+)?\d{1,2}\s+[a-z]{3}\s+\d{4}/i.test(text)) {
+    return toPostDate(valid(Date.parse(text)));
+  }
+  // Day-first numeric dates: Date.parse would read "06.10.2026" as 10 June.
+  const dmy = text.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
+  if (dmy) {
+    const year = parseInt(dmy[3], 10);
+    const ms = Date.UTC(year < 100 ? 2000 + year : year, parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10), 12);
+    return toPostDate(valid(ms));
+  }
+  const posted = parsePostedText(text, now, { cardText: true });
+  if (posted !== null) return toPostDate(posted);
+  // Anything else Date.parse reads, unless it holds a day-first numeric date it would misread.
+  if (!/\d{1,2}[./]\d{1,2}[./]\d{2,4}/.test(text)) return toPostDate(valid(Date.parse(text)));
+  return toPostDate(null);
+}

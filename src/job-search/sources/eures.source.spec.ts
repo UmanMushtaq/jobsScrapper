@@ -53,7 +53,7 @@ describe('eures mapJob', () => {
   it('converts an epoch-millis date into a valid ISO publishedAt', () => {
     const job = mapJob(buildJv({ lastModificationDate: 1783369560676, creationDate: undefined }), FAR_FUTURE_CUTOFF);
     expect(job?.publishedAt).toBe(new Date(1783369560676).toISOString());
-    expect(job?.publishedAtTimestamp).toBe(1783369560676);
+    expect(job?.publishedAtTimestamp).toBe(1783369560); // seconds, like every other source
   });
 
   it('truncates the description to the 500-char calibration-parity excerpt cap and flags descriptionPartial', () => {

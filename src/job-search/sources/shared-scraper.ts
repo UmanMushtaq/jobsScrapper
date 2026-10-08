@@ -5,6 +5,7 @@
 import { JobPosting } from '../types';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
+import { parsePostedText, postDateFrom } from './post-date';
 
 // Full family of Node/NestJS spellings, lowercase. Sources may need casing or format
 // tweaks per their own API (most search APIs are case-insensitive, but verify per source).
@@ -171,11 +172,15 @@ function parseCards(html: string, baseUrl: string): RawJob[] {
     if (!title || !rawUrl) continue;
 
     const url = resolveUrl(baseUrl, rawUrl);
+    // Posting date on the card: <time datetime="..."> or "posted" text ("il y a 3 jours").
+    const datetime = block.match(/<time[^>]*datetime="([^"]+)"/i)?.[1];
+    const postedMs = datetime ? null : parsePostedText(stripHtml(block).slice(0, 300));
     jobs.push({
       title,
       url,
       company: companyMatch?.[1]?.trim(),
       location: locationMatch?.[1]?.trim(),
+      date: datetime ?? (postedMs !== null ? new Date(postedMs).toISOString() : undefined),
     });
   }
 
@@ -220,8 +225,8 @@ export function mapRawJob(
 
   if (!isRelevantJob(title, descClean)) return null;
 
-  const dateStr = raw.datePosted ?? raw.publishedAt ?? raw.date;
-  const publishedAt = dateStr ? new Date(dateStr) : new Date();
+  // Real posting date, or null (tagged "no-post-date" in run.ts) — never the scrape time.
+  const postDate = postDateFrom(raw.datePosted ?? raw.publishedAt ?? raw.date);
 
   return {
     source,
@@ -244,8 +249,7 @@ export function mapRawJob(
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

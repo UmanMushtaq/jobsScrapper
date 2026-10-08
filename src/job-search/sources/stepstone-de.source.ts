@@ -6,6 +6,7 @@ import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 import { CORE_KEYWORDS_MINIMAL } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'stepstone.de';
 const BASE_URL = 'https://www.stepstone.de/jobs/';
@@ -266,10 +267,8 @@ export function mapJob(raw: RawJob): JobPosting | null {
   const description = raw.description ? stripHtml(raw.description) : '';
   const text = `${title} ${description}`.toLowerCase();
 
-  const publishedAt = raw.datePosted ?? raw.publishedAt
-    ? new Date(raw.datePosted ?? raw.publishedAt!)
-    : new Date();
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(raw.datePosted ?? raw.publishedAt);
 
   return {
     source: SOURCE,
@@ -292,8 +291,7 @@ export function mapJob(raw: RawJob): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: containsAny(text, [...RELOCATION_KEYWORDS, 'umzug']),

@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { ENGLISH_KEYWORDS, FRENCH_KEYWORDS } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'francetravail.fr';
 const AUTH_URL = 'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire';
@@ -168,19 +169,15 @@ async function fetchOffers(
   return data.resultats ?? [];
 }
 
-function mapOffer(offer: FranceTravailOffer): JobPosting | null {
+export function mapOffer(offer: FranceTravailOffer): JobPosting | null {
   const applyUrl = offer.contact?.urlPostulation ?? `https://candidat.francetravail.fr/offres/emploi/detail/${offer.id}`;
   const canonicalUrl = `https://candidat.francetravail.fr/offres/emploi/detail/${offer.id}`;
   const companyName = offer.entreprise?.nom ?? 'Non communiqué';
   const description = offer.description ?? '';
   const text = `${offer.intitule} ${description}`.toLowerCase();
 
-  const publishedAt = offer.dateCreation ?? offer.dateMiseAJour ?? new Date().toISOString();
-  const publishedAtTimestamp = Math.floor(new Date(publishedAt).getTime() / 1000);
-
-  if (isNaN(publishedAtTimestamp)) {
-    return null;
-  }
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(offer.dateCreation ?? offer.dateMiseAJour);
 
   return {
     source: SOURCE,
@@ -205,8 +202,7 @@ function mapOffer(offer: FranceTravailOffer): JobPosting | null {
     salaryMinimum: parseSalaryMin(offer.salaire?.libelle),
     salaryMaximum: parseSalaryMax(offer.salaire?.libelle),
     salaryYearlyMinimum: parseSalaryYearly(offer.salaire?.libelle),
-    publishedAt,
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl,
     offersRelocation: false,

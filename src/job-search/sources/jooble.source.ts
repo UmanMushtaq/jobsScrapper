@@ -4,6 +4,7 @@ import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
 import { CORE_KEYWORDS_MINIMAL } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'jooble.org';
 
@@ -104,9 +105,8 @@ export function mapJob(raw: JoobleResult): JobPosting | null {
   const locationLabel = raw.location?.trim() || 'Germany';
   const countryCode = inferCountryCode(locationLabel) || 'DE';
 
-  const publishedAt = raw.updated ? new Date(raw.updated) : new Date();
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
-  if (isNaN(publishedAtTimestamp)) return null;
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(raw.updated);
 
   return {
     source: SOURCE,
@@ -129,8 +129,7 @@ export function mapJob(raw: JoobleResult): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl: raw.link,
     offersRelocation: RELOCATION_KEYWORDS.some((k) => text.includes(k)),

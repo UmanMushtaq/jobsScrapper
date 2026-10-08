@@ -2,6 +2,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { JobSource } from './registry';
 import { parseRemoteScope } from './location-filter';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'news.ycombinator.com';
 const ALGOLIA = 'https://hn.algolia.com/api/v1';
@@ -112,7 +113,7 @@ export class HackerNewsJobsSource implements JobSource {
   }
 }
 
-function parseComment(hit: AlgoliaHit): JobPosting | null {
+export function parseComment(hit: AlgoliaHit): JobPosting | null {
   const html = hit.comment_text ?? '';
   if (!html || html.length < 40) return null;
 
@@ -224,9 +225,8 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
     salaryMaximum = parse(salaryMatch[2]);
   }
 
-  // Set publishedAt to now so it always passes the maxAgeHours filter
-  // (HN thread is monthly; dedup via seen_urls prevents re-sending)
-  const publishedAtTimestamp = Math.floor(Date.now() / 1000);
+  // The comment's own post time (Algolia created_at); null if missing/unparseable.
+  const postDate = postDateFrom(hit.created_at);
 
   return {
     source: SOURCE,
@@ -249,8 +249,7 @@ function parseComment(hit: AlgoliaHit): JobPosting | null {
     salaryMinimum,
     salaryMaximum,
     salaryYearlyMinimum: salaryMinimum,
-    publishedAt: new Date(publishedAtTimestamp * 1000).toISOString(),
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl,
     offersRelocation: RELOCATION_KEYWORDS.some((k) => lower.includes(k)),

@@ -5,6 +5,7 @@ import { inferCountryCode } from './country-codes';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 import { ENGLISH_KEYWORDS } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'jobbird.nl';
 const BASE_URL = 'https://www.jobbird.com/nl/vacature';
@@ -136,8 +137,8 @@ export function mapAjaxJob(raw: AjaxJob, id: string): JobPosting | null {
   const locationLabel = locationStr ? `${locationStr}, Netherlands` : 'Netherlands';
   const description = raw.description ? stripHtml(raw.description) : '';
   const text = `${title} ${description}`.toLowerCase();
-  const dateStr = raw.dateRefreshed ?? raw.publishedAt;
-  const publishedAt = dateStr ? new Date(dateStr) : new Date();
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(raw.dateRefreshed ?? raw.publishedAt);
 
   return {
     source: SOURCE,
@@ -160,8 +161,7 @@ export function mapAjaxJob(raw: AjaxJob, id: string): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

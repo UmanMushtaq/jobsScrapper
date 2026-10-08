@@ -3,6 +3,7 @@ import {
   jsonLdJobDates,
   parseIsoDate,
   parsePostedText,
+  postDateFrom,
   resultCardPostDate,
   toPostDate,
 } from './post-date';
@@ -167,4 +168,35 @@ describe('toPostDate', () => {
       publishedAtTimestamp: NOW / 1000,
     });
   });
+});
+
+describe('postDateFrom', () => {
+  const sec = (ms: number): number => Math.floor(ms / 1000);
+
+  it.each([
+    ['ISO', '2026-10-06T09:00:00Z', Date.UTC(2026, 9, 6, 9)],
+    ['RFC 2822 (RSS)', 'Tue, 06 Oct 2026 09:00:00 +0000', Date.UTC(2026, 9, 6, 9)],
+    ['day-first dotted', '06.10.2026', Date.UTC(2026, 9, 6, 12)],
+    ['APEC card text (not read as 10 June)', 'Publiée le 06/10/2026', Date.UTC(2026, 9, 6, 12)],
+    ['relative English', '2 days ago', NOW - 2 * DAY],
+    ['relative German', 'vor 3 Tagen', NOW - 3 * DAY],
+  ])('reads %s', (_label, value, expectedMs) => {
+    expect(postDateFrom(value, NOW).publishedAtTimestamp).toBe(sec(expectedMs));
+  });
+
+  it('reads epoch seconds and epoch milliseconds', () => {
+    expect(postDateFrom(sec(NOW - DAY), NOW).publishedAtTimestamp).toBe(sec(NOW - DAY));
+    expect(postDateFrom(NOW - DAY, NOW).publishedAtTimestamp).toBe(sec(NOW - DAY));
+  });
+
+  it('keeps an old but valid date (so freshness rejects it) instead of nulling it', () => {
+    expect(postDateFrom('2014-01-01', NOW).publishedAt).toBe('2014-01-01T00:00:00.000Z');
+  });
+
+  it.each([undefined, null, '', 'not a date', 0, -5, '2030-01-01', 'Début : 01/11/2026'])(
+    'returns null fields for %p (never the scrape time)',
+    (value) => {
+      expect(postDateFrom(value, NOW)).toEqual({ publishedAt: null, publishedAtTimestamp: null });
+    },
+  );
 });

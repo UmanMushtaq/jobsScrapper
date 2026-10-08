@@ -3,6 +3,7 @@ import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'jobs.ashbyhq.com';
 const API_BASE = 'https://api.ashbyhq.com/posting-api/job-board';
@@ -110,10 +111,11 @@ async function fetchCompanyJobs(company: string, settings: SearchSettings): Prom
     .map((job) => mapJob(job, company));
 }
 
-function mapJob(job: AshbyJobPosting, companySlug: string): JobPosting {
+export function mapJob(job: AshbyJobPosting, companySlug: string): JobPosting {
   const description = stripHtml(job.descriptionHtml ?? '');
   const text = `${job.title} ${description} ${job.locationName ?? ''}`.toLowerCase();
-  const publishedAt = job.publishedDate ? new Date(job.publishedDate) : new Date();
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(job.publishedDate);
   const workMode = job.isRemote ? 'remote' : inferWorkMode(text);
   const applyUrl = job.applyLink || `https://jobs.ashbyhq.com/${companySlug}/${job.id}`;
   const canonicalUrl = `https://jobs.ashbyhq.com/${companySlug}/${job.id}`;
@@ -139,8 +141,7 @@ function mapJob(job: AshbyJobPosting, companySlug: string): JobPosting {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

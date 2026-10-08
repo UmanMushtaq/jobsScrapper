@@ -11,6 +11,7 @@ import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 import { CORE_KEYWORDS_MINIMAL } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'glassdoor.com';
 const BASE_URL = 'https://www.glassdoor.com/Job/jobs.htm';
@@ -152,7 +153,7 @@ function extractJobs(html: string): RawJob[] {
   return jobs;
 }
 
-function mapJob(raw: RawJob): JobPosting | null {
+export function mapJob(raw: RawJob): JobPosting | null {
   if (!raw.title || !raw.url) return null;
 
   const canonicalUrl = raw.url;
@@ -161,9 +162,8 @@ function mapJob(raw: RawJob): JobPosting | null {
   const description = stripHtml(raw.description ?? '');
   const text = `${raw.title} ${description}`.toLowerCase();
 
-  const publishedAt = raw.datePosted ? new Date(raw.datePosted) : new Date();
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
-  if (isNaN(publishedAtTimestamp)) return null;
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(raw.datePosted);
 
   return {
     source: SOURCE,
@@ -186,8 +186,7 @@ function mapJob(raw: RawJob): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

@@ -3,6 +3,7 @@ import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'weworkremotely.com';
 
@@ -63,7 +64,7 @@ async function fetchFeed(feedUrl: string, settings: SearchSettings): Promise<Job
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return items
-    .filter((item) => item.pubDate >= cutoff)
+    .filter((item) => item.pubDate === null || item.pubDate >= cutoff)
     .filter((item) => isRelevant(item.title))
     .map(mapItem)
     .filter((j): j is JobPosting => j !== null);
@@ -73,11 +74,11 @@ interface RssItem {
   title: string;
   link: string;
   description: string;
-  pubDate: number;
+  pubDate: number | null; // epoch ms, null when the feed gives no usable date
   region: string;
 }
 
-function parseRssItems(xml: string): RssItem[] {
+export function parseRssItems(xml: string): RssItem[] {
   const items: RssItem[] = [];
   const itemRegex = /<item>([\s\S]*?)<\/item>/g;
   let match: RegExpExecArray | null;
@@ -92,8 +93,9 @@ function parseRssItems(xml: string): RssItem[] {
 
     if (!title || !link) continue;
 
-    const pubDate = pubDateStr ? new Date(pubDateStr).getTime() : Date.now();
-    if (isNaN(pubDate)) continue;
+    // RSS pubDate, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+    const pubSeconds = postDateFrom(pubDateStr).publishedAtTimestamp;
+    const pubDate = pubSeconds === null ? null : pubSeconds * 1000;
 
     items.push({ title: cleanCdata(title), link: cleanCdata(link), description: cleanCdata(description), pubDate, region: cleanCdata(region) });
   }
@@ -119,7 +121,7 @@ function isRelevant(title: string): boolean {
   return relevant.some((k) => t.includes(k));
 }
 
-function mapItem(item: RssItem): JobPosting | null {
+export function mapItem(item: RssItem): JobPosting | null {
   // WWR title format: "Company: Job Title at Company" or "Company | Job Title"
   const rawTitle = item.title;
   let jobTitle = rawTitle;
@@ -160,8 +162,7 @@ function mapItem(item: RssItem): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: new Date(item.pubDate).toISOString(),
-    publishedAtTimestamp: Math.floor(item.pubDate / 1000),
+    ...postDateFrom(item.pubDate),
     startupSignals: [],
     applyUrl: item.link,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

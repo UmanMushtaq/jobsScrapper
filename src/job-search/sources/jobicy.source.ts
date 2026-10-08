@@ -4,6 +4,7 @@ import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
 import { ENGLISH_KEYWORDS } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'jobicy.com';
 
@@ -111,17 +112,15 @@ async function fetchJobs(tag: string, geo: string | undefined, settings: SearchS
     .filter((j): j is JobPosting => j !== null);
 }
 
-function mapJob(job: JobicyJob): JobPosting | null {
+export function mapJob(job: JobicyJob): JobPosting | null {
   if (!job.url || !job.jobTitle) return null;
 
   const description = stripHtml(job.jobDescription ?? job.jobExcerpt ?? '');
   const text = `${job.jobTitle} ${description}`.toLowerCase();
   const location = job.jobGeo ?? 'Remote';
 
-  const dateStr = job.pubDate ?? new Date().toISOString();
-  const publishedAt = new Date(dateStr);
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
-  if (isNaN(publishedAtTimestamp)) return null;
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(job.pubDate);
 
   const salaryMin = job.annualSalaryMin ?? null;
   const salaryMax = job.annualSalaryMax ?? null;
@@ -148,8 +147,7 @@ function mapJob(job: JobicyJob): JobPosting | null {
     salaryMinimum: salaryMin,
     salaryMaximum: salaryMax,
     salaryYearlyMinimum: salaryMin,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl: job.url,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

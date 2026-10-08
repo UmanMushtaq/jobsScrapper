@@ -6,6 +6,7 @@ import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 import { CORE_KEYWORDS_MINIMAL } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'nationalevacaturebank.nl';
 const BASE_URL = 'https://www.nationalevacaturebank.nl';
@@ -114,7 +115,7 @@ async function fetchQuery(query: string, cutoff: number): Promise<JobPosting[]> 
     .filter((j) => isRelevant(j.title));
 }
 
-function mapJob(raw: NvbJob): JobPosting | null {
+export function mapJob(raw: NvbJob): JobPosting | null {
   const title = raw.metadata?.jdco;
   if (!title) return null;
 
@@ -129,8 +130,8 @@ function mapJob(raw: NvbJob): JobPosting | null {
   const description = stripHtml(raw.description ?? '');
   const text = `${title} ${description}`.toLowerCase();
 
-  const pub = raw.publicationDate ?? raw.datePosted;
-  const publishedAt = pub ? new Date(pub) : new Date();
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(raw.publicationDate ?? raw.datePosted);
 
   return {
     source: SOURCE,
@@ -153,8 +154,7 @@ function mapJob(raw: NvbJob): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: RELOCATION_KEYWORDS.some((k) => text.includes(k)),

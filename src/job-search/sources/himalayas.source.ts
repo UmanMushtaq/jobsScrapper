@@ -4,6 +4,7 @@ import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { isRelevantJob } from './shared-scraper';
 import { ENGLISH_KEYWORDS } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'himalayas.app';
 
@@ -111,7 +112,8 @@ export function mapJob(j: HimalayasJob): JobPosting | null {
   }
 
   const text = `${title} ${description}`.toLowerCase();
-  const publishedAt = j.pubDate ? new Date(j.pubDate * 1000) : new Date();
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(j.pubDate);
   const salaryMin = j.minSalary ?? null;
   const salaryMax = j.maxSalary ?? null;
   const salaryCurrency = j.currency ?? null;
@@ -137,8 +139,7 @@ export function mapJob(j: HimalayasJob): JobPosting | null {
     salaryMinimum: salaryMin,
     salaryMaximum: salaryMax,
     salaryYearlyMinimum: salaryMin,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl: j.applicationLink,
     offersRelocation: false,

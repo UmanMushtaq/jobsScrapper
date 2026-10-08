@@ -6,6 +6,7 @@ import { JobSource } from './registry';
 import { getNextKey, buildScraperUrl } from '../../common/utils/scraper-api.util';
 import { RELOCATION_KEYWORDS, resolveUrl } from './shared-scraper';
 import { CORE_KEYWORDS_MINIMAL } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'jobbsafari.se';
 const BASE_URL = 'https://www.jobbsafari.se/lediga-jobb';
@@ -185,7 +186,7 @@ function parseJobCardsFromHtml(html: string): RawJob[] {
   return jobs;
 }
 
-function mapJob(raw: RawJob): JobPosting | null {
+export function mapJob(raw: RawJob): JobPosting | null {
   const title = raw.title ?? raw.name;
   if (!title) return null;
 
@@ -211,9 +212,8 @@ function mapJob(raw: RawJob): JobPosting | null {
     : '';
   const text = `${title} ${description}`.toLowerCase();
 
-  const dateStr = raw.datePosted ?? raw.publishedAt ?? raw.date;
-  const publishedAt = dateStr ? new Date(dateStr) : new Date();
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(raw.datePosted ?? raw.publishedAt ?? raw.date);
 
   return {
     source: SOURCE,
@@ -236,8 +236,7 @@ function mapJob(raw: RawJob): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

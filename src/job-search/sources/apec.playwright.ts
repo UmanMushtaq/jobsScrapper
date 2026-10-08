@@ -5,6 +5,7 @@ import { detectLanguage } from './language-detect';
 import { redisGet, redisSetEx } from '../redis-store';
 import { acquirePlaywrightLock } from './playwright-queue';
 import { CORE_KEYWORDS_MINIMAL, FRENCH_KEYWORDS } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'apec.fr';
 const BASE_URL = 'https://www.apec.fr';
@@ -285,10 +286,8 @@ async function fetchSearchPage(
         }
         await sleep(500);
 
-        const publishedAt = card.date ? new Date(card.date).toISOString() : new Date().toISOString();
-        const publishedAtTimestamp = card.date
-          ? Math.floor(new Date(card.date).getTime() / 1000)
-          : Math.floor(Date.now() / 1000);
+        // Card date ("datetime" or "Publiée le 06/10/2026"), or null when missing/unparseable.
+        const postDate = postDateFrom(card.date);
 
         const text = `${card.title} ${description}`.toLowerCase();
         const salary = parseSalary(card.salary);
@@ -314,8 +313,7 @@ async function fetchSearchPage(
           salaryMinimum: salary.min,
           salaryMaximum: salary.max,
           salaryYearlyMinimum: salary.yearlyMin,
-          publishedAt,
-          publishedAtTimestamp,
+          ...postDate,
           startupSignals: [],
           applyUrl: card.url,
           offersRelocation: false,

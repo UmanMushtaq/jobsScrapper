@@ -7,6 +7,7 @@ import { RequiredLanguage } from '../language-requirement-filter';
 import { extractRequiredMinimumYears } from '../experience-parser';
 import { ENGLISH_KEYWORDS, FRENCH_KEYWORDS, GERMAN_KEYWORDS } from '../keywords';
 import { ALLOWED_COUNTRIES } from '../allowed-countries';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'eures.europa.eu';
 const API_URL = 'https://europa.eu/eures/api/jv-searchengine/public/jv-search/search';
@@ -281,9 +282,9 @@ export function extractRequiredLanguages(raw: EuresJv): RequiredLanguage[] {
 export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
   if (!raw.id || !raw.title) return null;
 
-  const publishedRaw = raw.lastModificationDate ?? raw.creationDate;
-  const publishedAtTimestamp = publishedRaw ?? Date.now();
-  if (publishedAtTimestamp < cutoff) return null;
+  // EURES dates are epoch ms; missing → null (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(raw.lastModificationDate ?? raw.creationDate);
+  if (postDate.publishedAtTimestamp !== null && postDate.publishedAtTimestamp * 1000 < cutoff) return null;
 
   const countryCode = Object.keys(raw.locationMap ?? {})[0] ?? null;
   const locationLabel = countryCode ?? 'EU';
@@ -303,7 +304,6 @@ export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
       : /hybrid|hybride/.test(text) ? 'hybrid' : 'on-site';
 
   const canonicalUrl = `${PORTAL_URL}/${encodeURIComponent(raw.id)}?lang=en`;
-  const publishedAt = new Date(publishedAtTimestamp);
   const company = raw.employer?.name ?? 'Unknown';
   const language = raw.availableLanguages?.[0] ?? detectLanguage(`${title} ${description.slice(0, 400)}`);
   const requiredLanguages = extractRequiredLanguages(raw);
@@ -330,8 +330,7 @@ export function mapJob(raw: EuresJv, cutoff: number): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl: canonicalUrl,
     offersRelocation: RELOCATION_KEYWORDS.some((k) => text.includes(k)),

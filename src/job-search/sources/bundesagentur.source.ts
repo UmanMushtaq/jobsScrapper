@@ -3,6 +3,7 @@ import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { sleep } from './shared-scraper';
 import { ENGLISH_KEYWORDS, GERMAN_KEYWORDS } from '../keywords';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'arbeitsagentur.de';
 
@@ -222,10 +223,8 @@ export function mapJob(job: BaJob): JobPosting | null {
   const canonicalUrl = job.externeUrl ?? `https://www.arbeitsagentur.de/jobsuche/jobdetail/${job.refnr}`;
   const applyUrl = canonicalUrl;
 
-  const dateStr = job.aktuelleVeroeffentlichungsdatum ?? job.veroeffentlicht ?? new Date().toISOString();
-  const publishedAt = new Date(dateStr);
-  const publishedAtTimestamp = Math.floor(publishedAt.getTime() / 1000);
-  if (isNaN(publishedAtTimestamp)) return null;
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(job.aktuelleVeroeffentlichungsdatum ?? job.veroeffentlicht);
 
   const workMode = inferWorkMode(job);
   const text = title.toLowerCase();
@@ -251,8 +250,7 @@ export function mapJob(job: BaJob): JobPosting | null {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp,
+    ...postDate,
     startupSignals: [],
     applyUrl,
     offersRelocation: false,
