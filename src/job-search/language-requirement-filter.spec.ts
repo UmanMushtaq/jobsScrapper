@@ -1,4 +1,12 @@
-import { evaluateLanguageRequirement, detectRequiredLanguagePhrase } from './language-requirement-filter';
+import {
+  detectPostingLanguage,
+  detectRequiredLanguagePhrase,
+  evaluateLanguageRequirement,
+  evaluatePostingLanguage,
+  hasEnglishSignal,
+  LOCAL_LANGUAGE_REQUIRED,
+  NO_ENGLISH_SIGNAL,
+} from './language-requirement-filter';
 
 describe('evaluateLanguageRequirement — structured field', () => {
   it('rejects Dutch required at B1', () => {
@@ -133,5 +141,139 @@ describe('evaluateLanguageRequirement — German coverage pass, July 12 2026', (
   it('rejects "Deutschkenntnisse auf B2 Niveau" (no hyphen)', () => {
     const result = evaluateLanguageRequirement(null, 'Backend role. Deutschkenntnisse auf B2 Niveau sind Voraussetzung.');
     expect(result.reject).toBe(true);
+  });
+});
+
+// ── Final rule set: local-language-required / no-english-signal / language-unclear ──
+
+const FR_NO_SIGNAL =
+  'Nous recherchons un développeur backend Node.js pour rejoindre notre équipe à Paris. ' +
+  'Vous serez en charge de la conception des API et des microservices avec NestJS. ' +
+  'Vous travaillerez avec les équipes produit et vous participerez aux choix techniques. ' +
+  'Le poste est basé à Paris avec deux jours de télétravail par semaine.';
+const FR_WITH_SIGNAL = `${FR_NO_SIGNAL} Vous rejoindrez une équipe internationale et la langue de travail est l'anglais.`;
+const DE_NO_SIGNAL =
+  'Wir suchen einen Backend Entwickler für unser Team in Berlin. Du entwickelst die APIs und ' +
+  'Microservices mit Node.js und TypeScript. Du arbeitest eng mit dem Produktteam zusammen und ' +
+  'bist für die Qualität der Software mit verantwortlich. Wir bieten dir ein modernes Büro und ' +
+  'flexible Arbeitszeiten.';
+const DE_WITH_SIGNAL = `${DE_NO_SIGNAL} Unsere Arbeitssprache ist Englisch.`;
+const EN_POSTING =
+  'We are looking for a backend engineer to join our team. You will design and build the APIs ' +
+  'and microservices that power our platform, working with Node.js, TypeScript and PostgreSQL. ' +
+  'You will work closely with the product team and own the quality of what you ship.';
+
+describe('detectPostingLanguage', () => {
+  it('reads an English posting as English', () => {
+    expect(detectPostingLanguage(EN_POSTING).language).toBe('en');
+  });
+
+  it.each([
+    ['French', FR_NO_SIGNAL, 'fr'],
+    ['German', DE_NO_SIGNAL, 'de'],
+    ['Dutch', 'Wij zoeken een backend developer voor ons team in Amsterdam. Je bouwt de API en de microservices met Node.js en je werkt samen met het productteam. Wat wij bieden is een goed salaris en ook een fijne werkplek.', 'nl'],
+    ['Swedish', 'Vi söker en backendutvecklare till vårt team i Stockholm. Du kommer att bygga våra API och tjänster med Node.js och du har erfarenhet av TypeScript. Det är en roll för dig som gillar att ta ansvar för kvalitet och som vill utvecklas med oss.', 'sv'],
+    ['Finnish', 'Haemme backend-kehittäjää tiimiimme Helsinkiin. Olet kokenut Node.js ja TypeScript osaaja ja haluat kehittää palveluita kanssa meidän tiimin. Tarjoamme sinulle hyvät työehdot ja myös joustavan työajan, kun olet valmis tekemään tämä työ meillä.', 'fi'],
+  ])('reads a %s posting as local', (_name, text, code) => {
+    expect(detectPostingLanguage(text)).toEqual({ language: 'local', localCode: code });
+  });
+
+  it('is unclear for a short snippet', () => {
+    expect(detectPostingLanguage('Node.js, TypeScript, NestJS, PostgreSQL').language).toBe('unclear');
+  });
+
+  it('is unclear for a half-English, half-German posting', () => {
+    expect(detectPostingLanguage(`${EN_POSTING} ${DE_NO_SIGNAL}`).language).toBe('unclear');
+  });
+});
+
+describe('hasEnglishSignal', () => {
+  it.each([
+    'Good English is required',
+    'Sehr gute Englischkenntnisse',
+    'Anglais courant',
+    'Goede beheersing van het Engels',
+    'Goda kunskaper i engelska',
+    'Gode engelskkundskaber',
+    'Englannin kielen taito',
+    'The working language is English',
+    'You join an international team',
+  ])('finds "%s"', (text) => {
+    expect(hasEnglishSignal(text)).toBe(true);
+  });
+
+  it('finds nothing in a plain German posting', () => {
+    expect(hasEnglishSignal(DE_NO_SIGNAL)).toBe(false);
+  });
+});
+
+describe('evaluatePostingLanguage — rule 1: local language required', () => {
+  it.each([
+    'Fluent German is required for this role.',
+    'Deutsch fließend in Wort und Schrift.',
+    'Sehr gute Deutschkenntnisse.',
+    'Verhandlungssicheres Deutsch.',
+    'Maîtrise du français indispensable.',
+    'Français courant.',
+    'Vloeiend Nederlands.',
+    'Flytande svenska.',
+    'Flydende dansk.',
+    'Flytende norsk.',
+    'Erinomainen suomen kielen taito.',
+  ])('rejects "%s" as local-language-required, even in an English posting', (phrase) => {
+    const result = evaluatePostingLanguage(null, `${EN_POSTING} ${phrase}`);
+    expect(result.decision).toBe('reject');
+    expect(result.reason).toBe(LOCAL_LANGUAGE_REQUIRED);
+  });
+
+  it.each([
+    'Fluent German is a plus.',
+    'Fluent German is nice to have.',
+    'Fließende Deutschkenntnisse sind von Vorteil.',
+    'Sehr gute Deutschkenntnisse sind ein Plus.',
+    'Le français courant est un plus.',
+    'Nice to have:\n- Flytande svenska',
+  ])('keeps "%s" (marked optional)', (phrase) => {
+    const result = evaluatePostingLanguage(null, `${EN_POSTING} ${phrase}`);
+    expect(result.decision).toBe('keep');
+  });
+
+  it('a requirements heading after a nice-to-have list still rejects', () => {
+    const result = evaluatePostingLanguage(null, `${EN_POSTING}\nNice to have: Kafka\nRequirements:\n- Fluent German`);
+    expect(result.reason).toBe(LOCAL_LANGUAGE_REQUIRED);
+  });
+
+  it('rejects a structured B2 requirement with the same reason', () => {
+    const result = evaluatePostingLanguage([{ code: 'de', level: 'B2' }], EN_POSTING);
+    expect(result.reason).toBe(LOCAL_LANGUAGE_REQUIRED);
+  });
+});
+
+describe('evaluatePostingLanguage — rules 2-4', () => {
+  it('rejects a French posting with no English signal (no-english-signal)', () => {
+    const result = evaluatePostingLanguage(null, FR_NO_SIGNAL);
+    expect(result).toMatchObject({ decision: 'reject', reason: NO_ENGLISH_SIGNAL });
+  });
+
+  it('keeps a French posting with an English signal', () => {
+    expect(evaluatePostingLanguage(null, FR_WITH_SIGNAL).decision).toBe('keep');
+  });
+
+  it('rejects a German posting with no English signal (no-english-signal)', () => {
+    const result = evaluatePostingLanguage(null, DE_NO_SIGNAL);
+    expect(result).toMatchObject({ decision: 'reject', reason: NO_ENGLISH_SIGNAL });
+  });
+
+  it('keeps a German posting that says the working language is English', () => {
+    expect(evaluatePostingLanguage(null, DE_WITH_SIGNAL).decision).toBe('keep');
+  });
+
+  it('keeps an English posting with no local-language requirement', () => {
+    expect(evaluatePostingLanguage(null, EN_POSTING)).toMatchObject({ decision: 'keep', reason: null });
+  });
+
+  it('marks an empty or very short description as unclear (kept)', () => {
+    expect(evaluatePostingLanguage(null, '').decision).toBe('unclear');
+    expect(evaluatePostingLanguage(null, 'Node.js backend').decision).toBe('unclear');
   });
 });

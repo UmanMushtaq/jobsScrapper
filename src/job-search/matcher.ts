@@ -1,9 +1,8 @@
 import { PreferenceModel, scorePreference } from './preference';
 import { resolveWorkAuth } from './profile';
-import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
 import { scoreLocation } from './sources/location-filter';
 import { isFrontendPrimaryStack, isMarketingEngineeringRole } from './stack-filter';
-import { evaluateLanguageRequirement } from './language-requirement-filter';
+import { evaluatePostingLanguage, LANGUAGE_UNCLEAR_TAG } from './language-requirement-filter';
 import { isRejectedCompany } from './rejected-companies';
 import { hasNoAiApplicationPolicy } from './no-ai-policy-filter';
 import { FINTECH_KEYWORDS } from './sources/shared-scraper';
@@ -99,10 +98,19 @@ export function scoreJob(
     return null;
   }
 
-  if (!isLanguageFit(job, profile, text)) {
-    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: langFilter (detected: ${job.language ?? 'unknown'})`);
+  // Posting-language step (language-requirement-filter.ts): local language required →
+  // "local-language-required"; non-English description with no English signal →
+  // "no-english-signal" (every source, trusted ones included); unclear → keep, tagged.
+  const postingLanguage = evaluatePostingLanguage(
+    job.requiredLanguages,
+    [job.description, ...job.keyMissions].join('\n'),
+  );
+  if (postingLanguage.decision === 'reject') {
+    console.log(`[language-filter] REJECTED: ${job.company} — ${postingLanguage.reason} (${postingLanguage.detail ?? ''})`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: ${postingLanguage.reason} (${postingLanguage.detail ?? ''})`);
     return null;
   }
+  const languageRequirement = postingLanguage.languageRequirement;
 
   const matchedTitleExcl = profile.search.excludedTitleKeywords.find((keyword) => normalizedTitle.includes(keyword));
   if (matchedTitleExcl) {
@@ -179,17 +187,6 @@ export function scoreJob(
   if (marketingRole.reject) {
     console.log(`[stack-filter] REJECTED marketing-engineering: ${job.company} — ${marketingRole.reason}`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: role-type-marketing-engineering (${marketingRole.reason})`);
-    return null;
-  }
-
-  // Hard reject: a stated language-proficiency requirement (structured field, when the
-  // source provides one, plus a free-text requirement-phrase heuristic for every source)
-  // that the candidate does not meet — English fluent, French A1 only. Distinct from
-  // isLanguageFit() above, which only judges what language the posting is WRITTEN in.
-  const languageRequirement = evaluateLanguageRequirement(job.requiredLanguages, job.description);
-  if (languageRequirement.reject) {
-    console.log(`[language-filter] REJECTED: ${job.company} — ${languageRequirement.reason}`);
-    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: languageRequirement (${languageRequirement.reason})`);
     return null;
   }
 
@@ -404,6 +401,7 @@ export function scoreJob(
   ].slice(0, 5);
   // Appended after the cut so the tag is never dropped and never becomes reasons[0].
   if (experience.decision === 'borderline') reasons.push(BORDERLINE_YEARS_TAG);
+  if (postingLanguage.decision === 'unclear') reasons.push(LANGUAGE_UNCLEAR_TAG);
 
   return {
     job: {
@@ -419,29 +417,6 @@ export function scoreJob(
     shortAnswers: buildShortAnswers(job, reasons),
     languageRequirementNote: languageRequirement.note,
   };
-}
-
-function isLanguageFit(job: JobPosting, profile: SearchProfile, text: string): boolean {
-  const desiredLanguage = profile.search.language.toLowerCase();
-  const detectedLanguage = job.language ? job.language.toLowerCase() : detectLanguage(text);
-  const isPreferredCountry = profile.search.preferredCountries?.includes(job.countryCode ?? '');
-
-  if (detectedLanguage !== desiredLanguage) {
-    // Allow non-English jobs that explicitly signal an English-speaking team
-    if (hasEnglishTeamSignals(text)) return true;
-    // Allow jobs from preferred countries — candidate lives there and can work in local language
-    if (isPreferredCountry) return true;
-    return false;
-  }
-
-  // Language matches desired — secondary title check catches WTTJ-style jobs that are labelled
-  // 'en' but have a French/German title (accented characters are a strong non-English signal).
-  if (/[àâéèêëîïôùûüçœæäöüß]/i.test(job.title)) {
-    const titleLanguage = detectLanguage(job.title);
-    if (titleLanguage !== desiredLanguage && !isPreferredCountry) return false;
-  }
-
-  return true;
 }
 
 // ── Experience rule ────────────────────────────────────────────────────────────

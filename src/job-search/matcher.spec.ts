@@ -1,4 +1,5 @@
 import { BORDERLINE_YEARS_TAG, evaluateExperienceRequirement, scoreJob } from './matcher';
+import { LANGUAGE_UNCLEAR_TAG } from './language-requirement-filter';
 import { SearchProfile, JobPosting } from './types';
 
 const profile: SearchProfile = {
@@ -542,4 +543,42 @@ describe('scoreJob — experience rule and title seniority', () => {
       expect(scoreJob(buildJob({ title }), openProfile)).not.toBeNull();
     },
   );
+});
+
+describe('scoreJob — posting-language step', () => {
+  const openProfile: SearchProfile = { ...profile, search: { ...profile.search, excludedTitleKeywords: [] } };
+  const enBody =
+    'We are looking for a backend engineer to join our team. You will build the APIs and microservices ' +
+    'of our platform with Node.js, NestJS, TypeScript, PostgreSQL, Docker and AWS. You will work with the product team.';
+  const frBody =
+    'Nous recherchons un développeur backend pour rejoindre notre équipe. Vous serez en charge des API et des ' +
+    'microservices avec Node.js, NestJS, TypeScript, PostgreSQL, Docker et AWS. Vous travaillerez avec les équipes produit.';
+
+  it.each(['apec.fr', 'welcometothejungle.com', 'arbeitsagentur.de', 'francetravail.fr'])(
+    'rejects a French posting with no English signal from trusted source %s',
+    (source) => {
+      expect(scoreJob(buildJob({ source, description: frBody }), openProfile)).toBeNull();
+    },
+  );
+
+  it('keeps the same French posting once it mentions an international team', () => {
+    const result = scoreJob(buildJob({ description: `${frBody} Vous rejoindrez une équipe internationale.` }), openProfile);
+    expect(result).not.toBeNull();
+  });
+
+  it('rejects an English posting that requires fluent German', () => {
+    expect(scoreJob(buildJob({ description: `${enBody} Fluent German is required.` }), openProfile)).toBeNull();
+  });
+
+  it('keeps an English posting without the language-unclear tag', () => {
+    const result = scoreJob(buildJob({ description: enBody }), openProfile);
+    expect(result).not.toBeNull();
+    expect(result?.reasons).not.toContain(LANGUAGE_UNCLEAR_TAG);
+  });
+
+  it('keeps a posting whose language is unclear and tags it "language-unclear"', () => {
+    const result = scoreJob(buildJob({ description: 'Node.js TypeScript NestJS PostgreSQL Docker AWS backend API.' }), openProfile);
+    expect(result).not.toBeNull();
+    expect(result?.reasons).toContain(LANGUAGE_UNCLEAR_TAG);
+  });
 });
