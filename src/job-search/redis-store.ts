@@ -502,31 +502,64 @@ export async function redisGetApecStatus(): Promise<ApecRunStatus | null> {
 }
 
 // --- Persistent dashboard jobs ---
-// Each job is stored as dashboard:job:{jobId} (SET NX, expires 72h after foundAt).
-// An index ZSET (dashboard:jobs:index, score=foundAt ms) tracks all active jobIds; IDs
-// older than 72h are pruned from it (and their keys deleted) when the dashboard is read.
+// Each job is stored as dashboard:job:{jobId} (SET NX) and expires at the EARLIER of
+// foundAt + 72h and (when the job has a real posting date) publishedAt + 72h. That
+// deadline is stored on the card as expiresAt and used as the key's Redis TTL; a card whose
+// deadline has already passed is never saved. An index ZSET (dashboard:jobs:index,
+// score=foundAt ms) tracks all active jobIds; on read, cards past their deadline (including
+// ones saved before expiresAt existed) are deleted and dropped from the index.
 
 const DASHBOARD_INDEX_KEY = 'dashboard:jobs:index';
 export const DASHBOARD_JOB_TTL_SECONDS = 72 * 60 * 60; // 72 hours
 
-// Seconds left until a card found at foundAt expires (at least 1).
-export function dashboardTtlSeconds(foundAt: number, now = Date.now()): number {
-  return Math.max(1, DASHBOARD_JOB_TTL_SECONDS - Math.floor((now - foundAt) / 1000));
+// When a card leaves the dashboard: 72h after it was found, or 72h after the job was
+// posted if that comes first. publishedAtTimestamp is in seconds (null when undated).
+export function dashboardExpiresAt(foundAt: number, publishedAtTimestamp: number | null | undefined): number {
+  const fromFound = foundAt + DASHBOARD_JOB_TTL_SECONDS * 1000;
+  if (typeof publishedAtTimestamp !== 'number' || !Number.isFinite(publishedAtTimestamp)) return fromFound;
+  return Math.min(fromFound, publishedAtTimestamp * 1000 + DASHBOARD_JOB_TTL_SECONDS * 1000);
+}
+
+// Redis TTL in whole seconds until expiresAt (at least 1).
+export function dashboardTtlSeconds(expiresAt: number, now = Date.now()): number {
+  return Math.max(1, Math.ceil((expiresAt - now) / 1000));
 }
 
 export interface DashboardJobEntry {
   jobId: string;        // hashJobUrl result
   foundAt: number;      // ms timestamp when first stored
+  // ms timestamp when the card leaves the dashboard (see dashboardExpiresAt). Missing on
+  // cards saved before it existed; redisGetDashboardJobs fills it in on read.
+  expiresAt?: number;
   match: unknown;       // serialised MatchResult (slim)
+}
+
+function entryExpiresAt(entry: Pick<DashboardJobEntry, 'foundAt' | 'expiresAt' | 'match'>): number {
+  if (typeof entry.expiresAt === 'number') return entry.expiresAt;
+  const published = (entry.match as { job?: { publishedAtTimestamp?: number | null } } | null)?.job?.publishedAtTimestamp;
+  return dashboardExpiresAt(entry.foundAt, published);
+}
+
+// Builds the card to store, or null when its deadline has already passed (not saved).
+export function buildDashboardEntry(jobId: string, match: unknown, foundAt: number, now = Date.now()): DashboardJobEntry | null {
+  const expiresAt = entryExpiresAt({ foundAt, match });
+  if (expiresAt <= now) return null;
+  return { jobId, foundAt, expiresAt, match };
+}
+
+function logSkippedExpired(match: unknown): void {
+  const m = match as { job?: { company?: string; title?: string } } | null;
+  console.log(`[dashboard] not saved (posted more than 72h ago): ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}`);
 }
 
 export async function redisSaveDashboardJob(jobId: string, match: unknown, foundAt: number): Promise<void> {
   const r = getClient();
   if (!r) return;
   try {
+    const entry = buildDashboardEntry(jobId, match, foundAt);
+    if (!entry) { logSkippedExpired(match); return; }
     const key = `dashboard:job:${jobId}`;
-    const entry: DashboardJobEntry = { jobId, foundAt, match };
-    const result = await r.set(key, JSON.stringify(entry), { nx: true, ex: dashboardTtlSeconds(foundAt) });
+    const result = await r.set(key, JSON.stringify(entry), { nx: true, ex: dashboardTtlSeconds(entry.expiresAt as number) });
     type SM = { score: number; member: string };
     await r.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: foundAt, member: jobId } as SM);
     if (result === 'OK') {
@@ -546,19 +579,23 @@ export async function redisSaveDashboardJobBatch(
   if (!r) return;
   try {
     type SM = { score: number; member: string };
-    const pipe = r.pipeline();
+    const toSave: DashboardJobEntry[] = [];
     for (const { jobId, match, foundAt } of items) {
-      const key = `dashboard:job:${jobId}`;
-      const entry: DashboardJobEntry = { jobId, foundAt, match };
-      pipe.set(key, JSON.stringify(entry), { nx: true, ex: dashboardTtlSeconds(foundAt) });
-      pipe.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: foundAt, member: jobId } as SM);
+      const entry = buildDashboardEntry(jobId, match, foundAt);
+      if (entry) toSave.push(entry);
+      else logSkippedExpired(match);
+    }
+    if (!toSave.length) return;
+    const pipe = r.pipeline();
+    for (const entry of toSave) {
+      pipe.set(`dashboard:job:${entry.jobId}`, JSON.stringify(entry), { nx: true, ex: dashboardTtlSeconds(entry.expiresAt as number) });
+      pipe.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: entry.foundAt, member: entry.jobId } as SM);
     }
     const results = await pipe.exec();
     // Log newly saved jobs (SET NX returns 'OK' on first write, null on duplicate)
-    for (let i = 0; i < items.length; i++) {
-      const setResult = results[i * 2];
-      if (setResult === 'OK') {
-        const m = items[i].match as { job?: { company?: string; title?: string } } | null;
+    for (let i = 0; i < toSave.length; i++) {
+      if (results[i * 2] === 'OK') {
+        const m = toSave[i].match as { job?: { company?: string; title?: string } } | null;
         console.log(`[dashboard] saved new job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}`);
       }
     }
@@ -571,14 +608,15 @@ export async function redisGetDashboardJobs(): Promise<DashboardJobEntry[]> {
   const r = getClient();
   if (!r) return [];
   try {
-    // Prune cards older than 72h: delete their keys (older cards were saved without an
-    // expiry) and drop them from the index.
-    const cutoff = Date.now() - DASHBOARD_JOB_TTL_SECONDS * 1000;
+    const now = Date.now();
+    // Cards found more than 72h ago are past every deadline: delete their keys (older cards
+    // were saved without an expiry) and drop them from the index in one sweep.
+    const cutoff = now - DASHBOARD_JOB_TTL_SECONDS * 1000;
     const expiredIds = (await r.zrange<string[]>(DASHBOARD_INDEX_KEY, 0, cutoff, { byScore: true })) ?? [];
     if (expiredIds.length) {
       await r.del(...expiredIds.map((id) => `dashboard:job:${id}`));
       await r.zremrangebyscore(DASHBOARD_INDEX_KEY, 0, cutoff);
-      console.log(`[dashboard] pruned ${expiredIds.length} card(s) older than 72h`);
+      console.log(`[dashboard] pruned ${expiredIds.length} card(s) found more than 72h ago`);
     }
 
     const jobIds = await r.zrange(DASHBOARD_INDEX_KEY, 0, -1);
@@ -587,18 +625,25 @@ export async function redisGetDashboardJobs(): Promise<DashboardJobEntry[]> {
     const raws = await r.mget<string[]>(...keys);
     const entries: DashboardJobEntry[] = [];
     const orphanIds: string[] = [];
+    const pastDeadline: string[] = [];
     for (let i = 0; i < raws.length; i++) {
       const raw = raws[i];
       if (!raw) { orphanIds.push(jobIds[i] as string); continue; }
       try {
         const entry = JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as DashboardJobEntry;
-        if (entry.foundAt < cutoff) { orphanIds.push(jobIds[i] as string); continue; }
-        entries.push(entry);
+        const expiresAt = entryExpiresAt(entry);
+        // Past its deadline (e.g. posted >72h ago, or saved before expiresAt existed).
+        if (expiresAt <= now) { pastDeadline.push(jobIds[i] as string); continue; }
+        entries.push({ ...entry, expiresAt });
       } catch { orphanIds.push(jobIds[i] as string); }
     }
-    if (orphanIds.length) {
-      // Clean up index entries whose keys have expired
-      await r.zrem(DASHBOARD_INDEX_KEY, ...orphanIds).catch(() => {});
+    if (pastDeadline.length) {
+      await r.del(...pastDeadline.map((id) => `dashboard:job:${id}`)).catch(() => 0);
+      console.log(`[dashboard] pruned ${pastDeadline.length} card(s) past their 72h deadline`);
+    }
+    if (orphanIds.length || pastDeadline.length) {
+      // Clean up index entries whose keys have expired or were just deleted
+      await r.zrem(DASHBOARD_INDEX_KEY, ...orphanIds, ...pastDeadline).catch(() => {});
     }
     // Sort newest first (highest foundAt last in ZSET, so reverse)
     return entries.sort((a, b) => b.foundAt - a.foundAt);

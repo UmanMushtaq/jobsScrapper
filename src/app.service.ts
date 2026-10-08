@@ -2065,12 +2065,26 @@ function escapeBr(value: string): string {
   return escapeHtml(value).replace(/\n/g, '<br>');
 }
 
+// "expires in Xh" badge for a dashboard card (see dashboardExpiresAt in redis-store.ts):
+// highlighted with an amber edge in its last 12 hours. No badge without an expiresAt
+// (file-only mode, where cards come from state.latestMatches).
+export function renderExpiryBadge(expiresAt: number | undefined, now = Date.now()): { badge: string; rowStyle: string } {
+  if (typeof expiresAt !== 'number') return { badge: '', rowStyle: '' };
+  const msLeft = expiresAt - now;
+  const label = msLeft < 60 * 60 * 1000 ? 'expires in <1h' : `expires in ${Math.ceil(msLeft / (60 * 60 * 1000))}h`;
+  const soon = msLeft <= 12 * 60 * 60 * 1000;
+  return {
+    badge: `<span class="badge ${soon ? 'badge-warning' : 'badge-neutral'}" style="margin-left:6px;">${escapeHtml(label)}</span>`,
+    rowStyle: soon ? 'border-left:3px solid #f59e0b;' : '',
+  };
+}
+
 function renderHtml(state: JobSearchState, dashboardJobs?: DashboardJobEntry[]): string {
   // Use persistent dashboard jobs if available, fall back to state.latestMatches
   const now = Date.now();
-  const displayMatches: Array<{ match: MatchResult; foundAt?: number }> =
+  const displayMatches: Array<{ match: MatchResult; foundAt?: number; expiresAt?: number }> =
     dashboardJobs
-      ? dashboardJobs.map((j) => ({ match: j.match as MatchResult, foundAt: j.foundAt }))
+      ? dashboardJobs.map((j) => ({ match: j.match as MatchResult, foundAt: j.foundAt, expiresAt: j.expiresAt }))
       : state.latestMatches.map((m) => ({ match: m }));
 
   // Source-based fallback ONLY — used when a job has no countryCode (see
@@ -2125,7 +2139,7 @@ function renderHtml(state: JobSearchState, dashboardJobs?: DashboardJobEntry[]):
   const rows =
     displayMatches.length > 0
       ? displayMatches
-          .map(({ match, foundAt }, idx) => {
+          .map(({ match, expiresAt }, idx) => {
             const url = escapeHtml(match.job.canonicalUrl);
             const sc = match.score;
             const isHN = match.job.source === 'news.ycombinator.com';
@@ -2134,7 +2148,7 @@ function renderHtml(state: JobSearchState, dashboardJobs?: DashboardJobEntry[]):
             const detId = `det-${idx}`;
             const cvHash = hashJobUrl(match.job.canonicalUrl);
             const jobId = cvHash;
-            const isAging = foundAt != null && (now - foundAt) > 48 * 60 * 60 * 1000;
+            const expiry = renderExpiryBadge(expiresAt, now);
             const countryTab = sourceToCountryTab(match.job.source ?? '', match.job.countryCode);
 
             // Table row: compact summary
@@ -2314,13 +2328,10 @@ function renderHtml(state: JobSearchState, dashboardJobs?: DashboardJobEntry[]):
               </td>
             </tr>`;
 
-            const agingBorder = isAging ? 'border-left:3px solid #f59e0b;' : '';
-            const agingTag = isAging ? `<span class="badge badge-warning" style="margin-left:6px;">48h+</span>` : '';
-
             return `
-              <tr data-country="${countryTab}" data-job-id="${jobId}" style="${agingBorder}">
+              <tr data-country="${countryTab}" data-job-id="${jobId}" style="${expiry.rowStyle}">
                 <td>
-                  <div class="truncate" title="${escapeHtml(match.job.title)}" style="font-weight:600;font-size:14px;line-height:1.4;">${escapeHtml(match.job.title)}${agingTag}</div>
+                  <div class="truncate" title="${escapeHtml(match.job.title)}" style="font-weight:600;font-size:14px;line-height:1.4;">${escapeHtml(match.job.title)}${expiry.badge}</div>
                   <div class="truncate" style="font-size:12px;color:#6b7280;margin-top:2px;">${escapeHtml(match.job.source ?? '')}&nbsp;${hnBadge}${emailBadge}</div>
                 </td>
                 <td class="truncate" title="${escapeHtml(match.job.company)}" style="font-weight:500;">${escapeHtml(match.job.company)}</td>

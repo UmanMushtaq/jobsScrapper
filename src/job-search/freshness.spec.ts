@@ -62,13 +62,13 @@ describe('isFreshJob', () => {
 });
 
 describe('dashboardTtlSeconds', () => {
-  it('is 72 hours for a card found now', () => {
+  it('is 72 hours for a card that expires 72h from now', () => {
     expect(DASHBOARD_JOB_TTL_SECONDS).toBe(72 * 60 * 60);
-    expect(dashboardTtlSeconds(NOW, NOW)).toBe(72 * 60 * 60);
+    expect(dashboardTtlSeconds(NOW + 72 * HOUR, NOW)).toBe(72 * 60 * 60);
   });
 
-  it('counts down from foundAt, never below 1 second', () => {
-    expect(dashboardTtlSeconds(NOW - 70 * HOUR, NOW)).toBe(2 * 60 * 60);
-    expect(dashboardTtlSeconds(NOW - 100 * HOUR, NOW)).toBe(1);
+  it('counts down to the deadline, never below 1 second', () => {
+    expect(dashboardTtlSeconds(NOW + 2 * HOUR, NOW)).toBe(2 * 60 * 60);
+    expect(dashboardTtlSeconds(NOW - 28 * HOUR, NOW)).toBe(1);
   });
 });
