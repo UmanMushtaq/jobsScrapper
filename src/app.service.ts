@@ -31,6 +31,7 @@ import {
 } from './job-search/telegram';
 import { ApecRunStatus, AppliedJobEntry, BotLogEntry, DashboardJobEntry, IndeedRunData, JobHistoryEntry, isRedisAvailable, redisCountUrlSets, redisDeleteDashboardJob, redisGet, redisGetApecStatus, redisGetAppliedJobs, redisGetDashboardJobs, redisGetGeminiDailyCalls, redisGetIndeedLastRun, redisGetJobHistory, redisGetLogs, redisRecordJobDecisionHistory, redisSaveAppliedJob, redisSetEx } from './job-search/redis-store';
 import { getPlatformHealth } from './job-search/platform-health';
+import { normalizeUrl } from './job-search/storage';
 import { JobSearchState, MatchResult, PlatformHealth, ScorerDiagnostic } from './job-search/types';
 import { buildAnalyticsData, fetchAnalyticsRows, WindowDays } from './job-search/analytics';
 import { renderAnalyticsPage } from './analytics-page';
@@ -51,6 +52,26 @@ const DASHBOARD_CACHE_TTL_MS = 60_000;   // 60 s
 const HEALTH_CACHE_TTL_MS    = 60_000;   // 60 s
 const PLATFORM_CACHE_TTL_MS  = 60_000;   // 60 s
 const SYSTEM_PAGE_CACHE_TTL_MS = 60_000; // 60 s
+
+// Finds a dashboard card by its jobId, or by URL (exact hash first, then normalized URL).
+function findDashboardEntry(
+  jobs: DashboardJobEntry[],
+  ref: { jobId?: string; url?: string },
+): DashboardJobEntry | undefined {
+  if (ref.jobId) {
+    const byId = jobs.find((j) => j.jobId === ref.jobId);
+    if (byId) return byId;
+  }
+  if (!ref.url) return undefined;
+  const byHash = jobs.find((j) => j.jobId === hashJobUrl(ref.url as string));
+  if (byHash) return byHash;
+  const norm = (u: string): string => { try { return normalizeUrl(u); } catch { return u; } };
+  const target = norm(ref.url);
+  return jobs.find((j) => {
+    const cardUrl = (j.match as { job?: { canonicalUrl?: string } } | null)?.job?.canonicalUrl;
+    return !!cardUrl && norm(cardUrl) === target;
+  });
+}
 
 @Injectable()
 export class AppService implements OnModuleInit, OnModuleDestroy {
@@ -233,7 +254,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
     const meta = await resolveJobMeta(hash);
     const decision = action === 'a' ? 'applied' : 'dismissed';
-    await markJobDecision(decision, url, meta ?? undefined);
+    // Same path as the dashboard buttons: removes the card, ✅ adds it to the Applied tab.
+    await this.recordDecision(decision, { jobId: hash, url }, meta ?? undefined);
 
     const label = action === 'a' ? '✅ Applied' : '❌ Rejected';
     const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -248,84 +270,81 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
 
   async markApplied(url: string, meta?: JobDecisionMeta): Promise<void> {
     if (!url) return;
-    await markJobDecision('applied', url, meta);
+    await this.recordDecision('applied', { url }, meta);
   }
 
   async markDismissed(url: string, meta?: JobDecisionMeta): Promise<void> {
     if (!url) return;
-    await markJobDecision('dismissed', url, meta);
+    await this.recordDecision('dismissed', { url }, meta);
   }
 
   async dashboardJobApplied(jobId: string, meta?: JobDecisionMeta): Promise<void> {
     if (!jobId) return;
-    const jobs = await redisGetDashboardJobs();
-    const entry = jobs.find((j) => j.jobId === jobId);
-    if (entry) {
-      const m = entry.match as {
-        job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null; locationLabel?: string; workMode?: string; description?: string };
-        score?: number;
-      };
-      const url = m?.job?.canonicalUrl;
-      if (url) await markJobDecision('applied', url, meta);
-      const appliedAt = Date.now();
-      // Record for Gemini calibration — include JD text (not just title/company) so
-      // calibration compares actual role content, matching the PostgreSQL storage path.
-      await redisRecordJobDecisionHistory('applied', {
-        title: m?.job?.title ?? meta?.title ?? '',
-        company: m?.job?.company ?? meta?.company ?? '',
-        countryCode: m?.job?.countryCode ?? null,
-        score: m?.score ?? meta?.score ?? 0,
-        foundAt: entry.foundAt,
-        jobDescription: m?.job?.description?.slice(0, 2000) || undefined,
-      });
-      // Save full entry for Applied tab (10-day TTL)
-      await redisSaveAppliedJob({
-        jobId,
-        title: m?.job?.title ?? meta?.title ?? '',
-        company: m?.job?.company ?? meta?.company ?? '',
-        locationLabel: m?.job?.locationLabel ?? '',
-        countryCode: m?.job?.countryCode ?? null,
-        workMode: m?.job?.workMode ?? '',
-        score: m?.score ?? meta?.score ?? 0,
-        appliedAt,
-      });
-    }
-    if (entry) {
-      const m = entry.match as { job?: { title?: string; company?: string } } | null;
-      console.log(`[dashboard] removed job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}, reason: applied`);
-    }
-    await redisDeleteDashboardJob(jobId);
-    _dashboardCache = null; // invalidate so next load reflects the removal
+    await this.recordDecision('applied', { jobId }, meta);
   }
 
   async dashboardJobDismiss(jobId: string): Promise<void> {
     if (!jobId) return;
+    await this.recordDecision('dismissed', { jobId });
+  }
+
+  // The one Applied/Dismissed path for the dashboard buttons, the Telegram ✅/❌ buttons and
+  // the URL-based mark endpoints: marks the decision, records it for Gemini calibration,
+  // adds Applied jobs to the Applied tab (10-day TTL) and deletes the dashboard card.
+  private async recordDecision(
+    decision: 'applied' | 'dismissed',
+    ref: { jobId?: string; url?: string },
+    meta?: JobDecisionMeta,
+  ): Promise<void> {
     const jobs = await redisGetDashboardJobs();
-    const entry = jobs.find((j) => j.jobId === jobId);
-    if (entry) {
-      const m = entry.match as { job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null; description?: string }; score?: number };
-      // Record for Gemini calibration — include JD text (not just title/company) so
-      // calibration compares actual role content, matching the PostgreSQL storage path.
-      await redisRecordJobDecisionHistory('dismissed', {
-        title: m?.job?.title ?? '',
-        company: m?.job?.company ?? '',
+    const entry = findDashboardEntry(jobs, ref);
+    const m = (entry?.match ?? null) as {
+      job?: { canonicalUrl?: string; title?: string; company?: string; countryCode?: string | null; locationLabel?: string; workMode?: string; description?: string };
+      score?: number;
+    } | null;
+    const url = m?.job?.canonicalUrl ?? ref.url;
+    const jobId = entry?.jobId ?? ref.jobId ?? (url ? hashJobUrl(url) : undefined);
+    const title = m?.job?.title ?? meta?.title ?? '';
+    const company = m?.job?.company ?? meta?.company ?? '';
+    const score = m?.score ?? meta?.score ?? 0;
+
+    // Adds to applied/dismissed_urls + removes from seen_urls so the bot never re-surfaces it.
+    if (url) {
+      await markJobDecision(decision, url, {
+        title: title || undefined,
+        company: company || undefined,
+        score,
+        source: meta?.source,
+      });
+    }
+    // Record for Gemini calibration — include JD text (not just title/company) so
+    // calibration compares actual role content, matching the PostgreSQL storage path.
+    if (entry || title) {
+      await redisRecordJobDecisionHistory(decision, {
+        title,
+        company,
         countryCode: m?.job?.countryCode ?? null,
-        score: m?.score ?? 0,
-        foundAt: entry.foundAt,
+        score,
+        foundAt: entry?.foundAt ?? Date.now(),
         jobDescription: m?.job?.description?.slice(0, 2000) || undefined,
       });
-      // Add to dismissed_urls + remove from seen_urls so bot never re-surfaces this job
-      const url = m?.job?.canonicalUrl;
-      if (url) {
-        await markJobDecision('dismissed', url, {
-          title: m?.job?.title,
-          company: m?.job?.company,
-          score: m?.score,
-        });
-      }
-      console.log(`[dashboard] removed job: ${m?.job?.company ?? '?'}, ${m?.job?.title ?? '?'}, reason: dismissed`);
     }
-    await redisDeleteDashboardJob(jobId);
+    if (decision === 'applied' && jobId && (entry || title)) {
+      await redisSaveAppliedJob({
+        jobId,
+        title,
+        company,
+        locationLabel: m?.job?.locationLabel ?? '',
+        countryCode: m?.job?.countryCode ?? null,
+        workMode: m?.job?.workMode ?? '',
+        score,
+        appliedAt: Date.now(),
+      });
+    }
+    if (entry) {
+      console.log(`[dashboard] removed job: ${company || '?'}, ${title || '?'}, reason: ${decision}`);
+    }
+    if (jobId) await redisDeleteDashboardJob(jobId);
     _dashboardCache = null; // invalidate so next load reflects the removal
   }
 
@@ -556,7 +575,9 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       readJobSearchState(),
       redisGetDashboardJobs(),
     ]);
-    const html = renderHtml(state, dashboardJobs);
+    // With Redis, the (72h) dashboard store is the only source, even when empty; the
+    // state.latestMatches fallback is for file-only mode.
+    const html = renderHtml(state, isRedisAvailable() ? dashboardJobs : undefined);
     _dashboardCache = { html, ts: Date.now() };
     return html;
   }
@@ -2048,7 +2069,7 @@ function renderHtml(state: JobSearchState, dashboardJobs?: DashboardJobEntry[]):
   // Use persistent dashboard jobs if available, fall back to state.latestMatches
   const now = Date.now();
   const displayMatches: Array<{ match: MatchResult; foundAt?: number }> =
-    dashboardJobs && dashboardJobs.length > 0
+    dashboardJobs
       ? dashboardJobs.map((j) => ({ match: j.match as MatchResult, foundAt: j.foundAt }))
       : state.latestMatches.map((m) => ({ match: m }));
 

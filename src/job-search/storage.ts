@@ -15,10 +15,12 @@ interface UrlStore {
   applied_urls?: string[];
   dismissed_urls?: string[];
   sent_urls?: string[];
+  nodate_urls?: string[];
   seen_entries?: UrlEntry[];
   applied_entries?: UrlEntry[];
   dismissed_entries?: UrlEntry[];
   sent_entries?: UrlEntry[];
+  nodate_entries?: UrlEntry[];
 }
 
 interface UrlEntry {
@@ -26,13 +28,15 @@ interface UrlEntry {
   timestamp: string;
 }
 
-type UrlKey = 'seen_urls' | 'applied_urls' | 'dismissed_urls' | 'sent_urls';
-type EntryKey = 'seen_entries' | 'applied_entries' | 'dismissed_entries' | 'sent_entries';
+// nodate_urls: jobs without a posting date already seen once (they pass freshness only on that first run).
+type UrlKey = 'seen_urls' | 'applied_urls' | 'dismissed_urls' | 'sent_urls' | 'nodate_urls';
+type EntryKey = 'seen_entries' | 'applied_entries' | 'dismissed_entries' | 'sent_entries' | 'nodate_entries';
 const ENTRY_KEY_MAP: Record<UrlKey, EntryKey> = {
   seen_urls: 'seen_entries',
   applied_urls: 'applied_entries',
   dismissed_urls: 'dismissed_entries',
   sent_urls: 'sent_entries',
+  nodate_urls: 'nodate_entries',
 };
 
 export function normalizeUrl(rawUrl: string): string {

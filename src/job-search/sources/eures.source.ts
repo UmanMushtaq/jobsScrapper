@@ -129,7 +129,7 @@ export class EuresSource implements JobSource {
       return [];
     }
 
-    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
+    const cutoff = Date.now() - Math.min(settings.maxAgeHours, 72) * 60 * 60 * 1000;
     const sessionId = `jobsscrapper-${Date.now()}`;
     // Dedup by EURES job ID (encoded in canonicalUrl) across every country/keyword
     // query in this run — the same job routinely turns up across several keyword

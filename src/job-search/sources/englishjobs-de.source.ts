@@ -5,6 +5,7 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS, resolveUrl, sleep, stripHtml } from './shared-scraper';
+import { extractPostDateFromHtml, parseIsoDate, parsePostedText, toPostDate } from './post-date';
 
 const SOURCE = 'englishjobs.de';
 const BASE_URL = 'https://englishjobs.de';
@@ -42,6 +43,8 @@ export interface RawListingJob {
   company: string;
   locationLabel: string;
   detailUrl: string;
+  // Posting date shown on the listing card, when there is one (ms epoch).
+  postedMs?: number | null;
 }
 
 export class EnglishJobsDeSource implements JobSource {
@@ -60,18 +63,21 @@ export class EnglishJobsDeSource implements JobSource {
 
           let description = '';
           let descriptionPartial = true;
+          let postedMs = listing.postedMs ?? null;
           if (detailFetches < MAX_DETAIL_FETCHES) {
             detailFetches++;
             try {
-              description = await scrapeDetailDescription(listing.detailUrl);
+              const detail = await scrapeDetail(listing.detailUrl);
+              description = detail.description;
               descriptionPartial = description.length < 120;
+              postedMs = postedMs ?? detail.postedMs;
             } catch {
               /* keep description empty, flagged partial below */
             }
             await sleep(500);
           }
 
-          const job = mapJob(listing, description, descriptionPartial);
+          const job = mapJob(listing, description, descriptionPartial, postedMs);
           if (job) jobs.set(job.canonicalUrl, job);
         }
       } catch (error) {
@@ -150,23 +156,31 @@ function extractListing($: ReturnType<typeof cheerioLoad>, el: AnyNode): RawList
     company: companyRaw || 'Unknown',
     locationLabel: locationRaw || 'Germany',
     detailUrl,
+    postedMs: parseIsoDate($el.find('time[datetime]').first().attr('datetime')) ?? parsePostedText($el.text()),
   };
 }
 
-async function scrapeDetailDescription(detailUrl: string): Promise<string> {
+// Full description and posting date (JSON-LD datePosted etc.) from a job's own page.
+async function scrapeDetail(detailUrl: string): Promise<{ description: string; postedMs: number | null }> {
   const res = await axios.get<string>(detailUrl, {
     headers: HEADERS,
     timeout: 20_000,
     validateStatus: (s) => s < 500,
   });
-  if (res.status !== 200) return '';
+  if (res.status !== 200) return { description: '', postedMs: null };
 
   const $ = cheerioLoad(res.data);
   const body = $('.job-description, .description, article, main').first().text().trim();
-  return stripHtml(body).slice(0, 5000);
+  return { description: stripHtml(body).slice(0, 5000), postedMs: extractPostDateFromHtml(res.data) };
 }
 
-export function mapJob(listing: RawListingJob, description: string, descriptionPartial: boolean): JobPosting | null {
+// postedMs null → publishedAt null; run.ts tags the job "no-post-date".
+export function mapJob(
+  listing: RawListingJob,
+  description: string,
+  descriptionPartial: boolean,
+  postedMs: number | null = null,
+): JobPosting | null {
   const text = `${listing.title} ${description}`.toLowerCase();
   const city = listing.locationLabel.split(',')[0].trim() || null;
 
@@ -191,8 +205,7 @@ export function mapJob(listing: RawListingJob, description: string, descriptionP
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: new Date().toISOString(),
-    publishedAtTimestamp: Math.floor(Date.now() / 1000),
+    ...toPostDate(postedMs),
     startupSignals: [],
     applyUrl: listing.detailUrl,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

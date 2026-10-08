@@ -98,8 +98,8 @@ async function fetchJobs(tag: string, geo: string | undefined, settings: SearchS
 
   if (!Array.isArray(jobList)) return [];
 
-  // Use 7-day minimum so low-volume tags don't always return 0.
-  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  // Capped at 72h so this source never looks further back than the global maxAgeHours rule.
+  const lookbackHours = Math.min(settings.maxAgeHours, 72);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return jobList

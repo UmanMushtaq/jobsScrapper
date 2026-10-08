@@ -32,7 +32,7 @@ export class DuunitoriSource implements JobSource {
 
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
-    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
+    const cutoff = Date.now() - Math.min(settings.maxAgeHours, 72) * 60 * 60 * 1000;
     let loggedPreview = false;
 
     for (const query of SEARCH_QUERIES) {

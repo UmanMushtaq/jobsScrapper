@@ -4,6 +4,7 @@ import { JobSource } from './registry';
 import { detectLanguage } from './language-detect';
 import { inferCountryCode } from './country-codes';
 import { acquirePlaywrightLock } from './playwright-queue';
+import { jsonLdJobDates, resultCardPostDate, toPostDate } from './post-date';
 import { CORE_KEYWORDS_MINIMAL, FRENCH_KEYWORDS } from '../keywords';
 
 const SOURCE = 'hellowork.com';
@@ -23,7 +24,7 @@ export class HelloWorkSource implements JobSource {
 
   private async _fetch(settings: SearchSettings): Promise<JobPosting[]> {
     const jobs = new Map<string, JobPosting>();
-    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
+    const cutoff = Date.now() - Math.min(settings.maxAgeHours, 72) * 60 * 60 * 1000;
 
     let browser;
     try {
@@ -88,8 +89,8 @@ async function fetchQuery(context: import('playwright').BrowserContext, query: s
     });
     await page.waitForTimeout(3000);
 
-    const { cards, preview } = await page.evaluate((baseUrl: string) => {
-      const results: Array<{ title: string; company: string; location: string; url: string }> = [];
+    const { cards, preview, jsonLd } = await page.evaluate((baseUrl: string) => {
+      const results: Array<{ title: string; company: string; location: string; url: string; datetime: string | null; cardText: string }> = [];
 
       const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
       for (const a of anchors) {
@@ -101,7 +102,9 @@ async function fetchQuery(context: import('playwright').BrowserContext, query: s
         const company = card?.querySelector('[class*="company"], [class*="entreprise"], [class*="employer"]')?.textContent?.trim() ?? '';
         const location = card?.querySelector('[class*="location"], [class*="lieu"], [class*="city"], [class*="localisation"]')?.textContent?.trim() ?? 'France';
         const canonicalUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
-        results.push({ title, company, location, url: canonicalUrl });
+        const datetime = card?.querySelector('time[datetime]')?.getAttribute('datetime') ?? null;
+        const cardText = (card?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+        results.push({ title, company, location, url: canonicalUrl, datetime, cardText });
       }
 
       // Also scan direct selectors for job titles
@@ -115,17 +118,21 @@ async function fetchQuery(context: import('playwright').BrowserContext, query: s
           if (!title || title.length < 5 || title.length > 200) continue;
           const canonicalUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
           if (results.some((r) => r.url === canonicalUrl)) continue;
-          results.push({ title, company: '', location: 'France', url: canonicalUrl });
+          const datetime = el.querySelector('time[datetime]')?.getAttribute('datetime') ?? null;
+          const cardText = (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+          results.push({ title, company: '', location: 'France', url: canonicalUrl, datetime, cardText });
         }
       }
 
       const preview = document.body.innerHTML.slice(0, 300).replace(/\s+/g, ' ');
-      return { cards: results, preview };
+      const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map((el) => el.textContent ?? '');
+      return { cards: results, preview, jsonLd };
     }, BASE_URL);
 
     if (cards.length === 0) {
       console.log(`[hellowork] 0 cards for "${query}" — HTML preview: ${preview}`);
     }
+    const jsonLdDates = jsonLdJobDates(jsonLd);
 
     for (const card of cards) {
       if (!card.title || !card.url) continue;
@@ -142,8 +149,8 @@ async function fetchQuery(context: import('playwright').BrowserContext, query: s
         description: '', keyMissions: [], experienceLevelMinimum: null,
         salaryCurrency: null, salaryPeriod: null, salaryMinimum: null,
         salaryMaximum: null, salaryYearlyMinimum: null,
-        publishedAt: new Date().toISOString(),
-        publishedAtTimestamp: Math.floor(Date.now() / 1000),
+        // Real posting date from the result card; null → tagged "no-post-date" in run.ts.
+        ...toPostDate(resultCardPostDate(card, jsonLdDates, BASE_URL)),
         startupSignals: [], applyUrl: card.url,
         offersRelocation: false, isStartup: false,
         employeeCount: null, companyCreationYear: null,

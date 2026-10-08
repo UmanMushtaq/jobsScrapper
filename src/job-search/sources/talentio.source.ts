@@ -103,7 +103,7 @@ async function fetchTalentio(query: string, settings: SearchSettings): Promise<J
   const raw = (await response.json()) as TalentioResponse;
   const positions: TalentioPosition[] = raw.hits ?? raw.positions ?? raw.data ?? [];
 
-  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  const lookbackHours = Math.min(settings.maxAgeHours, 72);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return positions

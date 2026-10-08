@@ -95,8 +95,9 @@ export interface JobPosting {
   salaryMinimum: number | null;
   salaryMaximum: number | null;
   salaryYearlyMinimum: number | null;
-  publishedAt: string;
-  publishedAtTimestamp: number;
+  // null when the source page shows no posting date (tagged "no-post-date" in run.ts).
+  publishedAt: string | null;
+  publishedAtTimestamp: number | null;
   startupSignals: string[];
   applyUrl: string;
   offersRelocation: boolean;

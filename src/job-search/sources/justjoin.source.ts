@@ -51,7 +51,7 @@ export class JustJoinSource implements JobSource {
   async fetch(_queries: string[], settings: SearchSettings): Promise<JobPosting[]> {
     const seen = new Set<string>();
     const jobs: JobPosting[] = [];
-    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
+    const cutoff = Date.now() - Math.min(settings.maxAgeHours, 72) * 60 * 60 * 1000;
 
     for (const query of SEARCH_QUERIES) {
       try {

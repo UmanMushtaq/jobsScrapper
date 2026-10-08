@@ -58,8 +58,8 @@ async function fetchFeed(feedUrl: string, settings: SearchSettings): Promise<Job
 
   const xml = await response.text();
   const items = parseRssItems(xml);
-  // Use 7-day minimum so low-volume feeds don't always return 0.
-  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  // Capped at 72h so this source never looks further back than the global maxAgeHours rule.
+  const lookbackHours = Math.min(settings.maxAgeHours, 72);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return items

@@ -81,6 +81,10 @@ const DEFAULT_DISMISSED_FILE = 'job_search_dismissed.json';
 const DEFAULT_SENT_FILE = 'job_search_sent.json';
 const DEFAULT_REPORT_FILE = 'job_search_latest.md';
 const DEFAULT_STATE_FILE = 'job_search_state.json';
+// Jobs whose source page shows no posting date: tagged, and fresh only on the first run
+// they are seen (tracked in nodate_urls for 90 days).
+export const NO_POST_DATE_TAG = 'no-post-date';
+const NO_DATE_SEEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 // Germany-coverage pass, July 12 2026 — sources deliberately NOT built, and why:
 //   - Xing Jobs: already covered above (XingJobsSource, pre-existing) despite its own
@@ -236,6 +240,22 @@ export const SLOW_SCHEDULER_ONLY = new Set([
   'duunitori.fi', 'eures.europa.eu', 'jooble.org', 'englishjobs.de',
 ]);
 
+// Within maxAgeHours of its posting date; a job without a posting date is fresh only on the
+// first run it is seen (noDateSeenUrls holds the normalized URLs already seen once).
+export function isFreshJob(
+  job: Pick<JobPosting, 'canonicalUrl' | 'publishedAtTimestamp'>,
+  noDateSeenUrls: Set<string>,
+  maxAgeHours: number,
+  now = Date.now(),
+): boolean {
+  if (job.publishedAtTimestamp === null) {
+    let url = job.canonicalUrl;
+    try { url = normalizeUrl(url); } catch { /* keep raw */ }
+    return !noDateSeenUrls.has(url);
+  }
+  return job.publishedAtTimestamp * 1000 >= now - maxAgeHours * 60 * 60 * 1000;
+}
+
 export async function runJobSearchOnce(
   overrideProfile?: SearchProfile,
   excludeSources?: string[],
@@ -263,6 +283,7 @@ export async function runJobSearchOnce(
   const dismissedFile = process.env.JOB_SEARCH_DISMISSED_FILE ?? DEFAULT_DISMISSED_FILE;
   // Derive sent file from same directory as seen file so it lands on the persistent disk
   const sentFile = process.env.JOB_SEARCH_SENT_FILE ?? resolve(dirname(resolve(seenFile)), 'job_search_sent.json');
+  const noDateFile = resolve(dirname(resolve(seenFile)), 'job_search_nodate.json');
   const reportPath = process.env.JOB_SEARCH_REPORT_PATH ?? DEFAULT_REPORT_FILE;
   const stateFile = process.env.JOB_SEARCH_STATE_FILE ?? DEFAULT_STATE_FILE;
   const seenTtlHours = profile.search.seenTtlHours ?? 168;
@@ -287,11 +308,12 @@ export async function runJobSearchOnce(
   await redisLog('info', 'run', 'Run started');
 
   try {
-    const [seenUrls, appliedUrls, dismissedUrls, sentUrls] = await Promise.all([
+    const [seenUrls, appliedUrls, dismissedUrls, sentUrls, noDateSeenUrls] = await Promise.all([
       readUrlSet(seenFile, 'seen_urls', { ttlMs: seenTtlMs }),
       readUrlSet(appliedFile, 'applied_urls', { ttlMs: 180 * 24 * 60 * 60 * 1000 }),
       readUrlSet(dismissedFile, 'dismissed_urls', { ttlMs: 60 * 24 * 60 * 60 * 1000 }),
       readUrlSet(sentFile, 'sent_urls', { ttlMs: 30 * 24 * 60 * 60 * 1000 }),
+      readUrlSet(noDateFile, 'nodate_urls', { ttlMs: NO_DATE_SEEN_TTL_MS }),
     ]);
     const [appliedRoles, dismissedRoles] = await Promise.all([
       redisGetRoleSet('applied', 180 * 24 * 60 * 60 * 1000),
@@ -462,16 +484,22 @@ export async function runJobSearchOnce(
     };
 
     const freshJobs = jobs.filter(
-      (job) =>
-        job.publishedAtTimestamp * 1000 >=
-          Date.now() - profile.search.maxAgeHours * 60 * 60 * 1000 && baseFilter(job),
+      (job) => isFreshJob(job, noDateSeenUrls, profile.search.maxAgeHours) && baseFilter(job),
     );
+    const firstSeenUndated = jobs
+      .filter((job) => job.publishedAtTimestamp === null && !noDateSeenUrls.has(safeNorm(job.canonicalUrl)))
+      .map((job) => job.canonicalUrl);
 
     const rawMatches = freshJobs
       .map((job) => scoreJob(job, profile, prefModel))
       .filter((match): match is MatchResult => match !== null)
       .filter((match) => checkLocationEligibility(match.job))
       .sort(sortMatches);
+    for (const match of rawMatches) {
+      if (match.job.publishedAtTimestamp === null && !match.reasons.includes(NO_POST_DATE_TAG)) {
+        match.reasons.push(NO_POST_DATE_TAG);
+      }
+    }
 
     // Per-source fetched vs. passed-filters diagnostics — every source, not just apec.fr
     // (generalized from an apec-only version, July 12 2026 registry audit). This is what
@@ -812,6 +840,8 @@ export async function runJobSearchOnce(
     const maxAgeMs = profile.search.maxAgeHours * 60 * 60 * 1000;
     const rejectedTtlMs = Math.max(seenTtlMs, maxAgeMs);
     await addUrlsToStore(seenFile, 'seen_urls', matches.map((m) => m.job.canonicalUrl), { ttlMs: seenTtlMs });
+    // Dateless jobs have now had their one fresh run.
+    await addUrlsToStore(noDateFile, 'nodate_urls', firstSeenUndated, { ttlMs: NO_DATE_SEEN_TTL_MS });
     if (rejectedByAi.length > 0) {
       await addUrlsToStore(seenFile, 'seen_urls', rejectedByAi.map((m) => m.job.canonicalUrl), { ttlMs: rejectedTtlMs });
     }
@@ -856,9 +886,10 @@ export async function runJobSearchOnce(
       profile,
     );
 
-    // Persist matched jobs to dashboard store (SET NX — never overwrite existing cards).
-    // Final dedup guard: title+company+source in case multiple runs surfaced same job under different URLs.
-    const slimMatches = slimMatchesForState(summary.matches);
+    // Persist this run's new, live matches to the dashboard (SET NX — never overwrite
+    // existing cards; dead-link jobs are not saved). Final dedup guard: title+company+source
+    // in case multiple runs surfaced same job under different URLs.
+    const slimMatches = slimMatchesForState(liveNewMatches);
     const foundAt = Date.now();
     const dashboardDedupeKeys = new Set<string>();
     const dedupedSlim = slimMatches.filter((m) => {
@@ -1315,7 +1346,8 @@ function sortMatches(left: MatchResult, right: MatchResult): number {
     right.startupScore - left.startupScore ||
     right.score - left.score ||
     right.job.sourcePriority - left.job.sourcePriority ||
-    right.job.publishedAtTimestamp - left.job.publishedAtTimestamp
+    // A job without a posting date was just found (first run), so it ranks as newest.
+    (right.job.publishedAtTimestamp ?? Number.MAX_SAFE_INTEGER) - (left.job.publishedAtTimestamp ?? Number.MAX_SAFE_INTEGER)
   );
 }
 

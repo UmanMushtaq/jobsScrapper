@@ -49,3 +49,17 @@ describe('englishjobs-de mapJob', () => {
     expect(job?.experienceLevelMinimum).toBe(7);
   });
 });
+
+describe('englishjobs-de mapJob — posting date', () => {
+  it('uses the real posting date when one was found', () => {
+    const job = mapJob(buildListing(), 'Node.js and TypeScript.', false, Date.UTC(2026, 9, 6, 9));
+    expect(job?.publishedAt).toBe('2026-10-06T09:00:00.000Z');
+    expect(job?.publishedAtTimestamp).toBe(Date.UTC(2026, 9, 6, 9) / 1000);
+  });
+
+  it('leaves the date null (never scrape time) when the page shows none', () => {
+    const job = mapJob(buildListing(), 'Node.js and TypeScript.', false);
+    expect(job?.publishedAt).toBeNull();
+    expect(job?.publishedAtTimestamp).toBeNull();
+  });
+});

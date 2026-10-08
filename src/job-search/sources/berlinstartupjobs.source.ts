@@ -5,14 +5,23 @@ import { JobPosting, SearchSettings } from '../types';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { extractPostDateFromHtml, parseIsoDate, parsePostedText, toPostDate } from './post-date';
 
 const SOURCE = 'berlinstartupjobs.com';
 const PAGE_URL = 'https://berlinstartupjobs.com/engineering/';
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
 
 const RELEVANT_KEYWORDS = [
   'engineer', 'developer', 'software', 'backend', 'back-end', 'node', 'typescript',
   'javascript', 'fullstack', 'full stack', 'full-stack', 'platform', 'api',
 ];
+
+// Detail pages fetched only for cards that show no posting date.
+const MAX_DETAIL_DATE_FETCHES = 30;
 
 const EXCLUDED_KEYWORDS = [
   'frontend', 'front-end', 'react', 'vue', 'angular', 'ios', 'android', 'mobile',
@@ -36,14 +45,7 @@ export class BerlinStartupJobsSource implements JobSource {
 }
 
 async function scrapePage(): Promise<JobPosting[]> {
-  const response = await axios.get<string>(PAGE_URL, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    timeout: 20000,
-  });
+  const response = await axios.get<string>(PAGE_URL, { headers: HEADERS, timeout: 20000 });
 
   const $ = cheerioLoad(response.data);
   const jobs: JobPosting[] = [];
@@ -65,7 +67,27 @@ async function scrapePage(): Promise<JobPosting[]> {
     });
   }
 
+  // Cards without a date: read it from the job's own page (JSON-LD datePosted etc.).
+  let detailFetches = 0;
+  for (const job of jobs) {
+    if (job.publishedAtTimestamp !== null || detailFetches >= MAX_DETAIL_DATE_FETCHES) continue;
+    detailFetches++;
+    try {
+      const detail = await axios.get<string>(job.canonicalUrl, { headers: HEADERS, timeout: 15000 });
+      Object.assign(job, toPostDate(extractPostDateFromHtml(detail.data)));
+    } catch {
+      /* stays null → tagged "no-post-date" in run.ts */
+    }
+  }
+  const undated = jobs.filter((j) => j.publishedAtTimestamp === null).length;
+  if (undated > 0) console.log(`[berlinstartupjobs] ${undated}/${jobs.length} jobs without a posting date`);
+
   return jobs;
+}
+
+// Posting date shown on a listing card: <time datetime> first, then "posted" text.
+function cardPostDate($el: ReturnType<ReturnType<typeof cheerioLoad>>): number | null {
+  return parseIsoDate($el.find('time[datetime]').first().attr('datetime')) ?? parsePostedText($el.text());
 }
 
 function extractJob($: ReturnType<typeof cheerioLoad>, el: AnyNode): JobPosting | null {
@@ -133,8 +155,7 @@ function extractJob($: ReturnType<typeof cheerioLoad>, el: AnyNode): JobPosting 
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: new Date().toISOString(),
-    publishedAtTimestamp: Math.floor(Date.now() / 1000),
+    ...toPostDate(cardPostDate($el)),
     startupSignals: ['startup'],
     applyUrl: jobUrl,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

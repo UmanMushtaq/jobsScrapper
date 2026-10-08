@@ -156,7 +156,7 @@ async function fetchJobs(query: string, settings: SearchSettings): Promise<JobPo
 
   if (!Array.isArray(jobList)) return [];
 
-  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  const lookbackHours = Math.min(settings.maxAgeHours, 72);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   const fresh = jobList.filter((job) => {

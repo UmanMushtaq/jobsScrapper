@@ -22,7 +22,7 @@ export class NodeskSource implements JobSource {
     console.warn('[nodesk] disabled — no public API, 403 on cloud IPs');
     return [];
 
-    const cutoff = Date.now() - Math.max(settings.maxAgeHours, 168) * 60 * 60 * 1000;
+    const cutoff = Date.now() - Math.min(settings.maxAgeHours, 72) * 60 * 60 * 1000;
 
     try {
       const jobs = await fetchPage(cutoff);

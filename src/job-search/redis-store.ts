@@ -21,6 +21,7 @@ const URL_KEY_MAP: Record<string, string> = {
   sent_urls: 'job:sent_z',         // ZSET (migrated from job:sent SET)
   applied_urls: 'job:applied_z',   // ZSET (migrated from job:applied SET)
   dismissed_urls: 'job:dismissed_z', // ZSET (migrated from job:dismissed SET)
+  nodate_urls: 'job:nodate_seen',  // ZSET — dateless jobs already given their one fresh run
 };
 
 const LEGACY_SET_KEY_MAP: Record<string, string> = {
@@ -34,6 +35,7 @@ const DEFAULT_TTL_MS: Record<string, number> = {
   sent_urls: 30 * 24 * 60 * 60 * 1000,       // 30 days
   applied_urls: 180 * 24 * 60 * 60 * 1000,    // 180 days
   dismissed_urls: 60 * 24 * 60 * 60 * 1000,   // 60 days
+  nodate_urls: 90 * 24 * 60 * 60 * 1000,      // 90 days
 };
 
 // --- Role-based deduplication (company + base title) ---
@@ -500,11 +502,17 @@ export async function redisGetApecStatus(): Promise<ApecRunStatus | null> {
 }
 
 // --- Persistent dashboard jobs ---
-// Each job is stored as dashboard:job:{jobId} (SET NX, 7d TTL).
-// An index ZSET (dashboard:jobs:index, score=foundAt ms) tracks all active jobIds.
+// Each job is stored as dashboard:job:{jobId} (SET NX, expires 72h after foundAt).
+// An index ZSET (dashboard:jobs:index, score=foundAt ms) tracks all active jobIds; IDs
+// older than 72h are pruned from it (and their keys deleted) when the dashboard is read.
 
 const DASHBOARD_INDEX_KEY = 'dashboard:jobs:index';
-const DASHBOARD_JOB_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+export const DASHBOARD_JOB_TTL_SECONDS = 72 * 60 * 60; // 72 hours
+
+// Seconds left until a card found at foundAt expires (at least 1).
+export function dashboardTtlSeconds(foundAt: number, now = Date.now()): number {
+  return Math.max(1, DASHBOARD_JOB_TTL_SECONDS - Math.floor((now - foundAt) / 1000));
+}
 
 export interface DashboardJobEntry {
   jobId: string;        // hashJobUrl result
@@ -518,7 +526,7 @@ export async function redisSaveDashboardJob(jobId: string, match: unknown, found
   try {
     const key = `dashboard:job:${jobId}`;
     const entry: DashboardJobEntry = { jobId, foundAt, match };
-    const result = await r.set(key, JSON.stringify(entry), { nx: true });
+    const result = await r.set(key, JSON.stringify(entry), { nx: true, ex: dashboardTtlSeconds(foundAt) });
     type SM = { score: number; member: string };
     await r.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: foundAt, member: jobId } as SM);
     if (result === 'OK') {
@@ -542,7 +550,7 @@ export async function redisSaveDashboardJobBatch(
     for (const { jobId, match, foundAt } of items) {
       const key = `dashboard:job:${jobId}`;
       const entry: DashboardJobEntry = { jobId, foundAt, match };
-      pipe.set(key, JSON.stringify(entry), { nx: true });
+      pipe.set(key, JSON.stringify(entry), { nx: true, ex: dashboardTtlSeconds(foundAt) });
       pipe.zadd<string>(DASHBOARD_INDEX_KEY, { nx: true }, { score: foundAt, member: jobId } as SM);
     }
     const results = await pipe.exec();
@@ -563,6 +571,16 @@ export async function redisGetDashboardJobs(): Promise<DashboardJobEntry[]> {
   const r = getClient();
   if (!r) return [];
   try {
+    // Prune cards older than 72h: delete their keys (older cards were saved without an
+    // expiry) and drop them from the index.
+    const cutoff = Date.now() - DASHBOARD_JOB_TTL_SECONDS * 1000;
+    const expiredIds = (await r.zrange<string[]>(DASHBOARD_INDEX_KEY, 0, cutoff, { byScore: true })) ?? [];
+    if (expiredIds.length) {
+      await r.del(...expiredIds.map((id) => `dashboard:job:${id}`));
+      await r.zremrangebyscore(DASHBOARD_INDEX_KEY, 0, cutoff);
+      console.log(`[dashboard] pruned ${expiredIds.length} card(s) older than 72h`);
+    }
+
     const jobIds = await r.zrange(DASHBOARD_INDEX_KEY, 0, -1);
     if (!jobIds.length) return [];
     const keys = (jobIds as string[]).map((id) => `dashboard:job:${id}`);
@@ -573,7 +591,9 @@ export async function redisGetDashboardJobs(): Promise<DashboardJobEntry[]> {
       const raw = raws[i];
       if (!raw) { orphanIds.push(jobIds[i] as string); continue; }
       try {
-        entries.push(JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as DashboardJobEntry);
+        const entry = JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)) as DashboardJobEntry;
+        if (entry.foundAt < cutoff) { orphanIds.push(jobIds[i] as string); continue; }
+        entries.push(entry);
       } catch { orphanIds.push(jobIds[i] as string); }
     }
     if (orphanIds.length) {

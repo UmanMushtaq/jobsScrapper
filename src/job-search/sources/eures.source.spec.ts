@@ -176,7 +176,7 @@ describe('EuresSource.fetch — per-country search, dedup, and diagnostics', () 
       minimumSalaryMonthlyEur: 0,
       language: 'en',
       maxResults: 50,
-      maxAgeHours: 24 * 365,
+      maxAgeHours: 72,
       checkIntervalHours: 8,
       willingToRelocate: true,
       preferredCountries: [],
@@ -197,6 +197,8 @@ describe('EuresSource.fetch — per-country search, dedup, and diagnostics', () 
 
   beforeEach(() => {
     jest.useFakeTimers();
+    // One hour after the fixture's lastModificationDate, so it sits inside the 72h window.
+    jest.setSystemTime(1783369560676 + 60 * 60 * 1000);
     mockedAxios.post.mockReset();
   });
 

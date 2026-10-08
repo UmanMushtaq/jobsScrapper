@@ -96,9 +96,8 @@ async function fetchCompanyJobs(
   }
 
   const data = (await response.json()) as GreenhouseResponse;
-  // Use 7-day minimum — targeted company lists get few postings per day;
-  // a 72h window misses most of them.
-  const lookbackHours = Math.max(settings.maxAgeHours, 168);
+  // Capped at 72h so this source never looks further back than the global maxAgeHours rule.
+  const lookbackHours = Math.min(settings.maxAgeHours, 72);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   return data.jobs
