@@ -217,6 +217,8 @@ export interface ScorerDiagnostic {
     frontendPrimary: number;
     languageRequirement: number;
   };
+  // Every rejection reason reported by scoreJob / checkLocationEligibility, with its count.
+  byReason?: Record<string, number>;
   locationBreak: { usaRemote: number; euOnsite: number; euHybrid: number; other: number };
   geminiRejected: number;
   deadUrls: number;

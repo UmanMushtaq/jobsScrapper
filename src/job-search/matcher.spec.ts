@@ -582,3 +582,50 @@ describe('scoreJob — posting-language step', () => {
     expect(result?.reasons).toContain(LANGUAGE_UNCLEAR_TAG);
   });
 });
+
+describe('scoreJob — seniority titles in French and German', () => {
+  const openProfile: SearchProfile = { ...profile, search: { ...profile.search, excludedTitleKeywords: [] } };
+
+  it.each([
+    'Architecte logiciel Node.js',
+    'Architecte Backend (H/F)',
+    'Software Architekt (m/w/d)',
+    'Architektin Backend',
+    'Lead Dev Node.js',
+    'Tech Lead Backend',
+    'Responsable technique backend',
+  ])('rejects title "%s"', (title) => {
+    expect(scoreJob(buildJob({ title }), openProfile)).toBeNull();
+  });
+
+  it.each([
+    'Développeur Backend Node.js (architecture microservices)',
+    'Backend Entwickler Softwarearchitektur',
+    'Backend Engineer, Architectures distribuées',
+    'Développeur Node.js, responsable de la qualité technique',
+  ])('keeps title "%s" (no whole-word seniority match)', (title) => {
+    expect(scoreJob(buildJob({ title }), openProfile)).not.toBeNull();
+  });
+});
+
+describe('scoreJob — onReject reports the rule that rejected the job', () => {
+  const openProfile: SearchProfile = { ...profile, search: { ...profile.search, excludedTitleKeywords: [] } };
+  const reasonFor = (overrides: Partial<JobPosting>): string | null => {
+    let reason: string | null = null;
+    scoreJob(buildJob(overrides), openProfile, undefined, (r) => { reason = r; });
+    return reason;
+  };
+
+  it.each([
+    [{ title: 'Architecte logiciel' }, 'title-seniority'],
+    [{ experienceLevelMinimum: 6 }, 'years>=5'],
+    [{ description: 'Node.js TypeScript backend API role. Fluent German is required.' }, 'local-language-required'],
+    [{ title: 'Frontend Engineer' }, 'role-excluded'],
+  ] as Array<[Partial<JobPosting>, string]>)('%o → %s', (overrides, expected) => {
+    expect(reasonFor(overrides)).toBe(expected);
+  });
+
+  it('is not called for an accepted job', () => {
+    expect(reasonFor({})).toBeNull();
+  });
+});

@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Response } from 'express';
-import { enrichMatch, generateShortAnswers, getGeminiModuleState, lastGeminiError, resetGeminiQuotaState } from './job-search/ai-enrichment';
+import { enrichMatch, generateShortAnswers, getGeminiModuleState, lastGeminiError, MODELS as GEMINI_MODELS, resetGeminiQuotaState } from './job-search/ai-enrichment';
 import { loadSearchProfile } from './job-search/profile';
 import {
   FAST_SOURCES,
@@ -460,7 +460,6 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       return { ok: false, error: 'No keys configured', advice: ['Add GEMINI_API_KEY or GEMINI_API_KEY_1..10 in Render env vars'] };
     }
 
-    const MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-8b', 'gemini-2.0-flash-exp'];
     const MINI_PROMPT = 'Reply with the single word: OK';
     const results: Array<Record<string, unknown>> = [];
 
@@ -472,7 +471,8 @@ export class AppService implements OnModuleInit, OnModuleDestroy {
       let error = '';
       let rawError = '';
 
-      for (const m of MODELS) {
+      // Same model list the scorer uses (ai-enrichment.ts), so the key test checks real models.
+      for (const m of GEMINI_MODELS) {
         try {
           const ai = new GoogleGenAI({ apiKey: key });
           await ai.models.generateContent({ model: m, contents: MINI_PROMPT });

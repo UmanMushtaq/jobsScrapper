@@ -77,10 +77,32 @@ const KEYWORD_GROUP_C = [
   ...BACKEND_FR, ...BACKEND_DE, ...BACKEND_NL,
 ];
 
+export type ScoreRejectReason =
+  | 'rejected-company'
+  | 'local-language-required'
+  | 'no-english-signal'
+  | 'title-excluded'
+  | 'title-seniority'
+  | 'role-excluded'
+  | 'frontend-primary'
+  | 'marketing-engineering'
+  | 'no-ai-policy'
+  | 'desktop-electron'
+  | 'us-only'
+  | 'location'
+  | 'years>=5'
+  | 'salary'
+  | 'keywords'
+  | 'non-js-required'
+  | 'score<threshold';
+
 export function scoreJob(
   job: JobPosting,
   profile: SearchProfile,
   prefModel?: PreferenceModel,
+  // Called with the rule that rejected the job, just before returning null — feeds the
+  // /health filter breakdown with the real reasons (run.ts).
+  onReject?: (reason: ScoreRejectReason) => void,
 ): MatchResult | null {
   const normalizedTitle = job.title.toLowerCase();
   const text = [job.title, job.description, job.companySummary, ...job.keyMissions]
@@ -95,6 +117,7 @@ export function scoreJob(
   if (isRejectedCompany(job.company)) {
     console.log(`[rejected-companies] REJECTED: ${job.company}`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: rejected-company`);
+    onReject?.('rejected-company');
     return null;
   }
 
@@ -108,6 +131,7 @@ export function scoreJob(
   if (postingLanguage.decision === 'reject') {
     console.log(`[language-filter] REJECTED: ${job.company} — ${postingLanguage.reason} (${postingLanguage.detail ?? ''})`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: ${postingLanguage.reason} (${postingLanguage.detail ?? ''})`);
+    onReject?.(postingLanguage.reason === 'local-language-required' ? 'local-language-required' : 'no-english-signal');
     return null;
   }
   const languageRequirement = postingLanguage.languageRequirement;
@@ -115,6 +139,7 @@ export function scoreJob(
   const matchedTitleExcl = profile.search.excludedTitleKeywords.find((keyword) => normalizedTitle.includes(keyword));
   if (matchedTitleExcl) {
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: titleExcl (matched: "${matchedTitleExcl}")`);
+    onReject?.('title-excluded');
     return null;
   }
 
@@ -123,6 +148,7 @@ export function scoreJob(
   if (seniorityTitle) {
     console.log(`[scorer] FILTERED: ${job.company}, title-seniority ("${seniorityTitle[0]}" in "${job.title}")`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: title-seniority (matched: "${seniorityTitle[0]}")`);
+    onReject?.('title-seniority');
     return null;
   }
 
@@ -157,6 +183,7 @@ export function scoreJob(
   const matchedRoleExcl = EXCLUDED_ROLE_KEYWORDS.find((keyword) => normalizedTitle.includes(keyword));
   if (matchedRoleExcl) {
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: roleExcl (matched: "${matchedRoleExcl}")`);
+    onReject?.('role-excluded');
     return null;
   }
 
@@ -168,6 +195,7 @@ export function scoreJob(
     const matchedDescRoleExcl = EXCLUDED_ROLE_KEYWORDS.find((keyword) => firstDescLine.includes(keyword));
     if (matchedDescRoleExcl) {
       if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: roleExcl/desc (matched: "${matchedDescRoleExcl}")`);
+      onReject?.('role-excluded');
       return null;
     }
   }
@@ -177,6 +205,7 @@ export function scoreJob(
   if (frontendStack.reject) {
     console.log(`[stack-filter] REJECTED frontend-primary: ${job.company} — ${frontendStack.reason}`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: frontendPrimary (${frontendStack.reason})`);
+    onReject?.('frontend-primary');
     return null;
   }
 
@@ -187,6 +216,7 @@ export function scoreJob(
   if (marketingRole.reject) {
     console.log(`[stack-filter] REJECTED marketing-engineering: ${job.company} — ${marketingRole.reason}`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: role-type-marketing-engineering (${marketingRole.reason})`);
+    onReject?.('marketing-engineering');
     return null;
   }
 
@@ -198,6 +228,7 @@ export function scoreJob(
   if (noAiPolicy.reject) {
     console.log(`[no-ai-policy] REJECTED: ${job.company} — ${noAiPolicy.reason}`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: no-ai-application-policy (${noAiPolicy.reason})`);
+    onReject?.('no-ai-policy');
     return null;
   }
 
@@ -205,6 +236,7 @@ export function scoreJob(
   const ELECTRON_DESKTOP_SIGNALS = ['desktop app', 'native app', 'macos api', 'windows api', 'screencapturekit', 'cgeventtap', 'win32'];
   if (text.includes('electron') && ELECTRON_DESKTOP_SIGNALS.some((s) => text.includes(s))) {
     console.log(`[scorer] FILTERED: ${job.company}, desktop/Electron role not relevant to backend profile`);
+    onReject?.('desktop-electron');
     return null;
   }
 
@@ -217,6 +249,7 @@ export function scoreJob(
   ];
   if (US_ONLY_CLAUSES.some((clause) => text.includes(clause))) {
     console.log(`[scorer] FILTERED: ${job.company} hard rejected, explicit US-only or no-sponsorship clause found`);
+    onReject?.('us-only');
     return null;
   }
 
@@ -230,6 +263,7 @@ export function scoreJob(
     job.description,
   );
   if (!locationScore.isAcceptable) {
+    onReject?.('location');
     return null;
   }
 
@@ -238,6 +272,7 @@ export function scoreJob(
   if (experience.decision === 'reject') {
     console.log(`[scorer] FILTERED: ${job.company}, years>=5 (minimum ${experience.minYears} years required)`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: years>=5 (minimum ${experience.minYears} years required)`);
+    onReject?.('years>=5');
     return null;
   }
 
@@ -246,6 +281,7 @@ export function scoreJob(
   if (absoluteMonthlyEur !== null && absoluteMonthlyEur < 2500) {
     console.log(`[scorer] FILTERED: ${job.company}, salary below minimum threshold (${Math.round(absoluteMonthlyEur)} EUR/month < 2,500 EUR/month)`);
     if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: salary<min (${Math.round(absoluteMonthlyEur)} EUR/month < 2,500)`);
+    onReject?.('salary');
     return null;
   }
 
@@ -254,6 +290,7 @@ export function scoreJob(
       const monthly = toMonthlyEur(job);
       console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: salary<min (${monthly !== null ? Math.round(monthly) : 'unknown'} EUR/month < profile minimum)`);
     }
+    onReject?.('salary');
     return null;
   }
 
@@ -272,6 +309,7 @@ export function scoreJob(
     if (!hasGroupA && !(hasGroupB && hasGroupC)) {
       const snippet = `${job.title} | ${job.description.slice(0, 120).replace(/\s+/g, ' ')}`;
       console.log(`[keyword-filter] FILTERED: ${job.company} — checked: "${snippet}"`);
+      onReject?.('keywords');
       return null;
     }
 
@@ -279,6 +317,7 @@ export function scoreJob(
     if (!hasGroupA) {
       const nonJsRequiredPattern = /\b(?:c#|\.net|java(?!script)|golang|go\s+lang|ruby|php|kotlin|scala)\b.{0,60}(?:required|is\s+a\s+must|mandatory|must\s+have)/i;
       if (nonJsRequiredPattern.test(text)) {
+        onReject?.('non-js-required');
         return null;
       }
     }
@@ -375,6 +414,7 @@ export function scoreJob(
     if (isApec || (rawScore >= 35 && rawScore < threshold)) {
       console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: score<threshold (score=${score} raw=${rawScore} threshold=${threshold} words=${wordCount} lang=${lang} mandatory=${mandatoryScore})`);
     }
+    onReject?.('score<threshold');
     return null;
   }
 
@@ -427,8 +467,9 @@ export function scoreJob(
 export const EXPERIENCE_REJECT_MIN_YEARS = 5;
 export const BORDERLINE_YEARS_TAG = 'borderline-years';
 
+// Whole words only: "Leading", "Architecture" and "Softwarearchitektur" do not match.
 const SENIORITY_TITLE_PATTERN =
-  /\b(?:lead|principal|staff|head\s+of|engineering\s+manager|team\s+lead|architect)\b/i;
+  /\b(?:lead|principal|staff|head\s+of|engineering\s+manager|team\s+lead|tech\s+lead|lead\s+dev|architect|architecte|architekt|architektin|responsable\s+technique)\b/i;
 
 const NUM = String.raw`(?<!\d)(\d{1,2})`;
 // years / ans / années / Jahre / jaar / jaren / år / års / vuotta / vuoden

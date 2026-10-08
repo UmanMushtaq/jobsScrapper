@@ -2,12 +2,9 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { AiEnrichment, enrichMatch, clearGeminiOverloadFlag, isGeminiOverloaded } from './ai-enrichment';
 import { reconcileScores } from './reconciliation';
-import { scoreLocation } from './sources/location-filter';
-import { isFrontendPrimaryStack } from './stack-filter';
-import { evaluateLanguageRequirement } from './language-requirement-filter';
 import { normalizeCompanyName } from './rejected-companies';
 import { checkFollowups } from './followup';
-import { salaryMeetsMinimum, scoreJob } from './matcher';
+import { scoreJob } from './matcher';
 import { buildPreferenceContext, buildPreferenceModel } from './preference';
 import { loadSearchProfile } from './profile';
 import { writeReport } from './report';
@@ -66,7 +63,6 @@ import {
   removeUrlsFromStore,
   writeJsonFile,
 } from './storage';
-import { detectLanguage, hasEnglishTeamSignals } from './sources/language-detect';
 import { buildRoleKey, isRedisAvailable, redisAddRoleKey, redisDeleteAppliedJob, redisGet, redisGetJobHistory, redisGetRoleSet, redisLog, redisRemoveJobHistoryEntry, redisRemoveRoleKey, redisSetEx, redisStoreJobHistory, redisSaveDashboardJobBatch } from './redis-store';
 import { recordPlatformHealth, SourceRunResult } from './platform-health';
 import { TelegramOutgoingMessage, sendTelegramMessages, storeJobRef, hashJobUrl } from './telegram';
@@ -490,10 +486,22 @@ export async function runJobSearchOnce(
       .filter((job) => job.publishedAtTimestamp === null && !noDateSeenUrls.has(safeNorm(job.canonicalUrl)))
       .map((job) => job.canonicalUrl);
 
+    // Filter breakdown for /health: the actual rule that rejected each job, as reported by
+    // scoreJob (and checkLocationEligibility after it), not a re-implementation of the rules.
+    const rejectCounts = new Map<string, number>();
+    const rejectedJobs: Array<{ job: JobPosting; reason: string }> = [];
+    const countReject = (job: JobPosting, reason: string): void => {
+      rejectCounts.set(reason, (rejectCounts.get(reason) ?? 0) + 1);
+      rejectedJobs.push({ job, reason });
+    };
     const rawMatches = freshJobs
-      .map((job) => scoreJob(job, profile, prefModel))
+      .map((job) => scoreJob(job, profile, prefModel, (reason) => countReject(job, reason)))
       .filter((match): match is MatchResult => match !== null)
-      .filter((match) => checkLocationEligibility(match.job))
+      .filter((match) => {
+        if (checkLocationEligibility(match.job)) return true;
+        countReject(match.job, 'location-eligibility');
+        return false;
+      })
       .sort(sortMatches);
     for (const match of rawMatches) {
       if (match.job.publishedAtTimestamp === null && !match.reasons.includes(NO_POST_DATE_TAG)) {
@@ -547,98 +555,50 @@ export async function runJobSearchOnce(
     console.log(`[scorer] ${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} passed scoring (${dupCount} dupes removed)`);
     await redisLog('info', 'scorer', `${jobs.length} fetched → ${freshJobs.length} fresh → ${slicedMatches.length} matched (${dupCount} dupes removed)`);
 
-    // Always compute diagnostic counters so they can be persisted to state and
-    // surfaced via /health regardless of whether any matches were found.
-    const EXCL_ROLES = ['frontend','front-end','front end','ui developer','ui engineer','ux developer','ux engineer','react developer','react.js','react native','vue developer','vue.js','angular developer','flutter','ios developer','android developer','mobile developer','ai engineer','ml engineer','machine learning engineer','machine learning developer','data engineer','data scientist','data analyst','nlp engineer','llm engineer','prompt engineer','computer vision engineer','devops engineer','site reliability engineer','site reliability','sre engineer','sre','infrastructure engineer','platform engineer','cloud engineer','mcp engineer','ai backend','ai infrastructure','mlops','ml ops','generative ai','genai engineer','solutions engineer','solution engineer','sales engineer','pre-sales','presales','solutions architect','solutions consultant','implementation engineer','implementation consultant','customer success','success engineer','support engineer','technical support','developer advocate','developer relations','devrel','technical account manager','technical advisor','field engineer','evangelist','sales development','account executive'];
-    const desiredLang = (profile.search.language ?? 'en').toLowerCase();
-    const expMin = profile.search.experience.min;
-    const expMax = profile.search.experience.max;
-    const diagCounts = { lang: 0, title: 0, role: 0, location: 0, exp: 0, salary: 0, mandatory: 0, score: 0, frontendPrimary: 0, languageRequirement: 0 };
+    // Filter breakdown from the real rejection reasons (see countReject above). The legacy
+    // `filtered` fields are kept so the /system panel keeps working; byReason has every rule.
+    const byReason = Object.fromEntries([...rejectCounts.entries()].sort((a, b) => b[1] - a[1]));
+    const countOf = (...reasons: string[]): number => reasons.reduce((sum, r) => sum + (rejectCounts.get(r) ?? 0), 0);
+    const diagFiltered: ScorerDiagnostic['filtered'] = {
+      lang: countOf('no-english-signal'),
+      titleExcl: countOf('title-excluded', 'title-seniority'),
+      roleExcl: countOf('role-excluded'),
+      location: countOf('location', 'location-eligibility'),
+      exp: countOf('years>=5'),
+      salary: countOf('salary'),
+      mandatory: countOf('keywords', 'non-js-required'),
+      score: countOf('score<threshold'),
+      frontendPrimary: countOf('frontend-primary'),
+      languageRequirement: countOf('local-language-required'),
+    };
+    // Where location rejections came from (work mode / country of the rejected jobs).
     const diagLocBreak = { usaRemote: 0, euOnsite: 0, euHybrid: 0, other: 0 };
-    const mandBreak = { nodeOnly: 0, tsOnly: 0, backendOnly: 0, none: 0 };
-    const nearMisses: Array<{ title: string; company: string; source: string; mandatory: number }> = [];
-
-    for (const job of freshJobs) {
-      const title = job.title.toLowerCase();
-      const txt = [job.title, job.description, job.companySummary, ...job.keyMissions].join(' ').toLowerCase();
-      const jobLang = (job.language ?? '').toLowerCase();
-      const isLangPrefCountry = profile.search.preferredCountries?.includes(job.countryCode ?? '');
-      if (jobLang && jobLang !== desiredLang && !hasEnglishTeamSignals(txt) && !isLangPrefCountry) { diagCounts.lang++; continue; }
-      // Secondary title-accent check — skip for preferred countries (DE, NL, FR, etc.)
-      // because those companies commonly write titles in their local language.
-      if (!isLangPrefCountry && /[àâéèêëîïôùûüçœæäöüß]/i.test(job.title) && detectLanguage(job.title) !== desiredLang) { diagCounts.lang++; continue; }
-      if (profile.search.excludedTitleKeywords.some((k) => title.includes(k))) { diagCounts.title++; continue; }
-      if (EXCL_ROLES.some((k) => title.includes(k))) { diagCounts.role++; continue; }
-
-      const frontendStack = isFrontendPrimaryStack(job.title, job.description);
-      if (frontendStack.reject) {
-        diagCounts.frontendPrimary++;
-        console.log(`[stack-filter] REJECTED frontend-primary: ${job.company} — ${frontendStack.reason}`);
-        continue;
-      }
-
-      const languageRequirement = evaluateLanguageRequirement(job.requiredLanguages, job.description);
-      if (languageRequirement.reject) {
-        diagCounts.languageRequirement++;
-        console.log(`[language-filter] REJECTED: ${job.company} — ${languageRequirement.reason}`);
-        continue;
-      }
-
-      const cc = job.countryCode;
-      const wm = job.workMode;
-      const locResult = scoreLocation(cc, job.city, wm, job.offersRelocation, profile.search, job.locationLabel, job.description);
-      if (!locResult.isAcceptable) {
-        diagCounts.location++;
-        const isUsaRemote = wm === 'remote' && cc && profile.search.usaCountryCodes?.includes(cc) && !profile.search.usaJobs;
-        const isEU = profile.search.europeCountryCodes?.includes(cc ?? '');
-        if (isUsaRemote) diagLocBreak.usaRemote++;
-        else if (isEU && wm === 'on-site') diagLocBreak.euOnsite++;
-        else if (isEU && wm === 'hybrid') diagLocBreak.euHybrid++;
-        else diagLocBreak.other++;
-        continue;
-      }
-
-      const exp = job.experienceLevelMinimum;
-      if (exp !== null && exp !== undefined && (exp < expMin || exp > expMax)) { diagCounts.exp++; continue; }
-
-      if (!salaryMeetsMinimum(job, profile)) { diagCounts.salary++; continue; }
-
-      const hasNode = ['node.js','nodejs','nestjs','nest.js','express.js'].some((t) => txt.includes(t));
-      const hasTs = txt.includes('typescript') || txt.includes('javascript');
-      const hasBackend = ['backend','back-end','api','rest','server-side','microservice','server'].some((t) => txt.includes(t));
-      const mandatory = (hasNode ? 24 : 0) + (hasTs ? 18 : 0) + (hasBackend ? 18 : 0);
-      // Threshold 36 = ts+backend passes (18+18), node-only (24) still fails, ts-only (18) still fails
-      if (mandatory < 36) {
-        diagCounts.mandatory++;
-        if (!hasNode && !hasTs && !hasBackend) mandBreak.none++;
-        else if (hasNode) mandBreak.nodeOnly++;
-        else if (hasTs) mandBreak.tsOnly++;
-        else mandBreak.backendOnly++;
-        continue;
-      }
-
-      nearMisses.push({ title: job.title, company: job.company, source: job.source, mandatory });
-      diagCounts.score++;
+    for (const { job, reason } of rejectedJobs) {
+      if (reason !== 'location' && reason !== 'location-eligibility') continue;
+      const cc = job.countryCode ?? '';
+      const isEU = profile.search.europeCountryCodes?.includes(cc);
+      if (job.workMode === 'remote' && profile.search.usaCountryCodes?.includes(cc)) diagLocBreak.usaRemote++;
+      else if (isEU && job.workMode === 'on-site') diagLocBreak.euOnsite++;
+      else if (isEU && job.workMode === 'hybrid') diagLocBreak.euHybrid++;
+      else diagLocBreak.other++;
     }
+    const byReasonLine = Object.entries(byReason).map(([r, n]) => `${r}=${n}`).join(' ') || 'none';
 
     if (slicedMatches.length === 0 && freshJobs.length > 0) {
-      console.log(`[scorer-diag] ${freshJobs.length} fresh jobs → 0 matched. Breakdown:`);
-      console.log(`  lang=${diagCounts.lang} | titleExcl=${diagCounts.title} | roleExcl=${diagCounts.role} | frontendPrimary=${diagCounts.frontendPrimary} | languageRequirement=${diagCounts.languageRequirement}`);
-      console.log(`  location=${diagCounts.location} (usa-remote=${diagLocBreak.usaRemote} eu-onsite=${diagLocBreak.euOnsite} eu-hybrid=${diagLocBreak.euHybrid} other=${diagLocBreak.other})`);
-      console.log(`  exp=${diagCounts.exp} | salary<min=${diagCounts.salary} | mandatory=${diagCounts.mandatory} (node-only=${mandBreak.nodeOnly} ts-only=${mandBreak.tsOnly} backend-only=${mandBreak.backendOnly} none=${mandBreak.none})`);
-      console.log(`  score<threshold=${diagCounts.score} (adaptive: <120w→54, 120-350w→56, >350w→59)`);
-
+      console.log(`[scorer-diag] ${freshJobs.length} fresh jobs → 0 matched. Rejected by: ${byReasonLine}`);
+      console.log(`  location breakdown: usa-remote=${diagLocBreak.usaRemote} eu-onsite=${diagLocBreak.euOnsite} eu-hybrid=${diagLocBreak.euHybrid} other=${diagLocBreak.other}`);
+      const nearMisses = rejectedJobs.filter((r) => r.reason === 'score<threshold');
       if (nearMisses.length > 0) {
-        console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed mandatory but scored <threshold — top 5:`);
-        for (const nm of nearMisses.slice(0, 5)) {
-          console.log(`  "${nm.title}" @ ${nm.company} [${nm.source}] mandatory=${nm.mandatory}`);
+        console.log(`[scorer-near-miss] ${nearMisses.length} jobs passed every hard rule but scored <threshold — top 5:`);
+        for (const { job } of nearMisses.slice(0, 5)) {
+          console.log(`  "${job.title}" @ ${job.company} [${job.source}]`);
         }
       }
     }
     await redisLog(
       slicedMatches.length === 0 && freshJobs.length > 0 ? 'warn' : 'info',
       'scorer-diag',
-      `lang=${diagCounts.lang} titleExcl=${diagCounts.title} roleExcl=${diagCounts.role} frontendPrimary=${diagCounts.frontendPrimary} loc=${diagCounts.location}(eu-onsite=${diagLocBreak.euOnsite},eu-hybrid=${diagLocBreak.euHybrid},usa=${diagLocBreak.usaRemote}) exp=${diagCounts.exp} mandatory=${diagCounts.mandatory} score=${diagCounts.score}`,
+      `rejected by: ${byReasonLine}`,
     );
 
     // Only enrich jobs not yet sent — no point calling Gemini for jobs Telegram already received.
@@ -780,18 +740,8 @@ export async function runJobSearchOnce(
     const runDiagnostic: ScorerDiagnostic = {
       freshJobs: freshJobs.length,
       matched: slicedMatches.length,
-      filtered: {
-        lang: diagCounts.lang,
-        titleExcl: diagCounts.title,
-        roleExcl: diagCounts.role,
-        location: diagCounts.location,
-        exp: diagCounts.exp,
-        salary: diagCounts.salary,
-        mandatory: diagCounts.mandatory,
-        score: diagCounts.score,
-        frontendPrimary: diagCounts.frontendPrimary,
-        languageRequirement: diagCounts.languageRequirement,
-      },
+      filtered: diagFiltered,
+      byReason,
       locationBreak: diagLocBreak,
       geminiRejected: rejectedByAi.length,
       deadUrls: newMatches.length - liveNewMatches.length,
