@@ -3,6 +3,8 @@ import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
 import { ENGLISH_KEYWORDS } from '../keywords';
+import { postDateFrom } from './post-date';
+import { mapJobsSafely } from './shared-scraper';
 
 const SOURCE = 'remotive.com';
 
@@ -49,7 +51,7 @@ export class RemotiveJobsSource implements JobSource {
   }
 }
 
-async function fetchRemotive(query: string, settings: SearchSettings): Promise<JobPosting[]> {
+export async function fetchRemotive(query: string, settings: SearchSettings): Promise<JobPosting[]> {
   const params = new URLSearchParams({
     category: 'software-dev',
     search: query,
@@ -66,18 +68,23 @@ async function fetchRemotive(query: string, settings: SearchSettings): Promise<J
   // Capped at 72h so this source never looks further back than the global maxAgeHours rule.
   const lookbackHours = Math.min(settings.maxAgeHours, 72);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
-  const fresh = data.jobs.filter((job) => new Date(job.publication_date).getTime() >= cutoff);
+  // Undated jobs pass here with a null date; run.ts's no-post-date rule handles them.
+  const fresh = data.jobs.filter((job) => {
+    const ts = postDateFrom(job.publication_date).publishedAtTimestamp;
+    return ts === null || ts * 1000 >= cutoff;
+  });
 
   if (data.jobs.length > 0 && fresh.length === 0) {
     console.log(`[remotive] "${query}": ${data.jobs.length} total jobs but none posted in last ${lookbackHours}h`);
   }
 
-  return fresh.map(mapJob);
+  return mapJobsSafely(fresh, mapJob, 'remotive');
 }
 
-function mapJob(job: RemotiveJob): JobPosting {
+export function mapJob(job: RemotiveJob): JobPosting {
   const text = `${job.title} ${job.description} ${job.candidate_required_location}`.toLowerCase();
-  const publishedAt = new Date(job.publication_date);
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(job.publication_date);
 
   return {
     source: SOURCE,
@@ -100,8 +107,7 @@ function mapJob(job: RemotiveJob): JobPosting {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl: job.url,
     offersRelocation: false,

@@ -2,7 +2,8 @@ import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { mapJobsSafely, RELOCATION_KEYWORDS } from './shared-scraper';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'greenhouse.io';
 const API_BASE = 'https://boards-api.greenhouse.io/v1/boards';
@@ -79,7 +80,7 @@ export class GreenhouseJobsSource implements JobSource {
   }
 }
 
-async function fetchCompanyJobs(
+export async function fetchCompanyJobs(
   company: string,
   settings: SearchSettings,
 ): Promise<JobPosting[]> {
@@ -100,15 +101,19 @@ async function fetchCompanyJobs(
   const lookbackHours = Math.min(settings.maxAgeHours, 72);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
-  return data.jobs
-    .filter((job) => new Date(job.updated_at).getTime() >= cutoff)
-    .map((job) => mapJob(job, company));
+  // Undated jobs pass here with a null date; run.ts's no-post-date rule handles them.
+  const fresh = data.jobs.filter((job) => {
+    const ts = postDateFrom(job.updated_at).publishedAtTimestamp;
+    return ts === null || ts * 1000 >= cutoff;
+  });
+  return mapJobsSafely(fresh, (job) => mapJob(job, company), 'greenhouse');
 }
 
-function mapJob(job: GreenhouseJob, company: string): JobPosting {
+export function mapJob(job: GreenhouseJob, company: string): JobPosting {
   const description = stripHtml(job.content ?? '');
   const text = `${job.title} ${description}`.toLowerCase();
-  const publishedAt = new Date(job.updated_at);
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(job.updated_at);
 
   return {
     source: SOURCE,
@@ -131,8 +136,7 @@ function mapJob(job: GreenhouseJob, company: string): JobPosting {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl: job.absolute_url,
     offersRelocation: containsAny(text, RELOCATION_KEYWORDS),

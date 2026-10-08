@@ -293,3 +293,18 @@ function containsAny(text: string, tokens: string[]): boolean {
 export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+// Maps each raw job on its own, so one malformed job is logged and skipped instead of
+// failing the whole source.
+export function mapJobsSafely<T>(items: T[], map: (item: T) => JobPosting | null, label: string): JobPosting[] {
+  const jobs: JobPosting[] = [];
+  for (const item of items) {
+    try {
+      const job = map(item);
+      if (job) jobs.push(job);
+    } catch (err) {
+      console.warn(`[${label}] skipped one malformed job: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return jobs;
+}

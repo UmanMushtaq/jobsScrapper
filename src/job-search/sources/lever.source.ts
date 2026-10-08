@@ -2,7 +2,8 @@ import { JobPosting, SearchSettings } from '../types';
 import { inferCountryCode } from './country-codes';
 import { detectLanguage } from './language-detect';
 import { JobSource } from './registry';
-import { RELOCATION_KEYWORDS } from './shared-scraper';
+import { mapJobsSafely, RELOCATION_KEYWORDS } from './shared-scraper';
+import { postDateFrom } from './post-date';
 
 const SOURCE = 'jobs.lever.co';
 
@@ -85,7 +86,7 @@ export class LeverJobsSource implements JobSource {
   }
 }
 
-async function fetchCompanyJobs(company: string, settings: SearchSettings): Promise<JobPosting[]> {
+export async function fetchCompanyJobs(company: string, settings: SearchSettings): Promise<JobPosting[]> {
   const response = await fetch(
     `https://api.lever.co/v0/postings/${company}?mode=json`,
     { headers: { Accept: 'application/json' } },
@@ -100,19 +101,23 @@ async function fetchCompanyJobs(company: string, settings: SearchSettings): Prom
   const lookbackHours = Math.min(settings.maxAgeHours, 72);
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
-  return data
-    .filter((p) => (p.updatedAt ?? p.createdAt) >= cutoff)
-    .map((p) => mapPosting(p, company));
+  // Undated postings pass here with a null date; run.ts's no-post-date rule handles them.
+  const fresh = data.filter((p) => {
+    const ts = postDateFrom(p.updatedAt ?? p.createdAt).publishedAtTimestamp;
+    return ts === null || ts * 1000 >= cutoff;
+  });
+  return mapJobsSafely(fresh, (p) => mapPosting(p, company), 'lever');
 }
 
-function mapPosting(posting: LeverPosting, company: string): JobPosting {
+export function mapPosting(posting: LeverPosting, company: string): JobPosting {
   const description = posting.descriptionPlain ?? stripHtml(posting.description ?? '');
   const additional = posting.additionalPlain ?? stripHtml(posting.additional ?? '');
   const fullText = `${posting.text} ${description} ${additional}`.toLowerCase();
   const locationRaw = posting.categories?.location ?? '';
   const companyName = toCompanyName(company);
 
-  const publishedAt = new Date(posting.updatedAt ?? posting.createdAt);
+  // Real posting date, or null when missing/unparseable (tagged "no-post-date" in run.ts).
+  const postDate = postDateFrom(posting.updatedAt ?? posting.createdAt);
 
   return {
     source: SOURCE,
@@ -135,8 +140,7 @@ function mapPosting(posting: LeverPosting, company: string): JobPosting {
     salaryMinimum: null,
     salaryMaximum: null,
     salaryYearlyMinimum: null,
-    publishedAt: publishedAt.toISOString(),
-    publishedAtTimestamp: Math.floor(publishedAt.getTime() / 1000),
+    ...postDate,
     startupSignals: [],
     applyUrl: posting.applyUrl,
     offersRelocation: containsAny(fullText, RELOCATION_KEYWORDS),
