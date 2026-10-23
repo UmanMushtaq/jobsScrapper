@@ -28,6 +28,8 @@ const EXEMPT_FILES: Record<string, string> = {
   'apec.source.ts': 'unregistered legacy file, superseded by apec.playwright.ts',
   'jobat-be.source.ts': 'unregistered legacy file, duplicate of jobat.source.ts',
   'stepstone-be.source.ts': 'unregistered legacy file, never finished/registered',
+  'google-ats-search.source.ts':
+    'JOB_NAME_QUERIES is a verbatim small set of job-name phrases captured from the FAJIG course\'s Google inurl: search template — a deliberately different, narrower list than the bot\'s general CORE_KEYWORDS, not a keyword scan that should be migrated onto it',
 };
 
 // Matches a hardcoded query-array literal like `SEARCH_QUERIES = ['nodejs', ...]` or

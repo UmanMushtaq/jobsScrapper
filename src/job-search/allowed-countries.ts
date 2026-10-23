@@ -22,6 +22,7 @@ export const SOURCE_COUNTRY: Record<string, string> = {
   'jobware.de': 'DE',
   'englishjobs.de': 'DE',
   'germantechjobs.de': 'DE',
+  'google-ats-search.de': 'DE',
   'nationalevacaturebank.nl': 'NL',
   'jobbird.nl': 'NL',
   'vacancy.nl': 'NL',

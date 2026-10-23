@@ -56,6 +56,7 @@ import { EuresSource } from './sources/eures.source';
 import { JoobleJobsSource } from './sources/jooble.source';
 import { EnglishJobsDeSource } from './sources/englishjobs-de.source';
 import { GermanTechJobsSource } from './sources/germantechjobs-de.source';
+import { GoogleAtsSearchSource } from './sources/google-ats-search.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -170,6 +171,7 @@ export const allSources = [
   new JoobleJobsSource(),
   new EnglishJobsDeSource(),
   new GermanTechJobsSource(),
+  new GoogleAtsSearchSource(),
 ];
 // Derived from allSources (see comment above) — never hand-maintained again.
 const ACTIVE_SOURCES = allSources.filter((s) => isSourceCountryAllowed(s.name)).map((s) => s.name);
@@ -241,6 +243,10 @@ export const SLOW_SCHEDULER_ONLY = new Set([
   'intermediair.nl', 'xing.com', 'jobware.de', 'infojobs.it', 'talent.it', 'jobs.lu',
   'moovijob.com', 'himalayas.app', 'nodesk.co', 'jobbsafari.se', 'glassdoor.com',
   'duunitori.fi', 'eures.europa.eu', 'jooble.org', 'englishjobs.de',
+  // Google CSE free tier is 100 queries/day and this source issues 20 per run
+  // (5 job-name terms x 4 ATS platforms) — kept off FAST_SOURCES deliberately so three
+  // runs/day on the slow 480min schedule stays at 60/day, under quota.
+  'google-ats-search.de',
 ]);
 
 // Within maxAgeHours of its posting date; a job without a posting date is fresh only on the
