@@ -55,6 +55,7 @@ import { DuunitoriSource } from './sources/duunitori.source';
 import { EuresSource } from './sources/eures.source';
 import { JoobleJobsSource } from './sources/jooble.source';
 import { EnglishJobsDeSource } from './sources/englishjobs-de.source';
+import { GermanTechJobsSource } from './sources/germantechjobs-de.source';
 import {
   addUrlsToStore,
   normalizeUrl,
@@ -93,9 +94,13 @@ const NO_DATE_SEEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 //   - Monster.de / meinestadt.de / kimeta.de: pure dedup noise — these mirror listings
 //     already covered by Bundesagentur/StepStone/Adzuna/Jooble, adding scrape cost
 //     without adding unique jobs.
-//   - GermanTechJobs.de / Relocate.me: network-blocked from this sandbox before a feed
-//     vs. Playwright decision could be made — see their .blocked.md files next to
-//     this file's sibling sources for what was tried and what's needed to finish them.
+//   - GermanTechJobs.de: built Oct 23 2026 as a Playwright source (germantechjobs-de
+//     .source.ts) — no RSS/XML feed exists and the listing is JS-hydrated, so it
+//     scrapes the NodeJS/TypeScript/JavaScript/Backend tag pages via the shared
+//     Playwright rotation. Its .blocked.md was deleted once this landed.
+//   - Relocate.me: still network-blocked from this sandbox before a feed vs. Playwright
+//     decision could be made — see its .blocked.md file next to this file's sibling
+//     sources for what was tried and what's needed to finish it.
 //
 // Germany-coverage Wave 2, July 12 2026 — same network-blocked situation, none built:
 //   - Make it in Germany: not a new source at all — it's the BA Jobsuche database
@@ -164,6 +169,7 @@ export const allSources = [
   new EuresSource(),
   new JoobleJobsSource(),
   new EnglishJobsDeSource(),
+  new GermanTechJobsSource(),
 ];
 // Derived from allSources (see comment above) — never hand-maintained again.
 const ACTIVE_SOURCES = allSources.filter((s) => isSourceCountryAllowed(s.name)).map((s) => s.name);
@@ -205,6 +211,7 @@ export const FAST_SOURCES = [
 // reachability test below, alongside FAST_SOURCES.
 export const PLAYWRIGHT_SOURCES = new Set([
   'cadremploi.fr', 'hellowork.com', 'eurobrussels.com', 'apec.fr', 'nofluffjobs.com',
+  'germantechjobs.de',
 ]);
 
 // Sources with a dedicated on-demand runner (runSingleSource in this file), reachable

@@ -21,6 +21,7 @@ export const SOURCE_COUNTRY: Record<string, string> = {
   'xing.com': 'DE',
   'jobware.de': 'DE',
   'englishjobs.de': 'DE',
+  'germantechjobs.de': 'DE',
   'nationalevacaturebank.nl': 'NL',
   'jobbird.nl': 'NL',
   'vacancy.nl': 'NL',
