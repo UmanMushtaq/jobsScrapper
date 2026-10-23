@@ -283,10 +283,14 @@ export function scoreJob(
   }
 
   // The single experience rule: reject when the minimum years required is 5 or more.
-  const experience = evaluateExperienceRequirement(text, job.experienceLevelMinimum);
+  // Germany carve-out (Oct 24 2026): Uman wants German postings kept through a stated
+  // 6-year requirement, not just the usual 5-and-under rule — so the reject threshold
+  // is raised to 7 for DE only. Every other country keeps the normal 5-year threshold.
+  const experienceRejectMinYears = job.countryCode === 'DE' ? 7 : EXPERIENCE_REJECT_MIN_YEARS;
+  const experience = evaluateExperienceRequirement(text, job.experienceLevelMinimum, experienceRejectMinYears);
   if (experience.decision === 'reject') {
-    console.log(`[scorer] FILTERED: ${job.company}, years>=5 (minimum ${experience.minYears} years required)`);
-    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: years>=5 (minimum ${experience.minYears} years required)`);
+    console.log(`[scorer] FILTERED: ${job.company}, years>=${experienceRejectMinYears} (minimum ${experience.minYears} years required)`);
+    if (isApec) console.log(`[scorer-reject] "${job.title}" @ ${job.company} — reason: years>=${experienceRejectMinYears} (minimum ${experience.minYears} years required)`);
     onReject?.('years>=5');
     return null;
   }
@@ -540,6 +544,10 @@ function isSoftRequirement(text: string, start: number, end: number): boolean {
 export function evaluateExperienceRequirement(
   rawText: string,
   structuredMinimum: number | null = null,
+  // Overridable per call — see the Germany carve-out in scoreJob, which passes 7 here
+  // instead of the module default of 5 (Uman wants German postings kept through a
+  // stated 6-year requirement, not just the usual 5-and-under / soft-5+ rule).
+  rejectMinYears: number = EXPERIENCE_REJECT_MIN_YEARS,
 ): ExperienceRequirement {
   const text = rawText.toLowerCase();
   const found: Array<{ years: number; soft: boolean }> = [];
@@ -561,7 +569,7 @@ export function evaluateExperienceRequirement(
     found.push({ years: structuredMinimum, soft: false });
   }
 
-  const high = found.filter((f) => f.years >= EXPERIENCE_REJECT_MIN_YEARS);
+  const high = found.filter((f) => f.years >= rejectMinYears);
   const hard = high.filter((f) => !f.soft);
   if (hard.length > 0) {
     return { decision: 'reject', minYears: Math.max(...hard.map((f) => f.years)) };
