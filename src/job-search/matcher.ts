@@ -240,15 +240,30 @@ export function scoreJob(
     return null;
   }
 
-  // Hard reject: explicit US-only or no-sponsorship clause — applies even to remote roles
+  // Hard reject: explicit US-only clause — applies even to remote roles, every country.
   const US_ONLY_CLAUSES = [
     'us citizens only', 'green card holders only', 'authorized to work in the us',
-    'us work authorization required', 'unable to sponsor', 'cannot sponsor',
-    'no visa sponsorship', 'must be located in the us', 'must reside in the us',
+    'us work authorization required', 'must be located in the us', 'must reside in the us',
     'us residents only', 'legally authorized to work in the united states',
   ];
   if (US_ONLY_CLAUSES.some((clause) => text.includes(clause))) {
-    console.log(`[scorer] FILTERED: ${job.company} hard rejected, explicit US-only or no-sponsorship clause found`);
+    console.log(`[scorer] FILTERED: ${job.company} hard rejected, explicit US-only clause found`);
+    onReject?.('us-only');
+    return null;
+  }
+
+  // Generic "can't/won't sponsor a visa" clauses are a different case from the above:
+  // for Germany specifically, Uman does not need employer-sponsored sponsorship at all —
+  // a skilled worker can self-sponsor via the local German diplomatic mission off an
+  // employment contract (EU Blue Card route). A German posting stating it can't sponsor
+  // a visa is therefore not actually a blocker and should not be hard-rejected on that
+  // basis the way it correctly is for other countries (e.g. the US, where sponsorship
+  // really is required and there's no self-sponsor path).
+  const NO_SPONSORSHIP_CLAUSES = [
+    'unable to sponsor', 'cannot sponsor', 'no visa sponsorship',
+  ];
+  if (job.countryCode !== 'DE' && NO_SPONSORSHIP_CLAUSES.some((clause) => text.includes(clause))) {
+    console.log(`[scorer] FILTERED: ${job.company} hard rejected, explicit no-sponsorship clause found`);
     onReject?.('us-only');
     return null;
   }
@@ -361,13 +376,19 @@ export function scoreJob(
 
   // Boost jobs where the employer mentions visa sponsorship or relocation support.
   // These are the minority of postings that can actually proceed with a non-EU hire.
+  // Not applied to Germany: Uman doesn't need employer sponsorship there at all (he
+  // self-sponsors an EU Blue Card via the local German diplomatic mission off an
+  // employment contract), so whether a German posting happens to mention sponsorship
+  // isn't a meaningful fit signal for him the way it is everywhere else.
   const SPONSOR_SIGNALS = [
     'visa sponsor', 'visa sponsorship', 'sponsorship provided', 'can sponsor', 'we sponsor',
     'work permit', 'relocation support', 'relocation assistance', 'relocation package',
     'relocation bonus', 'non-eu welcome', 'non-eu candidates', 'open to sponsoring',
     'willing to sponsor', 'support visa', 'immigration support', 'we support relocation',
   ];
-  const hasSponsorSignal = job.offersRelocation || SPONSOR_SIGNALS.some((s) => text.includes(s));
+  const hasSponsorSignal =
+    job.countryCode !== 'DE' &&
+    (job.offersRelocation || SPONSOR_SIGNALS.some((s) => text.includes(s)));
   const sponsorScore = hasSponsorSignal ? 6 : 0;
 
   // Fintech-domain positioning boost (payments, wallets, KYC/AML, trading). Word-boundary
